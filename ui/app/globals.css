@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ezTerm theme tokens.
+ *
+ * Values are space-separated RGB triplets so Tailwind's
+ * `rgb(var(--token) / <alpha-value>)` pattern composes cleanly.
+ *
+ * Refined from Plan 1 draft to match MobaXterm's chrome feel:
+ * - slightly warmer near-black background
+ * - surface / surface-2 / border separations tuned for ~1.6:1 contrast
+ * - accent desaturated from Tailwind blue-400 toward a neutral Windows blue
+ *
+ * See docs/design/design-system.md for full rationale.
+ */
+
+/* Dark theme (default). */
+:root {
+  --bg:         24  26  30;
+  --surface:    32  34  39;
+  --surface-2:  42  45  52;
+  --border:     58  62  70;
+  --fg:        226 228 233;
+  --muted:     150 156 168;
+  --accent:     88 148 225;
+
+  --success:    74 170 120;
+  --warning:   220 170  70;
+  --danger:    230  95  95;
+  --selection:  62  96 152;
+}
+
+.light {
+  --bg:        243 244 247;
+  --surface:   252 252 253;
+  --surface-2: 234 236 241;
+  --border:   205 209 217;
+  --fg:        24  27  33;
+  --muted:    100 109 123;
+  --accent:    30 110 205;
+
+  --success:   30 130  80;
+  --warning:  180 125  30;
+  --danger:   185  40  50;
+  --selection:176 206 247;
+}
+
+html, body, #__next { height: 100%; }
+
+body {
+  @apply bg-bg text-fg antialiased;
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+/* Shared form control styling. Task 17 appends an @layer components block
+   with .input; declared up-front here so mockups and components agree. */
+@layer components {
+  .input {
+    @apply w-full bg-surface2 border border-border rounded-sm px-2 py-1.5 outline-none;
+    @apply focus:border-accent;
+  }
+  .input:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 1px;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 bg-accent text-white rounded-sm px-3 py-1.5 text-xs font-medium;
+    @apply hover:brightness-110 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 border border-border text-fg rounded-sm px-3 py-1.5 text-xs;
+    @apply hover:bg-surface2;
+  }
+}
+
+/* Honor reduced-motion: drop non-essential transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}
