@@ -30,6 +30,12 @@ async fn main() {
             commands::credentials::credential_list,
             commands::credentials::credential_create,
             commands::credentials::credential_delete,
+            commands::sessions::session_list,
+            commands::sessions::session_get,
+            commands::sessions::session_create,
+            commands::sessions::session_update,
+            commands::sessions::session_delete,
+            commands::sessions::session_duplicate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
