@@ -16,7 +16,14 @@ async fn main() {
 
     let db_path = resolve_db_path();
     let pool = db::init_pool(&db_path).await.expect("init db");
+    let initialized = vault::is_initialized(&pool).await.expect("vault check");
+    let initial_state = if initialized {
+        vault::VaultState::Locked
+    } else {
+        vault::VaultState::Uninitialized
+    };
     let app_state = AppState::new(pool);
+    *app_state.vault.write().await = initial_state;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -36,6 +43,12 @@ async fn main() {
             commands::sessions::session_update,
             commands::sessions::session_delete,
             commands::sessions::session_duplicate,
+            commands::settings::settings_get,
+            commands::settings::settings_set,
+            commands::vault::vault_status,
+            commands::vault::vault_init,
+            commands::vault::vault_unlock,
+            commands::vault::vault_lock,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
