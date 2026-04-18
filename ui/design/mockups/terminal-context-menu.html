@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<title>ezTerm — Terminal context menu</title>
+<link rel="stylesheet" href="mockups.css">
+</head>
+<body>
+<div class="app">
+  <div class="app-body">
+
+    <aside class="sidebar" aria-label="Sessions">
+      <div class="sidebar-header">
+        <span>Sessions</span>
+        <div class="header-actions">
+          <button class="icon-btn" aria-label="New folder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+          <button class="icon-btn" aria-label="New session"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        </div>
+      </div>
+      <div class="tree">
+        <div class="tree-row folder" style="padding-left: 8px;"><span class="chev">&#9662;</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg><span class="name">production</span></div>
+        <div class="tree-row session selected" style="padding-left: 28px;"><span class="dot" style="background: #e4c76f;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-web-01</span></div>
+        <div class="tree-row session" style="padding-left: 28px;"><span class="dot" style="background: #e4c76f;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-web-02</span></div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn btn-primary btn-full">New session</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active">
+          <span class="dot" style="background: #e4c76f;"></span>
+          <span class="title">prod-web-01</span>
+          <span class="close"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="terminal-wrap" style="position: relative;">
+          <div class="terminal"><span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">/var/log/nginx</span>$ ls -la
+total 4236
+drwxr-xr-x 2 root     <span class="c-cyan">adm</span>      4096 Apr 18 00:00 .
+drwxrwxr-x 13 root    syslog    4096 Apr 12 06:25 ..
+-rw-r----- 1 www-data adm    1847291 Apr 18 09:41 <span class="c-green">access.log</span>
+-rw-r----- 1 www-data adm     312440 Apr 17 23:59 access.log.1
+-rw-r----- 1 www-data adm      28812 Apr 18 09:40 <span class="c-yellow">error.log</span>
+-rw-r----- 1 www-data adm       4201 Apr 17 23:59 error.log.1
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">/var/log/nginx</span>$ grep <span style="background: var(--term-sel); color: #fff;">"5[0-9][0-9]"</span> access.log | tail -3
+10.20.0.244 - - [18/Apr/2026:09:12:11 +0000] "GET /api/v2/orders/4821 HTTP/1.1" 502 197
+10.20.0.244 - - [18/Apr/2026:09:17:44 +0000] "POST /api/v2/ingest HTTP/1.1" 503 212
+10.20.0.244 - - [18/Apr/2026:09:39:22 +0000] "GET /api/v2/reports HTTP/1.1" 504 201
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">/var/log/nginx</span>$ <span class="cursor"></span></div>
+
+          <!-- Context menu on the terminal -->
+          <div class="menu" role="menu" style="top: 120px; left: 340px;">
+            <div class="menu-item" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+              <span class="shortcut">Ctrl+Shift+C</span>
+            </div>
+            <div class="menu-item" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+              Paste
+              <span class="shortcut">Shift+Insert</span>
+            </div>
+            <div class="menu-sep"></div>
+            <div class="menu-item" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h4v4H3zM3 10h4v4H3zM3 17h4v4H3zM10 3h11v4H10zM10 10h11v4H10zM10 17h11v4H10z"/></svg>
+              Select all
+              <span class="shortcut">Ctrl+Shift+A</span>
+            </div>
+            <div class="menu-item" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Find&hellip;
+              <span class="shortcut">Ctrl+Shift+F</span>
+            </div>
+            <div class="menu-sep"></div>
+            <div class="menu-item" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16l11-11a2 2 0 0 1 2.83 0l4.17 4.17a2 2 0 0 1 0 2.83L12 20"/><line x1="14" y1="6" x2="18" y2="10"/></svg>
+              Clear scrollback
+              <span class="shortcut">Ctrl+Shift+K</span>
+            </div>
+            <div class="menu-sep"></div>
+            <div class="menu-item disabled" role="menuitem">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+              Reset terminal
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="statusbar">
+    <span class="s-ok">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+      Connected
+    </span>
+    <span class="sep"></span>
+    <span>rmcc@10.20.0.14:22</span>
+    <span class="sep"></span>
+    <span>Selection: 12 chars</span>
+    <span class="spacer"></span>
+    <button class="status-btn">Light</button>
+    <button class="status-btn">Lock</button>
+  </footer>
+</div>
+</body>
+</html>

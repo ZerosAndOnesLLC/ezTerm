@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8">
+<title>ezTerm — Light theme</title>
+<link rel="stylesheet" href="mockups.css">
+</head>
+<body>
+<div class="app">
+  <div class="app-body">
+
+    <aside class="sidebar" aria-label="Sessions">
+      <div class="sidebar-header">
+        <span>Sessions</span>
+        <div class="header-actions">
+          <button class="icon-btn" title="New folder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+          <button class="icon-btn" title="New session"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          <button class="icon-btn" title="Refresh"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+        </div>
+      </div>
+
+      <div class="tree" role="tree">
+        <div class="tree-row folder" style="padding-left: 8px;" aria-expanded="true">
+          <span class="chev">&#9662;</span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg>
+          <span class="name">production</span>
+          <span class="meta">3</span>
+        </div>
+        <div class="tree-row session selected focused" style="padding-left: 28px;" aria-selected="true">
+          <span class="dot" style="background: #b08a1a;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">prod-web-01</span>
+          <span class="meta">rmcc@10.20.0.14</span>
+        </div>
+        <div class="tree-row session" style="padding-left: 28px;">
+          <span class="dot" style="background: #b08a1a;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">prod-web-02</span>
+          <span class="meta">rmcc@10.20.0.15</span>
+        </div>
+        <div class="tree-row session" style="padding-left: 28px;">
+          <span class="dot" style="background: #8a389a;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">prod-db-primary</span>
+          <span class="meta">postgres@10.20.1.3</span>
+        </div>
+        <div class="tree-row folder" style="padding-left: 28px;" aria-expanded="true">
+          <span class="chev">&#9662;</span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg>
+          <span class="name">bastion</span>
+          <span class="meta">1</span>
+        </div>
+        <div class="tree-row session" style="padding-left: 48px;">
+          <span class="dot" style="background: #a4251f;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">bastion-east</span>
+          <span class="meta">rmcc@bastion.int</span>
+        </div>
+        <div class="tree-row folder" style="padding-left: 8px;" aria-expanded="false">
+          <span class="chev">&#9656;</span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="name">staging</span>
+          <span class="meta">4</span>
+        </div>
+        <div class="tree-row folder" style="padding-left: 8px;" aria-expanded="true">
+          <span class="chev">&#9662;</span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg>
+          <span class="name">homelab</span>
+          <span class="meta">2</span>
+        </div>
+        <div class="tree-row session" style="padding-left: 28px;">
+          <span class="dot" style="background: #237a3f;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">nas</span>
+          <span class="meta">admin@192.168.1.8</span>
+        </div>
+        <div class="tree-row session" style="padding-left: 28px;">
+          <span class="dot" style="background: #1e6ecd;"></span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="name">pi-gateway</span>
+          <span class="meta">pi@192.168.1.1</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="btn btn-primary btn-full">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New session
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active">
+          <span class="dot" style="background: #b08a1a;"></span>
+          <span class="title">prod-web-01</span>
+          <span class="close"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+        </div>
+        <div class="tab new-tab-btn" aria-label="New tab" title="New tab">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- Terminal colors stay dark even in light chrome theme per design rule -->
+        <div class="terminal-wrap">
+          <div class="terminal"><span class="c-muted">Last login: Sat Apr 18 09:14:02 2026 from 10.20.0.7</span>
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ uptime
+ 09:42:17 up 47 days,  3:12,  2 users,  load average: 0.12, 0.18, 0.21
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ systemctl is-active nginx postgresql redis
+<span class="c-green">active</span>
+<span class="c-green">active</span>
+<span class="c-green">active</span>
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ free -h
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       5.2Gi       2.1Gi       112Mi       8.2Gi       9.6Gi
+Swap:          2.0Gi          0B       2.0Gi
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ <span class="cursor"></span></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="statusbar">
+    <span class="s-ok">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+      Connected
+    </span>
+    <span class="sep"></span>
+    <span>rmcc@10.20.0.14:22</span>
+    <span class="sep"></span>
+    <span>&#8593; 2.1 KB  &#8595; 48.7 KB</span>
+    <span class="sep"></span>
+    <span>42 ms</span>
+    <span class="spacer"></span>
+    <span>8 sessions</span>
+    <span class="sep"></span>
+    <span>1 tab</span>
+    <span class="sep"></span>
+    <button class="status-btn" aria-label="Toggle dark theme">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      Dark
+    </button>
+    <button class="status-btn" aria-label="Lock vault">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Lock
+    </button>
+  </footer>
+</div>
+</body>
+</html>

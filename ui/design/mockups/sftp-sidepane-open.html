@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<title>ezTerm — SFTP preview (Plan 3)</title>
+<link rel="stylesheet" href="mockups.css">
+</head>
+<body>
+<div class="app">
+  <div class="app-body">
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span>Sessions</span>
+        <div class="header-actions">
+          <button class="icon-btn"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+          <button class="icon-btn"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        </div>
+      </div>
+      <div class="tree">
+        <div class="tree-row folder" style="padding-left: 8px;"><span class="chev">&#9662;</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg><span class="name">production</span></div>
+        <div class="tree-row session selected" style="padding-left: 28px;"><span class="dot" style="background: #e4c76f;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-web-01</span></div>
+        <div class="tree-row session" style="padding-left: 28px;"><span class="dot" style="background: #e4c76f;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-web-02</span></div>
+        <div class="tree-row session" style="padding-left: 28px;"><span class="dot" style="background: #d670d7;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-db-primary</span></div>
+      </div>
+      <div class="sidebar-footer"><button class="btn btn-primary btn-full">New session</button></div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active">
+          <span class="dot" style="background: #e4c76f;"></span>
+          <span class="title">prod-web-01</span>
+          <span class="close"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <!-- SFTP side-pane, docked LEFT of terminal per spec §4.1/4.4 -->
+        <aside class="sftp" aria-label="SFTP">
+          <div class="sftp-header">
+            <button class="icon-btn" aria-label="Up"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
+            <button class="icon-btn" aria-label="Home"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2z"/></svg></button>
+            <span class="path">/home/rmcc</span>
+            <button class="icon-btn" aria-label="Refresh"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/></svg></button>
+            <button class="icon-btn" aria-label="Close pane"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+
+          <div class="sftp-toolbar">
+            <button class="icon-btn" aria-label="Upload"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+            <button class="icon-btn" aria-label="Download"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <div style="width: 1px; height: 16px; background: rgb(var(--border)); margin: 0 2px;"></div>
+            <button class="icon-btn" aria-label="New folder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+            <button class="icon-btn" aria-label="New file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
+            <button class="icon-btn" aria-label="Delete"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+            <span style="margin-left: auto; font-size: 11px; color: rgb(var(--muted)); padding-right: 6px;">12 items</span>
+          </div>
+
+          <div class="sftp-table">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 46%;">Name</th>
+                  <th style="width: 18%;">Size</th>
+                  <th style="width: 18%;">Modified</th>
+                  <th style="width: 18%;">Perms</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="name">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><polyline points="15 18 9 12 15 6"/></svg>
+                    ..
+                  </td>
+                  <td class="size"></td>
+                  <td class="mod"></td>
+                  <td class="perm"></td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: #e4c76f;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>.ansible</td>
+                  <td class="size">&mdash;</td>
+                  <td class="mod">Apr 12 06:25</td>
+                  <td class="perm">drwxr-xr-x</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: #e4c76f;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>.ssh</td>
+                  <td class="size">&mdash;</td>
+                  <td class="mod">Mar 02 11:08</td>
+                  <td class="perm">drwx------</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: #e4c76f;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>scripts</td>
+                  <td class="size">&mdash;</td>
+                  <td class="mod">Apr 15 14:02</td>
+                  <td class="perm">drwxr-xr-x</td>
+                </tr>
+                <tr class="selected">
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>deploy.log</td>
+                  <td class="size">1.84 MB</td>
+                  <td class="mod">Apr 18 09:41</td>
+                  <td class="perm">-rw-r--r--</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>deploy.log.1</td>
+                  <td class="size">312 KB</td>
+                  <td class="mod">Apr 17 23:59</td>
+                  <td class="perm">-rw-r--r--</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>.bash_history</td>
+                  <td class="size">8.4 KB</td>
+                  <td class="mod">Apr 18 09:39</td>
+                  <td class="perm">-rw-------</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>.bashrc</td>
+                  <td class="size">3.7 KB</td>
+                  <td class="mod">Mar 02 11:08</td>
+                  <td class="perm">-rw-r--r--</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>.profile</td>
+                  <td class="size">807 B</td>
+                  <td class="mod">Mar 02 11:08</td>
+                  <td class="perm">-rw-r--r--</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>restart-nginx.sh</td>
+                  <td class="size">221 B</td>
+                  <td class="mod">Apr 15 14:02</td>
+                  <td class="perm">-rwxr-xr-x</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>notes.md</td>
+                  <td class="size">12.1 KB</td>
+                  <td class="mod">Apr 09 17:44</td>
+                  <td class="perm">-rw-r--r--</td>
+                </tr>
+                <tr>
+                  <td class="name"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: rgb(var(--muted));"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>certs.tar.gz</td>
+                  <td class="size">44.2 MB</td>
+                  <td class="mod">Apr 02 08:18</td>
+                  <td class="perm">-rw-------</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="border-top: 1px solid rgb(var(--border)); background: rgb(var(--surface-2)); padding: 6px 8px; font-size: 11px; color: rgb(var(--muted)); display: flex; align-items: center; gap: 8px;">
+            <span class="s-ok" style="color: rgb(var(--success));">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Uploaded nginx.conf
+            </span>
+            <span>- 2.4 KB in 0.1 s</span>
+          </div>
+        </aside>
+
+        <div class="terminal-wrap">
+          <div class="terminal"><span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ pwd
+/home/rmcc
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ ls -la | wc -l
+14
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ tail -f deploy.log
+2026-04-18T09:41:02Z <span class="c-green">info</span>  deploy.start revision=a1b2c3d
+2026-04-18T09:41:03Z <span class="c-green">info</span>  reload systemd units
+2026-04-18T09:41:05Z <span class="c-green">info</span>  restart nginx.service
+2026-04-18T09:41:06Z <span class="c-green">ok</span>    service healthy (200 /healthz)
+2026-04-18T09:41:06Z <span class="c-green">info</span>  deploy.ok duration=4.2s
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">~</span>$ <span class="cursor"></span></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="statusbar">
+    <span class="s-ok"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>Connected</span>
+    <span class="sep"></span>
+    <span>rmcc@10.20.0.14:22</span>
+    <span class="sep"></span>
+    <span>SFTP: /home/rmcc</span>
+    <span class="sep"></span>
+    <span>&#8593; 2.4 KB  &#8595; 0 B</span>
+    <span class="spacer"></span>
+    <button class="status-btn">Light</button>
+    <button class="status-btn">Lock</button>
+  </footer>
+</div>
+</body>
+</html>

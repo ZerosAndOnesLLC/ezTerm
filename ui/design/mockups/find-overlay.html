@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<title>ezTerm — Find</title>
+<link rel="stylesheet" href="mockups.css">
+</head>
+<body>
+<div class="app">
+  <div class="app-body">
+
+    <aside class="sidebar">
+      <div class="sidebar-header"><span>Sessions</span></div>
+      <div class="tree">
+        <div class="tree-row folder" style="padding-left: 8px;"><span class="chev">&#9662;</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h15l-3 7H3l3-7z"/><path d="M22 12V6a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v11"/></svg><span class="name">production</span></div>
+        <div class="tree-row session selected" style="padding-left: 28px;"><span class="dot" style="background: #e4c76f;"></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="name">prod-web-01</span></div>
+      </div>
+      <div class="sidebar-footer"><button class="btn btn-primary btn-full">New session</button></div>
+    </aside>
+
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active">
+          <span class="dot" style="background: #e4c76f;"></span>
+          <span class="title">prod-web-01</span>
+          <span class="close"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="terminal-wrap">
+          <div class="terminal"><span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">/var/log/nginx</span>$ grep -n ERROR error.log | head -20
+17:2026-04-18T09:12:11Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> upstream timed out (110) while reading upstream
+42:2026-04-18T09:17:44Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> client intended to send too large body
+58:2026-04-18T09:21:09Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> SSL_do_handshake() failed (SSL: 0B080074)
+71:2026-04-18T09:23:55Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> upstream prematurely closed connection
+88:2026-04-18T09:28:14Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> open() "/var/www/favicon.ico" failed (2: No such file)
+103:2026-04-18T09:33:02Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> upstream timed out (110) while reading upstream
+117:2026-04-18T09:37:48Z <span style="background: rgb(var(--accent)); color: #fff;">ERROR</span> limiting requests, excess: 0.940 by zone
+129:2026-04-18T09:39:22Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> upstream prematurely closed connection
+142:2026-04-18T09:41:58Z <span style="background: rgba(228, 199, 111, 0.35);">ERROR</span> client sent invalid request
+<span class="c-green">rmcc@prod-web-01</span>:<span class="c-blue">/var/log/nginx</span>$ <span class="cursor"></span></div>
+
+          <!-- Find overlay anchored top-right of terminal -->
+          <div class="find-overlay" role="search">
+            <input type="text" value="ERROR" aria-label="Find in terminal">
+            <span class="count">7 / 9</span>
+            <button class="find-toggle active" title="Case sensitive" aria-label="Case sensitive" aria-pressed="true">
+              <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">Aa</span>
+            </button>
+            <button class="find-toggle" title="Whole word" aria-label="Whole word" aria-pressed="false">
+              <span style="font-family: var(--font-mono); font-size: 11px;">ab</span>
+            </button>
+            <button class="find-toggle" title="Regex" aria-label="Regex" aria-pressed="false">
+              <span style="font-family: var(--font-mono); font-size: 11px;">.*</span>
+            </button>
+            <div style="width: 1px; height: 16px; background: rgb(var(--border)); margin: 0 2px;"></div>
+            <button class="find-toggle" title="Previous (Shift+F3)" aria-label="Previous match">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            </button>
+            <button class="find-toggle" title="Next (F3)" aria-label="Next match">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button class="find-toggle" title="Close (Esc)" aria-label="Close">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="statusbar">
+    <span class="s-ok"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>Connected</span>
+    <span class="sep"></span>
+    <span>rmcc@10.20.0.14:22</span>
+    <span class="sep"></span>
+    <span style="color: rgb(var(--accent));">Match 7 of 9</span>
+    <span class="spacer"></span>
+    <button class="status-btn">Light</button>
+    <button class="status-btn">Lock</button>
+  </footer>
+</div>
+</body>
+</html>
