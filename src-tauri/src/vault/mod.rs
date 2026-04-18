@@ -1,4 +1,5 @@
-// Real implementation arrives in Task 5; placeholder keeps state.rs compiling.
+pub mod kdf;
+
 pub enum VaultState {
     Uninitialized,
     Locked,
