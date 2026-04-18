@@ -71,7 +71,7 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
 pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<Session> {
     sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
-         auth_type = ?, credential_id = ?, color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+         auth_type = ?, credential_id = ?, color = ? WHERE id = ?",
     )
     .bind(input.folder_id)
     .bind(&input.name)
