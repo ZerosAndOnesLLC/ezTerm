@@ -25,8 +25,7 @@ async fn main() {
 }
 
 fn resolve_db_path() -> std::path::PathBuf {
-    let base = directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm")
-        .map(|d| d.data_local_dir().to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("./"));
-    base.join("ezterm.sqlite")
+    let dirs = directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm")
+        .expect("failed to resolve platform data directory");
+    dirs.data_local_dir().join("ezterm.sqlite")
 }

@@ -33,6 +33,14 @@ CREATE TABLE sessions (
     updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_sessions_folder ON sessions(folder_id);
+CREATE INDEX idx_sessions_credential ON sessions(credential_id);
+
+CREATE TRIGGER trg_sessions_updated_at
+AFTER UPDATE ON sessions
+FOR EACH ROW
+BEGIN
+    UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
 
 CREATE TABLE known_hosts (
     host        TEXT    NOT NULL,

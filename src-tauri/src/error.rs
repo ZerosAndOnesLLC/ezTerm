@@ -2,6 +2,9 @@ use serde::Serialize;
 
 pub type Result<T, E = AppError> = std::result::Result<T, E>;
 
+// TODO(plan 2+): add Ssh(String), Sftp(String), Scp(String), AuthFailed,
+// HostKeyMismatch { expected: String, actual: String }, and ChannelClosed
+// variants as their features land. Keep codes stable for the frontend switch.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]
