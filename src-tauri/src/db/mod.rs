@@ -23,3 +23,9 @@ pub async fn init_pool(db_path: &Path) -> crate::error::Result<SqlitePool> {
     MIGRATOR.run(&pool).await?;
     Ok(pool)
 }
+
+#[cfg(test)]
+pub async fn init_pool_from_pool(pool: &SqlitePool) -> crate::error::Result<()> {
+    MIGRATOR.run(pool).await?;
+    Ok(())
+}
