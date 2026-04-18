@@ -9,7 +9,7 @@ use sqlx::SqlitePool;
 use zeroize::Zeroizing;
 
 use crate::error::{AppError, Result};
-use aead::Aead256;
+use aead::{Aead256, NONCE_LEN};
 use kdf::KdfParams;
 
 const VERIFIER_PLAINTEXT: &[u8] = b"ezterm-v0.1-vault";
@@ -71,8 +71,8 @@ pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     let stored: StoredKdfParams = serde_json::from_str(&params_json)?;
     let params: KdfParams = stored.into();
     let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
-    if verifier.len() < 12 { return Err(AppError::Crypto); }
-    let (nonce, ct) = verifier.split_at(12);
+    if verifier.len() < NONCE_LEN { return Err(AppError::Crypto); }
+    let (nonce, ct) = verifier.split_at(NONCE_LEN);
     let aead = Aead256::new(&*key);
     let pt = aead.decrypt(nonce, ct).map_err(|_| AppError::BadPassword)?;
     if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
