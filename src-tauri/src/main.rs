@@ -27,6 +27,9 @@ async fn main() {
             commands::folders::folder_rename,
             commands::folders::folder_delete,
             commands::folders::folder_move,
+            commands::credentials::credential_list,
+            commands::credentials::credential_create,
+            commands::credentials::credential_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
