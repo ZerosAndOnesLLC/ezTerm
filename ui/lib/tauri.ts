@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
-  AppErrorPayload,
+  AppErrorPayload, ConnectResult, KnownHost,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -44,4 +44,18 @@ export const api = {
   // Settings
   settingsGet: (key: string) => invoke<string | null>('settings_get', { key }),
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
+
+  // SSH
+  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean) =>
+    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny }),
+  sshWrite:      (connectionId: number, bytes: number[]) =>
+    invoke<void>('ssh_write', { connectionId, bytes }),
+  sshResize:     (connectionId: number, cols: number, rows: number) =>
+    invoke<void>('ssh_resize', { connectionId, cols, rows }),
+  sshDisconnect: (connectionId: number) =>
+    invoke<void>('ssh_disconnect', { connectionId }),
+
+  // Known hosts
+  knownHostList:   () => invoke<KnownHost[]>('known_host_list'),
+  knownHostRemove: (host: string, port: number) => invoke<void>('known_host_remove', { host, port }),
 };

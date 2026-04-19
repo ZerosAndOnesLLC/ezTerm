@@ -43,3 +43,24 @@ export interface AppErrorPayload {
   code: string;
   message: string;
 }
+
+export interface ConnectResult {
+  connection_id: number;
+  fingerprint_sha256: string;
+}
+
+export interface KnownHost {
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  fingerprint_sha256: string;
+  first_seen: string;
+}
+
+export interface HostKeyMismatchError {
+  code: 'host_key_mismatch';
+  message: string;
+  expected: string;
+  actual: string;
+}
