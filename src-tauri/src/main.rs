@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod error;
 mod log_redacted;
+mod sftp;
 mod ssh;
 mod state;
 mod vault;

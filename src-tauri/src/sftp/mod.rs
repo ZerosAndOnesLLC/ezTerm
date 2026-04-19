@@ -1,0 +1,7 @@
+pub mod registry;
+pub mod session;
+pub mod transfer;
+
+pub use registry::SftpRegistry;
+#[allow(unused_imports)] // re-exports consumed by Bundle 2 command modules
+pub use session::{normalise_remote_path, SftpHandle};

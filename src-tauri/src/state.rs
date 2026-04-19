@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicI64, AtomicU32};
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
+use crate::sftp::SftpRegistry;
 use crate::ssh::ConnectionRegistry;
 use crate::vault::VaultState;
 
@@ -15,6 +16,7 @@ pub struct AppState {
     /// Zero means no cooldown is active.
     pub unlock_locked_until_unix: AtomicI64,
     pub ssh: ConnectionRegistry,
+    pub sftp: SftpRegistry,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             unlock_failures: AtomicU32::new(0),
             unlock_locked_until_unix: AtomicI64::new(0),
             ssh: ConnectionRegistry::new(),
+            sftp: SftpRegistry::new(),
         }
     }
 }
