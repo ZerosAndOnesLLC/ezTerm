@@ -600,7 +600,7 @@ git commit -m "feat(db): pool + migrator boot, AppState skeleton"
 - Create: `src-tauri/src/vault/kdf.rs`
 - Modify: `src-tauri/src/vault/mod.rs`
 
-- [ ] **Step 5.1: Write failing test**
+- [x] **Step 5.1: Write failing test**
 
 Path: `/home/mack/dev/ezTerm/src-tauri/src/vault/kdf.rs`
 ```rust
@@ -659,7 +659,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5.2: Register in `vault/mod.rs`**
+- [x] **Step 5.2: Register in `vault/mod.rs`**
 
 Path: `/home/mack/dev/ezTerm/src-tauri/src/vault/mod.rs`
 ```rust
@@ -672,7 +672,7 @@ pub enum VaultState {
 }
 ```
 
-- [ ] **Step 5.3: Run tests**
+- [x] **Step 5.3: Run tests**
 
 Run:
 ```bash
@@ -680,7 +680,7 @@ cargo test --manifest-path src-tauri/Cargo.toml vault::kdf -- --nocapture
 ```
 Expected: 2 tests pass.
 
-- [ ] **Step 5.4: Commit**
+- [x] **Step 5.4: Commit**
 
 ```bash
 git add src-tauri/src/vault/
@@ -695,7 +695,7 @@ git commit -m "feat(vault): Argon2id KDF with configurable params"
 - Create: `src-tauri/src/vault/aead.rs`
 - Modify: `src-tauri/src/vault/mod.rs`
 
-- [ ] **Step 6.1: Write the module with tests**
+- [x] **Step 6.1: Write the module with tests**
 
 Path: `/home/mack/dev/ezTerm/src-tauri/src/vault/aead.rs`
 ```rust
@@ -757,7 +757,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 6.2: Register in `vault/mod.rs`**
+- [x] **Step 6.2: Register in `vault/mod.rs`**
 
 ```rust
 pub mod aead;
@@ -770,12 +770,12 @@ pub enum VaultState {
 }
 ```
 
-- [ ] **Step 6.3: Run tests**
+- [x] **Step 6.3: Run tests**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml vault::aead`
 Expected: 3 tests pass.
 
-- [ ] **Step 6.4: Commit**
+- [x] **Step 6.4: Commit**
 
 ```bash
 git add src-tauri/src/vault/
@@ -790,7 +790,7 @@ git commit -m "feat(vault): ChaCha20-Poly1305 AEAD with nonce gen"
 - Modify: `src-tauri/src/vault/mod.rs`
 - Create: `src-tauri/src/vault/tests.rs`
 
-- [ ] **Step 7.1: Write the facade**
+- [x] **Step 7.1: Write the facade**
 
 Path: `/home/mack/dev/ezTerm/src-tauri/src/vault/mod.rs`
 ```rust
@@ -890,7 +890,7 @@ pub fn decrypt_with(state: &VaultState, nonce: &[u8], ciphertext: &[u8]) -> Resu
 }
 ```
 
-- [ ] **Step 7.2: Write integration tests**
+- [x] **Step 7.2: Write integration tests**
 
 Path: `/home/mack/dev/ezTerm/src-tauri/src/vault/tests.rs`
 ```rust
@@ -930,7 +930,7 @@ async fn double_init_rejected() {
 }
 ```
 
-- [ ] **Step 7.3: Add test helper to `db/mod.rs`**
+- [x] **Step 7.3: Add test helper to `db/mod.rs`**
 
 Append to `src-tauri/src/db/mod.rs`:
 ```rust
@@ -941,12 +941,12 @@ pub async fn init_pool_from_pool(pool: &SqlitePool) -> crate::error::Result<()> 
 }
 ```
 
-- [ ] **Step 7.4: Run tests**
+- [x] **Step 7.4: Run tests**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml vault`
 Expected: all pass.
 
-- [ ] **Step 7.5: Commit**
+- [x] **Step 7.5: Commit**
 
 ```bash
 git add src-tauri/src/vault/ src-tauri/src/db/mod.rs
@@ -1732,7 +1732,7 @@ git commit -m "feat(vault+settings): status/init/unlock/lock + k-v settings comm
 - Create: `ui/app/page.tsx`
 - Create: `ui/app/globals.css`
 
-- [ ] **Step 12.1: Write `ui/package.json`**
+- [x] **Step 12.1: Write `ui/package.json`**
 
 Path: `/home/mack/dev/ezTerm/ui/package.json`
 ```json
@@ -1770,7 +1770,7 @@ Path: `/home/mack/dev/ezTerm/ui/package.json`
 }
 ```
 
-- [ ] **Step 12.2: Write `ui/next.config.mjs`**
+- [x] **Step 12.2: Write `ui/next.config.mjs`**
 
 Path: `/home/mack/dev/ezTerm/ui/next.config.mjs`
 ```js
@@ -1784,7 +1784,7 @@ const nextConfig = {
 export default nextConfig;
 ```
 
-- [ ] **Step 12.3: Write `ui/tsconfig.json`**
+- [x] **Step 12.3: Write `ui/tsconfig.json`**
 
 Path: `/home/mack/dev/ezTerm/ui/tsconfig.json`
 ```json
@@ -1812,7 +1812,7 @@ Path: `/home/mack/dev/ezTerm/ui/tsconfig.json`
 }
 ```
 
-- [ ] **Step 12.4: Write `ui/tailwind.config.ts`**
+- [x] **Step 12.4: Write `ui/tailwind.config.ts`** (designer-refined version preserved; satisfies plan intent with expanded palette)
 
 Path: `/home/mack/dev/ezTerm/ui/tailwind.config.ts`
 ```ts
@@ -1842,7 +1842,7 @@ const config: Config = {
 export default config;
 ```
 
-- [ ] **Step 12.5: Write `ui/postcss.config.js`**
+- [x] **Step 12.5: Write `ui/postcss.config.js`**
 
 Path: `/home/mack/dev/ezTerm/ui/postcss.config.js`
 ```js
@@ -1851,7 +1851,7 @@ export default {
 };
 ```
 
-- [ ] **Step 12.6: Write `ui/app/globals.css`**
+- [x] **Step 12.6: Write `ui/app/globals.css`** (designer-refined version preserved; includes `.input`/button component layer)
 
 Path: `/home/mack/dev/ezTerm/ui/app/globals.css`
 ```css
@@ -1883,7 +1883,7 @@ html, body, #__next { height: 100%; }
 body { @apply bg-bg text-fg font-mono antialiased; }
 ```
 
-- [ ] **Step 12.7: Write `ui/app/layout.tsx`**
+- [x] **Step 12.7: Write `ui/app/layout.tsx`**
 
 Path: `/home/mack/dev/ezTerm/ui/app/layout.tsx`
 ```tsx
@@ -1901,7 +1901,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 }
 ```
 
-- [ ] **Step 12.8: Temporary placeholder page**
+- [x] **Step 12.8: Temporary placeholder page**
 
 Path: `/home/mack/dev/ezTerm/ui/app/page.tsx`
 ```tsx
@@ -1914,7 +1914,7 @@ export default function Page() {
 }
 ```
 
-- [ ] **Step 12.9: Install deps and build**
+- [x] **Step 12.9: Install deps and build**
 
 ```bash
 cd /home/mack/dev/ezTerm/ui
@@ -1924,7 +1924,7 @@ npm run build
 ```
 Expected: `out/` directory is produced. Lint clean.
 
-- [ ] **Step 12.10: Commit**
+- [x] **Step 12.10: Commit**
 
 ```bash
 cd /home/mack/dev/ezTerm
