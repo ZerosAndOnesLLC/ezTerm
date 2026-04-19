@@ -1941,7 +1941,7 @@ git commit -m "feat(ui): Next.js static export scaffold + Tailwind + theme token
 - Create: `ui/lib/tauri.ts`
 - Create: `ui/lib/theme.ts`
 
-- [ ] **Step 13.1: DTOs**
+- [x] **Step 13.1: DTOs**
 
 Path: `/home/mack/dev/ezTerm/ui/lib/types.ts`
 ```ts
@@ -1992,7 +1992,7 @@ export interface AppErrorPayload {
 }
 ```
 
-- [ ] **Step 13.2: Tauri invoke wrappers**
+- [x] **Step 13.2: Tauri invoke wrappers**
 
 Path: `/home/mack/dev/ezTerm/ui/lib/tauri.ts`
 ```ts
@@ -2037,7 +2037,7 @@ export const api = {
 };
 ```
 
-- [ ] **Step 13.3: Theme helpers**
+- [x] **Step 13.3: Theme helpers**
 
 Path: `/home/mack/dev/ezTerm/ui/lib/theme.ts`
 ```ts
@@ -2065,14 +2065,14 @@ export async function saveTheme(theme: Theme) {
 }
 ```
 
-- [ ] **Step 13.4: Typecheck**
+- [x] **Step 13.4: Typecheck**
 
 ```bash
 cd /home/mack/dev/ezTerm/ui && npm run typecheck
 ```
 Expected: clean.
 
-- [ ] **Step 13.5: Commit**
+- [x] **Step 13.5: Commit**
 
 ```bash
 cd /home/mack/dev/ezTerm
