@@ -1,89 +1,116 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMessage } from '@/lib/tauri';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { subscribeSshEvents } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { TerminalContextMenu } from './terminal-context-menu';
 import { FindOverlay } from './find-overlay';
+import { HostKeyDialog } from './host-key-dialog';
 
 interface Props { tab: Tab; visible: boolean; }
+
+type Prompt =
+  | { kind: 'untrusted'; fingerprint: string; expectedFingerprint?: undefined }
+  | { kind: 'mismatch';  fingerprint: string; expectedFingerprint?: string };
 
 export function TerminalView({ tab, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bundleRef    = useRef<TerminalBundle | null>(null);
   const unlistenRef  = useRef<null | (() => void)>(null);
+  const resizeObsRef = useRef<ResizeObserver | null>(null);
+  const connectionIdRef = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [find, setFind] = useState(false);
+  const [prompt, setPrompt] = useState<Prompt | null>(null);
   const setStatus = useTabs((s) => s.setStatus);
   const setConn   = useTabs((s) => s.setConnection);
 
-  // Mount xterm and start connection
+  const runConnect = useCallback(async (trustAny: boolean) => {
+    const bundle = bundleRef.current;
+    if (!bundle) return;
+    try {
+      const cols = bundle.terminal.cols;
+      const rows = bundle.terminal.rows;
+      let result;
+      try {
+        result = await api.sshConnect(tab.session.id, cols, rows, trustAny);
+      } catch (e) {
+        const code = (e as { code?: string })?.code;
+        if (code === 'host_key_untrusted') {
+          setPrompt({
+            kind: 'untrusted',
+            fingerprint: (e as { actual?: string })?.actual ?? '',
+          });
+          return;
+        }
+        if (code === 'host_key_mismatch') {
+          setPrompt({
+            kind: 'mismatch',
+            fingerprint: (e as { actual?: string })?.actual ?? '',
+            expectedFingerprint: (e as { expected?: string })?.expected,
+          });
+          return;
+        }
+        setStatus(tab.tabId, 'error', errMessage(e));
+        return;
+      }
+      if (cancelledRef.current) {
+        await api.sshDisconnect(result.connection_id);
+        return;
+      }
+      connectionIdRef.current = result.connection_id;
+      setConn(tab.tabId, result.connection_id);
+      setStatus(tab.tabId, 'connected');
+
+      unlistenRef.current = await subscribeSshEvents(result.connection_id, {
+        onData:  (bytes) => bundle.terminal.write(bytes),
+        onClose: () => setStatus(tab.tabId, 'closed'),
+        onError: (msg) => setStatus(tab.tabId, 'error', msg),
+      });
+
+      // Wire input: keystrokes → ssh_write
+      bundle.terminal.onData((data) => {
+        const bytes = new TextEncoder().encode(data);
+        api.sshWrite(result.connection_id, Array.from(bytes)).catch(() => {});
+      });
+
+      // Resize handler
+      const onResize = () => {
+        bundle.fit.fit();
+        api.sshResize(result.connection_id, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
+      };
+      const ro = new ResizeObserver(onResize);
+      if (containerRef.current) ro.observe(containerRef.current);
+      resizeObsRef.current = ro;
+    } catch (e) {
+      setStatus(tab.tabId, 'error', errMessage(e));
+    }
+  }, [tab.tabId, tab.session.id, setStatus, setConn]);
+
+  // Mount xterm and start the first connect attempt
   useEffect(() => {
     if (!containerRef.current) return;
     const bundle = createTerminal();
     bundleRef.current = bundle;
     bundle.terminal.open(containerRef.current);
     bundle.fit.fit();
+    cancelledRef.current = false;
 
-    let cancelled = false;
-    let connectionId: number | null = null;
-
-    (async () => {
-      try {
-        const cols = bundle.terminal.cols;
-        const rows = bundle.terminal.rows;
-        // First attempt — trustAny = false. If host is untrusted/mismatched we prompt.
-        let result;
-        try {
-          result = await api.sshConnect(tab.session.id, cols, rows, false);
-        } catch (e) {
-          const code = (e as { code?: string })?.code;
-          if (code === 'host_key_untrusted' || code === 'host_key_mismatch') {
-            // Ask the user. host-key-dialog will handle the confirmation UI;
-            // here we just fail the first attempt and let the caller decide.
-            setStatus(tab.tabId, 'error', errMessage(e));
-            return;
-          }
-          throw e;
-        }
-        if (cancelled) {
-          await api.sshDisconnect(result.connection_id);
-          return;
-        }
-        connectionId = result.connection_id;
-        setConn(tab.tabId, result.connection_id);
-        setStatus(tab.tabId, 'connected');
-
-        unlistenRef.current = await subscribeSshEvents(result.connection_id, {
-          onData: (bytes) => bundle.terminal.write(bytes),
-          onClose: () => setStatus(tab.tabId, 'closed'),
-          onError: (msg) => setStatus(tab.tabId, 'error', msg),
-        });
-
-        // Wire input: keystrokes → ssh_write
-        bundle.terminal.onData((data) => {
-          const bytes = new TextEncoder().encode(data);
-          api.sshWrite(result.connection_id, Array.from(bytes)).catch(() => {});
-        });
-
-        // Resize handler
-        const onResize = () => {
-          bundle.fit.fit();
-          api.sshResize(result.connection_id, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
-        };
-        const ro = new ResizeObserver(onResize);
-        if (containerRef.current) ro.observe(containerRef.current);
-      } catch (e) {
-        setStatus(tab.tabId, 'error', errMessage(e));
-      }
-    })();
+    runConnect(false);
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       unlistenRef.current?.();
+      unlistenRef.current = null;
+      resizeObsRef.current?.disconnect();
+      resizeObsRef.current = null;
       bundle.dispose();
-      if (connectionId !== null) api.sshDisconnect(connectionId).catch(() => {});
+      bundleRef.current = null;
+      const cid = connectionIdRef.current;
+      connectionIdRef.current = null;
+      if (cid !== null) api.sshDisconnect(cid).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.tabId]);
@@ -158,6 +185,17 @@ export function TerminalView({ tab, visible }: Props) {
       )}
       {find && bundleRef.current && (
         <FindOverlay search={bundleRef.current.search} onClose={() => setFind(false)} />
+      )}
+      {prompt && (
+        <HostKeyDialog
+          host={tab.session.host}
+          port={tab.session.port}
+          kind={prompt.kind}
+          fingerprint={prompt.fingerprint}
+          expectedFingerprint={prompt.expectedFingerprint}
+          onCancel={() => { setPrompt(null); setStatus(tab.tabId, 'closed'); }}
+          onTrust={() => { setPrompt(null); setStatus(tab.tabId, 'connecting'); runConnect(true); }}
+        />
       )}
     </div>
   );
