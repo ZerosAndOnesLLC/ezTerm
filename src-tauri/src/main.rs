@@ -3,6 +3,7 @@
 mod commands;
 mod db;
 mod error;
+mod log_redacted;
 mod state;
 mod vault;
 
