@@ -35,6 +35,7 @@ directories = "5"
 
 russh = "0.45"
 russh-keys = "0.45"
+russh-sftp = "2"
 sha2 = "0.10"
 base64 = "0.22"
 async-channel = "2"

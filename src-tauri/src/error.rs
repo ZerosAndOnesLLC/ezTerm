@@ -50,6 +50,18 @@ pub enum AppError {
     // emitted when explicit channel-close logic lands; Plan 3 or later
     #[allow(dead_code)]
     ChannelClosed,
+
+    #[error("sftp: {0}")]
+    Sftp(String),
+
+    #[error("scp: {0}")]
+    Scp(String),
+
+    #[error("path traversal rejected")]
+    PathTraversal,
+
+    #[error("transfer cancelled")]
+    TransferCancelled,
 }
 
 impl Serialize for AppError {
@@ -82,11 +94,21 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::HostKeyMismatch { .. } => "host_key_mismatch",
         AppError::HostKeyUntrusted => "host_key_untrusted",
         AppError::ChannelClosed => "channel_closed",
+        AppError::Sftp(_) => "sftp",
+        AppError::Scp(_) => "scp",
+        AppError::PathTraversal => "path_traversal",
+        AppError::TransferCancelled => "transfer_cancelled",
     }
 }
 
 impl From<russh::Error> for AppError {
     fn from(e: russh::Error) -> Self {
         AppError::Ssh(e.to_string())
+    }
+}
+
+impl From<russh_sftp::client::error::Error> for AppError {
+    fn from(e: russh_sftp::client::error::Error) -> Self {
+        AppError::Sftp(e.to_string())
     }
 }
