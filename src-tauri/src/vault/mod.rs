@@ -86,8 +86,6 @@ pub fn encrypt_with(state: &VaultState, plaintext: &[u8]) -> Result<(Vec<u8>, Ve
     }
 }
 
-// Used by Plan 2 SSH code — see spec §7 (credential load + SSH auth path).
-#[allow(dead_code)]
 pub fn decrypt_with(state: &VaultState, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     match state {
         VaultState::Unlocked { key } => Aead256::new(key).decrypt(nonce, ciphertext),
