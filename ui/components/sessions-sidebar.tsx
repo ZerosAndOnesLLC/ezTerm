@@ -209,7 +209,7 @@ export function SessionsSidebar() {
             type="button"
             onClick={() => setError(null)}
             aria-label="Dismiss error"
-            className="shrink-0 hover:text-fg"
+            className="shrink-0 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
           >
             ×
           </button>

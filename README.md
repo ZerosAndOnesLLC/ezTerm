@@ -2,7 +2,7 @@
 
 Free, open-source Windows SSH client with a MobaXterm-style session manager, encrypted credential vault, and xterm-compatible terminal.
 
-**Status:** Pre-alpha. Plan 1 of 3 implemented (scaffold + vault + session manager). SSH and SFTP land in Plans 2 and 3.
+**Status:** Pre-alpha. Plan 1 tagged at `v0.1.0-foundation` (scaffold + vault + session manager). Plan 2 (SSH + terminal) is next; SFTP follows in Plan 3.
 
 ## Dev quickstart
 
