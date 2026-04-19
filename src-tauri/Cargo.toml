@@ -33,6 +33,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 directories = "5"
 
+russh = "0.45"
+russh-keys = "0.45"
+sha2 = "0.10"
+base64 = "0.22"
+async-channel = "2"
+bytes = "1"
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }

@@ -2,9 +2,6 @@ use serde::Serialize;
 
 pub type Result<T, E = AppError> = std::result::Result<T, E>;
 
-// TODO(plan 2+): add Ssh(String), Sftp(String), Scp(String), AuthFailed,
-// HostKeyMismatch { expected: String, actual: String }, and ChannelClosed
-// variants as their features land. Keep codes stable for the frontend switch.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]
@@ -36,6 +33,21 @@ pub enum AppError {
 
     #[error("serde: {0}")]
     Serde(#[from] serde_json::Error),
+
+    #[error("ssh: {0}")]
+    Ssh(String),
+
+    #[error("authentication failed")]
+    AuthFailed,
+
+    #[error("host key mismatch (expected {expected}, got {actual})")]
+    HostKeyMismatch { expected: String, actual: String },
+
+    #[error("host key not yet trusted")]
+    HostKeyUntrusted,
+
+    #[error("channel closed")]
+    ChannelClosed,
 }
 
 impl Serialize for AppError {
@@ -43,6 +55,10 @@ impl Serialize for AppError {
         let mut obj = serde_json::Map::new();
         obj.insert("code".into(), serde_json::Value::String(code_for(self).into()));
         obj.insert("message".into(), serde_json::Value::String(self.to_string()));
+        if let AppError::HostKeyMismatch { expected, actual } = self {
+            obj.insert("expected".into(), serde_json::Value::String(expected.clone()));
+            obj.insert("actual".into(), serde_json::Value::String(actual.clone()));
+        }
         serde_json::Value::Object(obj).serialize(s)
     }
 }
@@ -59,5 +75,16 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::Validation(_) => "validation",
         AppError::Io(_) => "io",
         AppError::Serde(_) => "serde",
+        AppError::Ssh(_) => "ssh",
+        AppError::AuthFailed => "auth_failed",
+        AppError::HostKeyMismatch { .. } => "host_key_mismatch",
+        AppError::HostKeyUntrusted => "host_key_untrusted",
+        AppError::ChannelClosed => "channel_closed",
+    }
+}
+
+impl From<russh::Error> for AppError {
+    fn from(e: russh::Error) -> Self {
+        AppError::Ssh(e.to_string())
     }
 }
