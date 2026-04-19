@@ -33,7 +33,10 @@ pub struct ConnectOutcome {
 }
 
 struct ClientHandler {
-    server_key_fp: Arc<Mutex<Option<String>>>,
+    /// (algorithm_name, sha256_fingerprint) captured from the server's host key.
+    /// russh-keys 0.45's `PublicKey::name()` returns the SSH wire name
+    /// (e.g. "ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256").
+    server_key: Arc<Mutex<Option<(String, String)>>>,
 }
 
 #[async_trait]
@@ -49,7 +52,8 @@ impl client::Handler for ClientHandler {
         // `key_format::serialize_public_key` helper has been removed).
         let blob = key.public_key_bytes();
         let fp = fingerprint_sha256(&blob);
-        *self.server_key_fp.lock().await = Some(fp);
+        let alg = key.name().to_string();
+        *self.server_key.lock().await = Some((alg, fp));
         // We accept here and verify against known_hosts in connect() after
         // the handshake completes. Rejecting here would give the user no
         // TOFU prompt path.
@@ -83,9 +87,9 @@ pub async fn connect(
 
     // 2. Configure russh client.
     let config = Arc::new(Config::default());
-    let server_key_fp = Arc::new(Mutex::new(None));
+    let server_key = Arc::new(Mutex::new(None));
     let handler = ClientHandler {
-        server_key_fp: server_key_fp.clone(),
+        server_key: server_key.clone(),
     };
     let mut handle = client::connect(
         config,
@@ -96,7 +100,7 @@ pub async fn connect(
     .map_err(|e| AppError::Ssh(format!("connect: {e}")))?;
 
     // 3. Host-key TOFU check.
-    let fp = server_key_fp
+    let (alg, fp) = server_key
         .lock()
         .await
         .clone()
@@ -109,7 +113,7 @@ pub async fn connect(
                 &state.db,
                 &session.host,
                 session.port,
-                "sha256",
+                &alg,
                 &format!("SHA256:{fp}"),
                 &fp,
             )
@@ -124,7 +128,7 @@ pub async fn connect(
                 &state.db,
                 &session.host,
                 session.port,
-                "sha256",
+                &alg,
                 &format!("SHA256:{actual_sha256}"),
                 &actual_sha256,
             )

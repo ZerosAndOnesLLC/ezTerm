@@ -48,7 +48,8 @@ pub async fn upsert(
     sqlx::query(
         "INSERT INTO known_hosts (host, port, key_type, fingerprint, fingerprint_sha256) \
          VALUES (?, ?, ?, ?, ?) \
-         ON CONFLICT(host, port, key_type) DO UPDATE SET \
+         ON CONFLICT(host, port) DO UPDATE SET \
+           key_type = excluded.key_type, \
            fingerprint = excluded.fingerprint, \
            fingerprint_sha256 = excluded.fingerprint_sha256",
     )
