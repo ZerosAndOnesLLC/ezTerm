@@ -10,6 +10,8 @@ pub struct CredentialMeta {
     pub label: String,
 }
 
+// Used by Plan 2 SSH code — see spec §7 (credential load + SSH auth path).
+#[allow(dead_code)]
 #[derive(sqlx::FromRow)]
 pub(crate) struct CredentialRow {
     pub id: i64,
@@ -47,6 +49,8 @@ pub(crate) async fn insert(
     Ok(id)
 }
 
+// Used by Plan 2 SSH code — see spec §7 (credential load + SSH auth path).
+#[allow(dead_code)]
 pub(crate) async fn get(pool: &SqlitePool, id: i64) -> Result<CredentialRow> {
     sqlx::query_as::<_, CredentialRow>(
         "SELECT id, kind, label, nonce, ciphertext FROM credentials WHERE id = ?",
