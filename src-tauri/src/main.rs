@@ -59,6 +59,13 @@ async fn main() {
             commands::ssh::known_host_list,
             commands::ssh::known_host_remove,
             commands::sftp::sftp_open,
+            commands::sftp::sftp_list,
+            commands::sftp::sftp_mkdir,
+            commands::sftp::sftp_rmdir,
+            commands::sftp::sftp_remove,
+            commands::sftp::sftp_rename,
+            commands::sftp::sftp_chmod,
+            commands::sftp::sftp_realpath,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
