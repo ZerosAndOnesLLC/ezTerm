@@ -9,7 +9,7 @@ import type { Config } from 'tailwindcss';
  * tokens (success, warning, danger, selection) are added; do NOT rename.
  */
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './lib/**/*.{ts,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {

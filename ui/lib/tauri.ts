@@ -1,7 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
+  AppErrorPayload,
 } from './types';
+
+export function errMessage(e: unknown): string {
+  if (typeof e === 'object' && e !== null && 'message' in e) {
+    return String((e as AppErrorPayload).message);
+  }
+  return String(e);
+}
 
 export const api = {
   // Vault
