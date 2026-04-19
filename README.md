@@ -32,3 +32,14 @@ Ship build (Windows):
 ```bash
 cargo tauri build
 ```
+
+## v0.2 — SSH + Terminal
+
+Plan 2 adds the core SSH experience:
+- russh-backed connections to any saved session (password / private key / SSH agent)
+- xterm.js terminal with Copy (Ctrl+Shift+C), Paste (Ctrl+Shift+V), Shift+Insert, Select All, Clear Scrollback, Find (Ctrl+Shift+F)
+- Right-click terminal context menu
+- Host-key TOFU prompt on first connect; hard-fail on mismatch unless the user explicitly replaces
+- Real tab bar (middle-click to close)
+
+Next: Plan 3 adds SFTP side-pane and SCP drag-drop.
