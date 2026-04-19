@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, errMessage } from '@/lib/tauri';
 import type { Folder, Session } from '@/lib/types';
+import { useTabs } from '@/lib/tabs-store';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { SessionDialog } from './session-dialog';
 
@@ -44,6 +45,7 @@ export function SessionsSidebar() {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const openTab = useTabs((s) => s.open);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try {
@@ -98,7 +100,9 @@ export function SessionsSidebar() {
           label: 'Delete',
           danger: true,
           onClick: async () => {
-            if (window.confirm(`Delete "${f.name}" and all children?`)) {
+            if (window.confirm(
+              `Delete folder "${f.name}" and all subfolders? Sessions inside will be moved to (root).`,
+            )) {
               await run(() => api.folderDelete(f.id));
               reload();
             }
@@ -115,7 +119,7 @@ export function SessionsSidebar() {
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: 'Connect', disabled: true, onClick: () => {/* Plan 2 */} },
+        { label: 'Connect', onClick: () => openTab(s) },
         { label: 'Edit', onClick: () => setDialog({ mode: 'edit', session: s }) },
         {
           label: 'Duplicate',
@@ -161,7 +165,7 @@ export function SessionsSidebar() {
           <div
             key={s.id}
             onContextMenu={(e) => openSessionMenu(e, s)}
-            onDoubleClick={() => {/* Plan 2: connect */}}
+            onDoubleClick={() => openTab(s)}
             className="px-2 py-1 hover:bg-surface2 cursor-default truncate select-none"
             style={{ paddingLeft: 8 + (depth + 1) * 10 }}
             role="treeitem"
