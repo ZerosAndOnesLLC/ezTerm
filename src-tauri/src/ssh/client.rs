@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 
 use crate::db;
 use crate::error::{AppError, Result};
+use crate::log_redacted;
 use crate::ssh::known_hosts::{fingerprint_sha256, KeyCheck};
 use crate::ssh::registry::{Connection, ConnectionInput};
 use crate::state::AppState;
@@ -67,6 +68,17 @@ pub async fn connect(
 ) -> Result<ConnectOutcome> {
     // 1. Resolve saved session + load (possibly) encrypted credential.
     let session = db::sessions::get(&state.db, req.session_id).await?;
+    {
+        let host = &session.host;
+        let user = &session.username;
+        let port = session.port;
+        let session_id = req.session_id;
+        log_redacted!(info, "ssh.connect.begin",
+            session_id = session_id,
+            host = %host,
+            port = port,
+            user = %user);
+    }
     let (auth_material, _cred_kind) = load_auth_material(state, &session).await?;
 
     // 2. Configure russh client.
@@ -138,6 +150,15 @@ pub async fn connect(
     let authed = authenticate(&mut handle, &session, auth_material).await?;
     if !authed {
         return Err(AppError::AuthFailed);
+    }
+    {
+        let host = &session.host;
+        let user = &session.username;
+        let fingerprint = &fp;
+        log_redacted!(info, "ssh.auth.ok",
+            host = %host,
+            user = %user,
+            fingerprint = %fingerprint);
     }
 
     // 5. Open shell channel with PTY.
@@ -336,10 +357,12 @@ async fn drive_channel(
                     }
                     Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
                         let _ = app.emit(&ev_close, exit_status);
+                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }
                     Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
                         let _ = app.emit(&ev_close, serde_json::Value::Null);
+                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }
                     _ => {}
@@ -362,6 +385,7 @@ async fn drive_channel(
                             .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
                             .await;
                         let _ = app.emit(&ev_close, serde_json::Value::Null);
+                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }
                 }
