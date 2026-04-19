@@ -51,6 +51,12 @@ async fn main() {
             commands::vault::vault_init,
             commands::vault::vault_unlock,
             commands::vault::vault_lock,
+            commands::ssh::ssh_connect,
+            commands::ssh::ssh_write,
+            commands::ssh::ssh_resize,
+            commands::ssh::ssh_disconnect,
+            commands::ssh::known_host_list,
+            commands::ssh::known_host_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

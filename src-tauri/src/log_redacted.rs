@@ -44,6 +44,7 @@ macro_rules! _forbid_names {
 }
 
 #[doc(hidden)]
+#[allow(unused_imports)] // Consumed at macro expansion time via $crate::log_redacted::_forbid_names
 pub use crate::_forbid_names;
 
 #[cfg(test)]

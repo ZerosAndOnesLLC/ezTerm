@@ -47,6 +47,8 @@ pub enum AppError {
     HostKeyUntrusted,
 
     #[error("channel closed")]
+    // emitted when explicit channel-close logic lands; Plan 3 or later
+    #[allow(dead_code)]
     ChannelClosed,
 }
 

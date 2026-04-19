@@ -8,8 +8,12 @@ use tokio::sync::{mpsc, Mutex};
 /// russh channel. The ConnectionMeta carries host/port/user for logging and UI.
 pub struct Connection {
     pub id: u64,
+    // host/port/user are captured for future logging and UI surfacing (Plan 3+).
+    #[allow(dead_code)]
     pub host: String,
+    #[allow(dead_code)]
     pub port: i64,
+    #[allow(dead_code)]
     pub user: String,
     pub stdin: mpsc::UnboundedSender<ConnectionInput>,
 }

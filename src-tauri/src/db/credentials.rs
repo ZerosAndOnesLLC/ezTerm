@@ -12,9 +12,7 @@ pub struct CredentialMeta {
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct CredentialRow {
-    pub id: i64,
     pub kind: String,
-    pub label: String,
     pub nonce: Vec<u8>,
     pub ciphertext: Vec<u8>,
 }
@@ -49,7 +47,7 @@ pub(crate) async fn insert(
 
 pub(crate) async fn get(pool: &SqlitePool, id: i64) -> Result<CredentialRow> {
     sqlx::query_as::<_, CredentialRow>(
-        "SELECT id, kind, label, nonce, ciphertext FROM credentials WHERE id = ?",
+        "SELECT kind, nonce, ciphertext FROM credentials WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
