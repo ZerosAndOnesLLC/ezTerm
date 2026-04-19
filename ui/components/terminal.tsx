@@ -64,11 +64,20 @@ export function TerminalView({ tab, visible }: Props) {
       setConn(tab.tabId, result.connection_id);
       setStatus(tab.tabId, 'connected');
 
-      unlistenRef.current = await subscribeSshEvents(result.connection_id, {
+      const unlisten = await subscribeSshEvents(result.connection_id, {
         onData:  (bytes) => bundle.terminal.write(bytes),
         onClose: () => setStatus(tab.tabId, 'closed'),
         onError: (msg) => setStatus(tab.tabId, 'error', msg),
       });
+      // Re-check the cancelled flag: subscribeSshEvents awaits Tauri IPC, and
+      // the tab may have been unmounted in that window. Without this check
+      // the listener would leak and keep firing after disposal.
+      if (cancelledRef.current) {
+        unlisten();
+        await api.sshDisconnect(result.connection_id);
+        return;
+      }
+      unlistenRef.current = unlisten;
 
       // Wire input: keystrokes → ssh_write
       bundle.terminal.onData((data) => {
