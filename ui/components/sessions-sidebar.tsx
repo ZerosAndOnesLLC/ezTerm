@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/tauri';
+import { api, errMessage } from '@/lib/tauri';
 import type { Folder, Session } from '@/lib/types';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { SessionDialog } from './session-dialog';
@@ -43,6 +43,17 @@ export function SessionsSidebar() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    try {
+      setError(null);
+      return await fn();
+    } catch (e) {
+      setError(errMessage(e));
+      return undefined;
+    }
+  }
 
   async function reload() {
     const [f, s] = await Promise.all([api.folderList(), api.sessionList()]);
@@ -59,7 +70,7 @@ export function SessionsSidebar() {
   async function newFolder(parentId: number | null) {
     const name = window.prompt('Folder name');
     if (name && name.trim()) {
-      await api.folderCreate(parentId, name.trim());
+      await run(() => api.folderCreate(parentId, name.trim()));
       reload();
     }
   }
@@ -78,7 +89,7 @@ export function SessionsSidebar() {
           onClick: async () => {
             const n = window.prompt('Rename', f.name);
             if (n && n.trim()) {
-              await api.folderRename(f.id, n.trim());
+              await run(() => api.folderRename(f.id, n.trim()));
               reload();
             }
           },
@@ -88,7 +99,7 @@ export function SessionsSidebar() {
           danger: true,
           onClick: async () => {
             if (window.confirm(`Delete "${f.name}" and all children?`)) {
-              await api.folderDelete(f.id);
+              await run(() => api.folderDelete(f.id));
               reload();
             }
           },
@@ -109,7 +120,7 @@ export function SessionsSidebar() {
         {
           label: 'Duplicate',
           onClick: async () => {
-            await api.sessionDuplicate(s.id);
+            await run(() => api.sessionDuplicate(s.id));
             reload();
           },
         },
@@ -118,7 +129,7 @@ export function SessionsSidebar() {
           danger: true,
           onClick: async () => {
             if (window.confirm(`Delete "${s.name}"?`)) {
-              await api.sessionDelete(s.id);
+              await run(() => api.sessionDelete(s.id));
               reload();
             }
           },
@@ -188,6 +199,22 @@ export function SessionsSidebar() {
       >
         <NodeView node={tree} depth={0} />
       </div>
+      {error && (
+        <div
+          role="alert"
+          className="mx-2 mb-1 px-2 py-1.5 rounded border border-danger/50 bg-danger/10 text-danger text-xs flex items-start gap-2"
+        >
+          <span className="flex-1 break-words">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+            className="shrink-0 hover:text-fg"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setDialog({ mode: 'create', folderId: null })}

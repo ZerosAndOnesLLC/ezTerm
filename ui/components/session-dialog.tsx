@@ -14,23 +14,24 @@ type Props = Mode & {
   onSaved: () => void;
 };
 
+// Implementation-notes §1: 6 swatches. Slate is the "no accent" option and
+// stores null, so the picker has exactly 6 buttons — 5 real colors + slate/none.
 const SWATCHES = [
-  { hex: '#60a5fa', label: 'Blue' },
-  { hex: '#34d399', label: 'Green' },
-  { hex: '#fbbf24', label: 'Amber' },
-  { hex: '#f87171', label: 'Red' },
-  { hex: '#a78bfa', label: 'Purple' },
-  { hex: '#94a3b8', label: 'Slate' },
+  { value: '#60a5fa', label: 'Blue' },
+  { value: '#34d399', label: 'Green' },
+  { value: '#fbbf24', label: 'Amber' },
+  { value: '#f87171', label: 'Red' },
+  { value: '#a78bfa', label: 'Purple' },
+  { value: null,      label: 'None', display: '#94a3b8' },
 ] as const;
 
 export function SessionDialog(props: Props) {
+  // Stable deps: only recompute when the identity of what we're editing changes.
+  const editId  = props.mode === 'edit'   ? props.session.id : null;
+  const newRoot = props.mode === 'create' ? props.folderId   : null;
   const initial: SessionInput = useMemo(() => {
     if (props.mode === 'edit') {
-      const {
-        id: _id,
-        sort: _sort,
-        ...rest
-      } = props.session;
+      const { id: _id, sort: _sort, ...rest } = props.session;
       void _id;
       void _sort;
       return rest;
@@ -45,7 +46,8 @@ export function SessionDialog(props: Props) {
       credential_id: null,
       color: null,
     };
-  }, [props]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, newRoot, props.mode]);
 
   const [v, setV] = useState<SessionInput>(initial);
   const [err, setErr] = useState<string | null>(null);
@@ -190,32 +192,24 @@ export function SessionDialog(props: Props) {
         )}
         <Field label="Tab color (optional)">
           <div className="flex gap-2 items-center">
-            <button
-              type="button"
-              onClick={() => setV({ ...v, color: null })}
-              aria-label="No color"
-              title="None"
-              className={`w-6 h-6 rounded border bg-surface2 flex items-center justify-center text-muted text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
-                v.color === null ? 'ring-2 ring-accent border-accent' : 'border-border'
-              }`}
-            >
-              <span aria-hidden>/</span>
-              <span className="sr-only">None</span>
-            </button>
-            {SWATCHES.map((s) => (
-              <button
-                key={s.hex}
-                type="button"
-                onClick={() => setV({ ...v, color: s.hex })}
-                aria-label={s.label}
-                title={s.label}
-                aria-pressed={v.color === s.hex}
-                className={`w-6 h-6 rounded border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
-                  v.color === s.hex ? 'ring-2 ring-accent border-accent' : 'border-border'
-                }`}
-                style={{ background: s.hex }}
-              />
-            ))}
+            {SWATCHES.map((s) => {
+              const selected = v.color === s.value;
+              const bg = 'display' in s ? s.display : s.value!;
+              return (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => setV({ ...v, color: s.value })}
+                  aria-label={s.label}
+                  title={s.label}
+                  aria-pressed={selected}
+                  className={`w-6 h-6 rounded border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                    selected ? 'ring-2 ring-accent border-accent' : 'border-border'
+                  }`}
+                  style={{ background: bg }}
+                />
+              );
+            })}
           </div>
         </Field>
         {err && <div className="text-danger text-xs">{err}</div>}

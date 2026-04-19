@@ -6,9 +6,16 @@ Issued 2026-04-18. These resolve the three open questions raised by the UX desig
 
 Replace the `<input type="color">` in Plan 1 Task 17 with a 6-swatch palette picker.
 
-Swatches (hex): `#60a5fa` (blue, default), `#34d399` (green), `#fbbf24` (amber), `#f87171` (red), `#a78bfa` (purple), `#94a3b8` (slate / "none").
+Six swatches shown. Five are real colors. The sixth (slate, visually `#94a3b8`) is the "no accent" option and stores `null`.
 
-The DB column stays `color TEXT NULL`; storing `null` means "no accent". The picker writes one of the seven values above (six colors or `null`).
+- `#60a5fa` (blue)
+- `#34d399` (green)
+- `#fbbf24` (amber)
+- `#f87171` (red)
+- `#a78bfa` (purple)
+- slate = "None" → stores `null`
+
+DB column is `color TEXT NULL`. The picker writes exactly six possible states: five hex strings or `null`.
 
 **Rationale:** matches MobaXterm's fixed palette, keeps UI consistent, eliminates the awkward macOS-style color well in a Windows-native tool.
 
