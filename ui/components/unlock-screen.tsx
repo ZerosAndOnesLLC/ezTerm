@@ -45,22 +45,24 @@ export function UnlockScreen({ status, onUnlocked }: Props) {
         </p>
         <input
           type="password" autoFocus
-          className="w-full bg-surface2 border border-border rounded px-3 py-2 outline-none focus:border-accent"
+          aria-label="Master password"
+          className="w-full bg-surface2 border border-border rounded px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent"
           value={pw} onChange={e => setPw(e.target.value)}
           placeholder="Master password"
         />
         {firstRun && (
           <input
             type="password"
-            className="w-full bg-surface2 border border-border rounded px-3 py-2 outline-none focus:border-accent"
+            aria-label="Confirm master password"
+            className="w-full bg-surface2 border border-border rounded px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent"
             value={pw2} onChange={e => setPw2(e.target.value)}
             placeholder="Confirm password"
           />
         )}
-        {err && <div className="text-sm text-red-400">{err}</div>}
+        {err && <div role="alert" className="text-sm text-red-400">{err}</div>}
         <button
           type="submit" disabled={busy}
-          className="w-full bg-accent text-white rounded py-2 disabled:opacity-50"
+          className="w-full bg-accent text-white rounded py-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           {firstRun ? 'Create vault' : 'Unlock'}
         </button>
