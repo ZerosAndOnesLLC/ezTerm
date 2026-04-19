@@ -15,9 +15,15 @@ cp .env.example .env
 # frontend install
 npm --prefix ui install
 
-# run
+# run — IMPORTANT: use cargo tauri dev, not cargo run
 cargo tauri dev
 ```
+
+> **Heads up:** `cargo run` will fail with `frontendDist "../ui/out" doesn't exist`
+> because `ui/out/` is a build artifact (gitignored). Use `cargo tauri dev` — it
+> runs the frontend dev server automatically via `beforeDevCommand`. If you
+> really want to use `cargo run`, build the UI first:
+> `npm --prefix ui run build && cargo run` (Windows `cmd`: same commands).
 
 Tests:
 
