@@ -1,9 +1,27 @@
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::{AppError, Result};
 use crate::sftp::SftpHandle;
 use crate::state::AppState;
+
+/// Monotonic id for transfers. The frontend correlates progress events to a
+/// ticket by subscribing to `sftp:transfer:{id}`.
+static TRANSFER_ID: AtomicU64 = AtomicU64::new(0);
+
+fn next_transfer_id() -> u64 {
+    TRANSFER_ID.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+/// Handle returned to the frontend so it can subscribe to progress before
+/// the transfer task has started emitting.
+#[derive(Serialize)]
+pub struct TransferTicket {
+    pub transfer_id: u64,
+}
 
 /// One entry returned by `sftp_list`. Mirrors the fields the UI needs to
 /// render a directory row: name + full path for navigation, type flags,
@@ -232,4 +250,60 @@ async fn sftp_handle(
         .get(connection_id)
         .await
         .ok_or(AppError::NotFound)
+}
+
+/// Start a streaming upload. Returns a ticket immediately; progress flows
+/// through `sftp:transfer:{transfer_id}` events. The final event has
+/// `done = true` (success) or populates `error` (failure).
+#[tauri::command]
+pub async fn sftp_upload(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    connection_id: u64,
+    local_path: String,
+    remote_path: String,
+) -> Result<TransferTicket> {
+    super::require_unlocked(&state).await?;
+    let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
+    let handle = sftp_handle(&state, connection_id).await?;
+    let transfer_id = next_transfer_id();
+
+    tokio::spawn(async move {
+        let _ = crate::sftp::transfer::upload(
+            &app,
+            &handle,
+            transfer_id,
+            &PathBuf::from(&local_path),
+            &remote_path,
+        )
+        .await;
+    });
+    Ok(TransferTicket { transfer_id })
+}
+
+/// Start a streaming download. See `sftp_upload` for the progress-event model.
+#[tauri::command]
+pub async fn sftp_download(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    connection_id: u64,
+    remote_path: String,
+    local_path: String,
+) -> Result<TransferTicket> {
+    super::require_unlocked(&state).await?;
+    let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
+    let handle = sftp_handle(&state, connection_id).await?;
+    let transfer_id = next_transfer_id();
+
+    tokio::spawn(async move {
+        let _ = crate::sftp::transfer::download(
+            &app,
+            &handle,
+            transfer_id,
+            &remote_path,
+            &PathBuf::from(&local_path),
+        )
+        .await;
+    });
+    Ok(TransferTicket { transfer_id })
 }

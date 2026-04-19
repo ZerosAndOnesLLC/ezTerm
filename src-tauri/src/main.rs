@@ -66,6 +66,8 @@ async fn main() {
             commands::sftp::sftp_rename,
             commands::sftp::sftp_chmod,
             commands::sftp::sftp_realpath,
+            commands::sftp::sftp_upload,
+            commands::sftp::sftp_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
