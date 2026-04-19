@@ -279,25 +279,30 @@ async fn authenticate(
     match mat {
         AuthMaterial::Agent => {
             // Attempt to reach the user's SSH agent via SSH_AUTH_SOCK
-            // (Unix) or the platform-specific default (Windows).
-            let mut agent = match russh_keys::agent::client::AgentClient::connect_env().await {
-                Ok(a) => a,
-                Err(e) => return Err(AppError::Ssh(format!("ssh-agent: {e}"))),
-            };
-            let ids = agent
-                .request_identities()
-                .await
-                .map_err(|e| AppError::Ssh(e.to_string()))?;
-            for id in ids {
-                let (a2, ok) = handle
-                    .authenticate_future(session.username.clone(), id, agent)
-                    .await;
-                agent = a2;
-                if ok.map_err(|e| AppError::Ssh(e.to_string()))? {
-                    return Ok(true);
+            // (Unix) or the platform-specific default (Windows). Wrap in a
+            // 30s timeout so an unresponsive agent socket (common after a
+            // screen lock on macOS) doesn't pin a connect future forever.
+            tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                let mut agent = russh_keys::agent::client::AgentClient::connect_env()
+                    .await
+                    .map_err(|e| AppError::Ssh(format!("ssh-agent: {e}")))?;
+                let ids = agent
+                    .request_identities()
+                    .await
+                    .map_err(|e| AppError::Ssh(e.to_string()))?;
+                for id in ids {
+                    let (a2, ok) = handle
+                        .authenticate_future(session.username.clone(), id, agent)
+                        .await;
+                    agent = a2;
+                    if ok.map_err(|e| AppError::Ssh(e.to_string()))? {
+                        return Ok::<_, AppError>(true);
+                    }
                 }
-            }
-            Ok(false)
+                Ok(false)
+            })
+            .await
+            .map_err(|_| AppError::Ssh("ssh-agent auth timeout".into()))?
         }
         AuthMaterial::Password(pw) => {
             let pw_str = std::str::from_utf8(&pw)
