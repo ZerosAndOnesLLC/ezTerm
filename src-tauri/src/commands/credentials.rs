@@ -25,7 +25,7 @@ pub async fn credential_create(
         return Err(AppError::Validation("label required".into()));
     }
     let vault_state = state.vault.read().await;
-    let (nonce, ct) = vault::encrypt_with(&*vault_state, plaintext.as_bytes())?;
+    let (nonce, ct) = vault::encrypt_with(&vault_state, plaintext.as_bytes())?;
     plaintext.zeroize();
     let id = credentials::insert(&state.db, &kind, label.trim(), &nonce, &ct).await?;
     Ok(CredentialMeta {

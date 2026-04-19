@@ -50,7 +50,7 @@ pub async fn init(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     rand::thread_rng().fill_bytes(&mut salt);
     let params = KdfParams::default();
     let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
-    let aead = Aead256::new(&*key);
+    let aead = Aead256::new(&key);
     let (nonce, ct) = aead.encrypt(VERIFIER_PLAINTEXT)?;
     // Store verifier as nonce || ct concatenation
     let mut verifier = Vec::with_capacity(nonce.len() + ct.len());
@@ -73,7 +73,7 @@ pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
     if verifier.len() < NONCE_LEN { return Err(AppError::Crypto); }
     let (nonce, ct) = verifier.split_at(NONCE_LEN);
-    let aead = Aead256::new(&*key);
+    let aead = Aead256::new(&key);
     let pt = aead.decrypt(nonce, ct).map_err(|_| AppError::BadPassword)?;
     if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
     Ok(VaultState::Unlocked { key })
@@ -81,14 +81,16 @@ pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
 
 pub fn encrypt_with(state: &VaultState, plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     match state {
-        VaultState::Unlocked { key } => Aead256::new(&**key).encrypt(plaintext),
+        VaultState::Unlocked { key } => Aead256::new(key).encrypt(plaintext),
         _ => Err(AppError::VaultLocked),
     }
 }
 
+// Used by Plan 2 SSH code — see spec §7 (credential load + SSH auth path).
+#[allow(dead_code)]
 pub fn decrypt_with(state: &VaultState, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     match state {
-        VaultState::Unlocked { key } => Aead256::new(&**key).decrypt(nonce, ciphertext),
+        VaultState::Unlocked { key } => Aead256::new(key).decrypt(nonce, ciphertext),
         _ => Err(AppError::VaultLocked),
     }
 }
