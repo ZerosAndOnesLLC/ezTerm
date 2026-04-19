@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicI64, AtomicU32};
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
+use crate::ssh::ConnectionRegistry;
 use crate::vault::VaultState;
 
 pub struct AppState {
@@ -13,6 +14,7 @@ pub struct AppState {
     /// Unix timestamp (seconds) until which new unlock attempts are refused.
     /// Zero means no cooldown is active.
     pub unlock_locked_until_unix: AtomicI64,
+    pub ssh: ConnectionRegistry,
 }
 
 impl AppState {
@@ -22,6 +24,7 @@ impl AppState {
             vault: RwLock::new(VaultState::Locked),
             unlock_failures: AtomicU32::new(0),
             unlock_locked_until_unix: AtomicI64::new(0),
+            ssh: ConnectionRegistry::new(),
         }
     }
 }
