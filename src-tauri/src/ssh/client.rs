@@ -131,6 +131,10 @@ pub async fn connect(
     }
 
     // 4. Authenticate.
+    // `authenticate` takes `auth_material` by value, so any `Zeroizing` wrapper
+    // inside it runs at the end of that function call — our in-process copy of
+    // the secret is erased before we proceed. (See SECURITY NOTE on
+    // `AuthMaterial` about the non-zeroized russh-side copy.)
     let authed = authenticate(&mut handle, &session, auth_material).await?;
     if !authed {
         return Err(AppError::AuthFailed);
@@ -181,6 +185,16 @@ pub async fn connect(
     })
 }
 
+/// SECURITY NOTE: `Zeroizing` only covers the bytes we own. russh 0.45 copies
+/// the password into a `String` inside its auth `Msg` (see `russh/src/auth.rs`
+/// for `Method::Password { password: String }`); that copy lives for the
+/// connection lifetime and is not zeroized. If this matters, migrate to the
+/// russh `keyboard-interactive` flow once upstream adds zeroizing wrappers.
+/// Tracked as a follow-up (see repo issues).
+///
+/// We mitigate our own exposure by taking `AuthMaterial` into `authenticate`
+/// by value and letting it drop at the end of that function, so our
+/// `Zeroizing` wrapper runs as soon as russh is done with the reference.
 enum AuthMaterial {
     Agent,
     Password(Zeroizing<Vec<u8>>),
