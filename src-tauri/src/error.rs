@@ -54,12 +54,16 @@ pub enum AppError {
     #[error("sftp: {0}")]
     Sftp(String),
 
+    // Consumed by Bundle 3 (`commands::scp::scp_upload/scp_download`).
+    #[allow(dead_code)]
     #[error("scp: {0}")]
     Scp(String),
 
     #[error("path traversal rejected")]
     PathTraversal,
 
+    // Consumed by a future `sftp_cancel` command; reserved for Bundle 2/3.
+    #[allow(dead_code)]
     #[error("transfer cancelled")]
     TransferCancelled,
 }

@@ -58,6 +58,7 @@ async fn main() {
             commands::ssh::ssh_disconnect,
             commands::ssh::known_host_list,
             commands::ssh::known_host_remove,
+            commands::sftp::sftp_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

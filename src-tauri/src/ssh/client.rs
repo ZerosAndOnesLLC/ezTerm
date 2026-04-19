@@ -32,7 +32,7 @@ pub struct ConnectOutcome {
     pub fingerprint_sha256: String,
 }
 
-struct ClientHandler {
+pub struct ClientHandler {
     /// (algorithm_name, sha256_fingerprint) captured from the server's host key.
     /// russh-keys 0.45's `PublicKey::name()` returns the SSH wire name
     /// (e.g. "ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256").
@@ -190,6 +190,10 @@ pub async fn connect(
     // 6. Allocate connection id + mpsc + registry insert.
     let id = state.ssh.alloc_id();
     let (tx, rx) = mpsc::unbounded_channel::<ConnectionInput>();
+    // Wrap the russh Handle in Arc<Mutex<..>> before ownership branches: the
+    // driver task needs it for the Close-branch disconnect, and SFTP (Plan 3)
+    // needs it to open a second session channel on demand.
+    let handle_mutex = Arc::new(Mutex::new(handle));
     state
         .ssh
         .insert(Connection {
@@ -198,11 +202,12 @@ pub async fn connect(
             port: session.port,
             user: session.username.clone(),
             stdin: tx,
+            ssh_handle: handle_mutex.clone(),
         })
         .await;
 
     // 7. Spawn driver.
-    tokio::spawn(drive_channel(app, id, handle, channel, rx));
+    tokio::spawn(drive_channel(app, id, handle_mutex, channel, rx));
 
     Ok(ConnectOutcome {
         connection_id: id,
@@ -347,7 +352,7 @@ async fn check_known_host(
 async fn drive_channel(
     app: AppHandle,
     id: u64,
-    handle: Handle<ClientHandler>,
+    handle: Arc<Mutex<Handle<ClientHandler>>>,
     mut channel: Channel<Msg>,
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
 ) {
@@ -391,6 +396,8 @@ async fn drive_channel(
                     Some(ConnectionInput::Close) | None => {
                         let _ = channel.eof().await;
                         let _ = handle
+                            .lock()
+                            .await
                             .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
                             .await;
                         let _ = app.emit(&ev_close, serde_json::Value::Null);
