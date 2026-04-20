@@ -63,6 +63,10 @@ export function TerminalView({ tab, visible }: Props) {
       connectionIdRef.current = result.connection_id;
       setConn(tab.tabId, result.connection_id);
       setStatus(tab.tabId, 'connected');
+      // Auto-open the SFTP pane on successful SSH connect (spec §4.4). Reads
+      // the current store via `getState()` because this handler runs async
+      // and wouldn't re-render on hook-returned action changes.
+      useTabs.getState().setSftpOpen(tab.tabId, true);
 
       const unlisten = await subscribeSshEvents(result.connection_id, {
         onData:  (bytes) => bundle.terminal.write(bytes),

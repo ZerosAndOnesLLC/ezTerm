@@ -1,6 +1,7 @@
 'use client';
 import dynamic from 'next/dynamic';
 import { useTabs } from '@/lib/tabs-store';
+import { SftpPane } from './sftp-pane';
 
 const TerminalView = dynamic(
   () => import('./terminal').then((m) => m.TerminalView),
@@ -36,6 +37,19 @@ export function TabsShell() {
             {t.status === 'closed'     && <span className="text-xs text-muted">×</span>}
             <button
               type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                useTabs.getState().setSftpOpen(t.tabId, !t.sftpOpen);
+              }}
+              title={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
+              aria-label={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
+              aria-pressed={t.sftpOpen}
+              className={`text-xs px-1 ${t.sftpOpen ? 'text-accent' : 'text-muted hover:text-fg'}`}
+            >
+              ⫶
+            </button>
+            <button
+              type="button"
               aria-label="Close tab"
               onClick={(e) => { e.stopPropagation(); close(t.tabId); }}
               className="opacity-0 group-hover:opacity-100 hover:text-fg"
@@ -43,9 +57,18 @@ export function TabsShell() {
           </div>
         ))}
       </div>
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative flex">
         {tabs.map((t) => (
-          <TerminalView key={t.tabId} tab={t} visible={t.tabId === activeId} />
+          <div
+            key={t.tabId}
+            style={{ display: t.tabId === activeId ? 'flex' : 'none' }}
+            className="flex-1 min-h-0 flex"
+          >
+            {t.sftpOpen && <SftpPane tab={t} />}
+            <div className="flex-1 min-h-0 relative">
+              <TerminalView tab={t} visible={t.tabId === activeId} />
+            </div>
+          </div>
         ))}
       </div>
     </div>
