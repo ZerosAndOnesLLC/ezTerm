@@ -9,6 +9,8 @@ export interface Tab {
   connectionId: number | null;
   status:       TabStatus;
   errorMessage: string | null;
+  sftpOpen:     boolean;
+  cwd:          string;       // remote working dir, default "/"
 }
 
 interface TabsState {
@@ -20,6 +22,8 @@ interface TabsState {
   setActive:  (tabId: string | null) => void;
   close:      (tabId: string) => void;
   clear:      () => void;
+  setSftpOpen: (tabId: string, open: boolean) => void;
+  setCwd:      (tabId: string, cwd: string) => void;
 }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -30,7 +34,18 @@ export const useTabs = create<TabsState>((set) => ({
   open: (session) => {
     const tabId = uid();
     set((s) => ({
-      tabs: [...s.tabs, { tabId, session, connectionId: null, status: 'connecting', errorMessage: null }],
+      tabs: [
+        ...s.tabs,
+        {
+          tabId,
+          session,
+          connectionId: null,
+          status: 'connecting',
+          errorMessage: null,
+          sftpOpen: false,
+          cwd: '/',
+        },
+      ],
       activeId: tabId,
     }));
     return tabId;
@@ -51,4 +66,12 @@ export const useTabs = create<TabsState>((set) => ({
       return { tabs, activeId };
     }),
   clear: () => set({ tabs: [], activeId: null }),
+  setSftpOpen: (tabId, open) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, sftpOpen: open } : t)),
+    })),
+  setCwd: (tabId, cwd) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, cwd } : t)),
+    })),
 }));
