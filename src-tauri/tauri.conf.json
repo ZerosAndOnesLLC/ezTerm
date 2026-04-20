@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.zerosandones.ezterm",
   "build": {
-    "beforeDevCommand": "npm --prefix ../ui run dev",
+    "beforeDevCommand": "npm --prefix ui run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm --prefix ../ui run build",
+    "beforeBuildCommand": "npm --prefix ui run build",
     "frontendDist": "../ui/out"
   },
   "app": {
