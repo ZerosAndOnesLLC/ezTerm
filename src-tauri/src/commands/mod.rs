@@ -1,5 +1,6 @@
 pub mod credentials;
 pub mod folders;
+pub mod scp;
 pub mod sessions;
 pub mod settings;
 pub mod sftp;

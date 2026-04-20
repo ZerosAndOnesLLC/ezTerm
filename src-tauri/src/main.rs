@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod error;
 mod log_redacted;
+mod scp;
 mod sftp;
 mod ssh;
 mod state;
@@ -68,6 +69,8 @@ async fn main() {
             commands::sftp::sftp_realpath,
             commands::sftp::sftp_upload,
             commands::sftp::sftp_download,
+            commands::scp::scp_upload,
+            commands::scp::scp_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
