@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -11,6 +12,12 @@ use crate::error::{AppError, Result};
 /// amortise syscall / SFTP packet overhead, small enough to let the UI see
 /// progress events at a reasonable cadence on slow links.
 const CHUNK: usize = 32 * 1024;
+
+/// Cap on mid-transfer `TransferProgress` emits (10/sec). At 32 KiB chunks a
+/// fast link issues >1000 events/sec without this, which floods the Tauri
+/// event bus and starves the UI (audit I-3). The FINAL `done: true` event is
+/// always emitted regardless of this throttle.
+const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 
 /// Progress event payload emitted to the frontend on the `sftp:transfer:{id}`
 /// channel. A transfer emits one event per chunk plus a final event with
@@ -53,6 +60,7 @@ pub async fn upload(
                     .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
                 let mut sent: u64 = 0;
                 let mut buf = vec![0u8; CHUNK];
+                let mut last_emit = Instant::now();
                 loop {
                     let n = local.read(&mut buf).await?;
                     if n == 0 {
@@ -62,16 +70,21 @@ pub async fn upload(
                         .await
                         .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
                     sent += n as u64;
-                    let _ = app_cloned.emit(
-                        &event,
-                        TransferProgress {
-                            transfer_id,
-                            bytes_sent: sent,
-                            total_bytes: total,
-                            done: false,
-                            error: None,
-                        },
-                    );
+                    // Throttle mid-transfer emits (audit I-3). The final
+                    // `done: true` after the loop is unconditional.
+                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
+                        let _ = app_cloned.emit(
+                            &event,
+                            TransferProgress {
+                                transfer_id,
+                                bytes_sent: sent,
+                                total_bytes: total,
+                                done: false,
+                                error: None,
+                            },
+                        );
+                        last_emit = Instant::now();
+                    }
                 }
                 w.shutdown()
                     .await
@@ -136,6 +149,7 @@ pub async fn download(
                     .map_err(|e| AppError::Sftp(format!("open: {e}")))?;
                 let mut received: u64 = 0;
                 let mut buf = vec![0u8; CHUNK];
+                let mut last_emit = Instant::now();
                 loop {
                     let n = r.read(&mut buf).await.map_err(|e| {
                         AppError::Sftp(format!("read: {e}"))
@@ -145,16 +159,21 @@ pub async fn download(
                     }
                     local.write_all(&buf[..n]).await?;
                     received += n as u64;
-                    let _ = app_cloned.emit(
-                        &event,
-                        TransferProgress {
-                            transfer_id,
-                            bytes_sent: received,
-                            total_bytes: total,
-                            done: false,
-                            error: None,
-                        },
-                    );
+                    // Throttle mid-transfer emits (audit I-3). The final
+                    // `done: true` after the loop is unconditional.
+                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
+                        let _ = app_cloned.emit(
+                            &event,
+                            TransferProgress {
+                                transfer_id,
+                                bytes_sent: received,
+                                total_bytes: total,
+                                done: false,
+                                error: None,
+                            },
+                        );
+                        last_emit = Instant::now();
+                    }
                 }
                 local.flush().await?;
                 let _ = app_cloned.emit(
