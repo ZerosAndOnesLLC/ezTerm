@@ -27,7 +27,6 @@ impl SftpRegistry {
         self.inner.read().await.get(&connection_id).cloned()
     }
 
-    #[allow(dead_code)] // consumed by Bundle 2 on disconnect cleanup
     pub async fn remove(&self, connection_id: u64) {
         self.inner.write().await.remove(&connection_id);
     }

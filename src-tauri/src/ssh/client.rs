@@ -13,8 +13,9 @@ use zeroize::Zeroizing;
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::log_redacted;
+use crate::sftp::SftpRegistry;
 use crate::ssh::known_hosts::{fingerprint_sha256, KeyCheck};
-use crate::ssh::registry::{Connection, ConnectionInput};
+use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
 
@@ -207,7 +208,21 @@ pub async fn connect(
         .await;
 
     // 7. Spawn driver.
-    tokio::spawn(drive_channel(app, id, handle_mutex, channel, rx));
+    // Clone the two registry Arcs so the driver task can clean up its own
+    // SFTP + SSH state in every exit branch (EOF / Close / ExitStatus / error).
+    // Without this the `SftpRegistry` entry would outlive the transport and
+    // `SftpHandle`s would leak until app shutdown (audit I-1).
+    let ssh_reg = state.ssh.clone();
+    let sftp_reg = state.sftp.clone();
+    tokio::spawn(drive_channel(
+        app,
+        id,
+        handle_mutex,
+        channel,
+        rx,
+        ssh_reg,
+        sftp_reg,
+    ));
 
     Ok(ConnectOutcome {
         connection_id: id,
@@ -355,6 +370,8 @@ async fn drive_channel(
     handle: Arc<Mutex<Handle<ClientHandler>>>,
     mut channel: Channel<Msg>,
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
+    ssh_reg: Arc<ConnectionRegistry>,
+    sftp_reg: Arc<SftpRegistry>,
 ) {
     let ev_data = format!("ssh:data:{id}");
     let ev_close = format!("ssh:close:{id}");
@@ -408,4 +425,12 @@ async fn drive_channel(
             }
         }
     }
+
+    // Connection teardown: drop SFTP state first (so any cached `SftpHandle`
+    // is released before the underlying russh transport is gone), then the
+    // SSH registry entry. `ConnectionRegistry::close` is idempotent — calling
+    // it here after a user-initiated `ConnectionInput::Close` (which landed
+    // via `AppState::close_connection`) is a harmless no-op. (audit I-1)
+    sftp_reg.remove(id).await;
+    ssh_reg.close(id).await;
 }

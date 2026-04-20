@@ -62,7 +62,10 @@ pub async fn ssh_resize(
 
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
-    state.ssh.close(connection_id).await;
+    // Route through `close_connection` so SFTP state is dropped alongside the
+    // SSH session. Going through `state.ssh.close` directly would leak the
+    // per-connection `SftpHandle` (audit I-1).
+    state.close_connection(connection_id).await;
     Ok(())
 }
 

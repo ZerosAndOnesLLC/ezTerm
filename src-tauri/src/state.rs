@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicI64, AtomicU32};
+use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
@@ -15,8 +16,14 @@ pub struct AppState {
     /// Unix timestamp (seconds) until which new unlock attempts are refused.
     /// Zero means no cooldown is active.
     pub unlock_locked_until_unix: AtomicI64,
-    pub ssh: ConnectionRegistry,
-    pub sftp: SftpRegistry,
+    /// SSH connection registry. Wrapped in `Arc` so the per-connection driver
+    /// task (`ssh::client::drive_channel`) can hold its own reference and clean
+    /// up on EOF/Close/ExitStatus without needing access to `State<AppState>`.
+    pub ssh: Arc<ConnectionRegistry>,
+    /// SFTP session registry. Wrapped in `Arc` for the same reason as `ssh`:
+    /// the SSH driver task must be able to drop SFTP state when the underlying
+    /// transport dies, otherwise `SftpHandle`s leak past connection teardown.
+    pub sftp: Arc<SftpRegistry>,
 }
 
 impl AppState {
@@ -26,8 +33,18 @@ impl AppState {
             vault: RwLock::new(VaultState::Locked),
             unlock_failures: AtomicU32::new(0),
             unlock_locked_until_unix: AtomicI64::new(0),
-            ssh: ConnectionRegistry::new(),
-            sftp: SftpRegistry::new(),
+            ssh: Arc::new(ConnectionRegistry::new()),
+            sftp: Arc::new(SftpRegistry::new()),
         }
+    }
+
+    /// Drop all per-connection state in the correct order: SFTP first (so any
+    /// lingering `SftpHandle` is released before the transport goes away),
+    /// then the SSH connection itself (which also signals the driver task to
+    /// disconnect). Idempotent: safe to call from both the user-initiated
+    /// `ssh_disconnect` command and the driver task's own exit branches.
+    pub async fn close_connection(&self, id: u64) {
+        self.sftp.remove(id).await;
+        self.ssh.close(id).await;
     }
 }
