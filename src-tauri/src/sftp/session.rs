@@ -40,15 +40,22 @@ impl SftpHandle {
     }
 }
 
-/// Normalise a remote path: reject `..` segments, `\0`, and empty input. This
-/// is the ONLY place path normalisation happens. Every SFTP command must route
-/// through `normalise_remote_path`.
+/// Normalise a remote path: reject `..` segments, `\`, `\0`, and empty input.
+/// This is the ONLY place path normalisation happens. Every SFTP command must
+/// route through `normalise_remote_path`.
 #[allow(dead_code)] // consumed by Bundle 2 SFTP commands
 pub fn normalise_remote_path(raw: &str) -> Result<String> {
     if raw.is_empty() {
         return Err(AppError::Validation("empty path".into()));
     }
     if raw.contains('\0') {
+        return Err(AppError::PathTraversal);
+    }
+    // Reject backslash outright: POSIX SFTP servers would silently treat it as
+    // a literal filename byte, but our UI and Windows-host code paths treat `\`
+    // as a separator. Collapsing the ambiguity here prevents traversal payloads
+    // like `/etc/\..\passwd` from slipping past the `..`-segment scan below.
+    if raw.contains('\\') {
         return Err(AppError::PathTraversal);
     }
     // Disallow bare "..". Allow "." only as the current dir literal the UI
@@ -84,5 +91,18 @@ mod tests {
     #[test]
     fn normalise_rejects_empty() {
         assert!(normalise_remote_path("").is_err());
+    }
+
+    #[test]
+    fn normalise_rejects_backslash() {
+        assert!(normalise_remote_path("/etc/\\..\\passwd").is_err());
+        assert!(normalise_remote_path("/tmp/\\foo").is_err());
+    }
+
+    #[test]
+    fn normalise_allows_dotdot_prefix_segment() {
+        // "..foo" is a legal filename; only bare ".." traverses.
+        assert!(normalise_remote_path("/tmp/..foo").is_ok());
+        assert!(normalise_remote_path("/tmp/foo..").is_ok());
     }
 }
