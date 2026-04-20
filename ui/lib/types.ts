@@ -64,3 +64,25 @@ export interface HostKeyMismatchError {
   expected: string;
   actual: string;
 }
+
+export interface SftpEntry {
+  name: string;
+  full_path: string;
+  is_dir: boolean;
+  is_symlink: boolean;
+  size: number;
+  mtime_unix: number;
+  mode: number;
+}
+
+export interface TransferProgress {
+  transfer_id: number;
+  bytes_sent: number;
+  total_bytes: number;
+  done: boolean;
+  error: string | null;
+}
+
+export interface TransferTicket {
+  transfer_id: number;
+}

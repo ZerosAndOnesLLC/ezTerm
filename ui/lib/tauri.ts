@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
-  AppErrorPayload, ConnectResult, KnownHost,
+  AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -58,4 +58,25 @@ export const api = {
   // Known hosts
   knownHostList:   () => invoke<KnownHost[]>('known_host_list'),
   knownHostRemove: (host: string, port: number) => invoke<void>('known_host_remove', { host, port }),
+
+  // SFTP
+  sftpOpen:     (connectionId: number) => invoke<void>('sftp_open', { connectionId }),
+  sftpList:     (connectionId: number, path: string) =>
+    invoke<SftpEntry[]>('sftp_list', { connectionId, path }),
+  sftpMkdir:    (connectionId: number, path: string) =>
+    invoke<void>('sftp_mkdir', { connectionId, path }),
+  sftpRmdir:    (connectionId: number, path: string) =>
+    invoke<void>('sftp_rmdir', { connectionId, path }),
+  sftpRemove:   (connectionId: number, path: string) =>
+    invoke<void>('sftp_remove', { connectionId, path }),
+  sftpRename:   (connectionId: number, from: string, to: string) =>
+    invoke<void>('sftp_rename', { connectionId, from, to }),
+  sftpChmod:    (connectionId: number, path: string, mode: number) =>
+    invoke<void>('sftp_chmod', { connectionId, path, mode }),
+  sftpRealpath: (connectionId: number, path: string) =>
+    invoke<string>('sftp_realpath', { connectionId, path }),
+  sftpUpload:   (connectionId: number, localPath: string, remotePath: string) =>
+    invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
+  sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
+    invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
 };
