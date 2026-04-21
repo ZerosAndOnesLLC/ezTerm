@@ -87,6 +87,26 @@ jobs:
         working-directory: src-tauri
         run: cargo build --release --target ${{ matrix.target }}
 
+      # Windows release ships VcXsrv (GPLv2, mere aggregation) so "extract
+      # and run" supports X11 forwarding out of the box. Uses the official
+      # installer from SourceForge and extracts its NSIS payload with 7z
+       # (pre-installed on windows-latest). Failures are fatal — a release
+      # that silently skipped VcXsrv would mislead users.
+      - name: Bundle VcXsrv (Windows only)
+        if: matrix.name == 'windows-x86_64'
+        shell: bash
+        env:
+          VCXSRV_URL: "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe/download"
+        run: |
+          set -euo pipefail
+          curl -L --retry 3 --retry-delay 5 -A "Mozilla/5.0" -o vcxsrv-installer.exe "$VCXSRV_URL"
+          # 7z is pre-installed on windows-latest. -aos skips overwriting
+          # duplicate-name entries (NSIS installers sometimes emit them).
+          7z x vcxsrv-installer.exe -ovcxsrv-extracted -y -aos > /dev/null
+          test -f vcxsrv-extracted/vcxsrv.exe
+          echo "vcxsrv-extracted ready:"
+          ls vcxsrv-extracted | head -20
+
       - name: Package as tar.xz
         shell: bash
         run: |
@@ -101,6 +121,13 @@ jobs:
           # Include the licence in each archive so the tarball is
           # self-describing for redistribution.
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
+          # Windows: drop the extracted VcXsrv tree into a /vcxsrv/ subdir
+          # of the stage. XServerManager::detect_install_path checks there
+          # first before falling back to %ProgramFiles%\VcXsrv\.
+          if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
+            mkdir -p "$STAGE/vcxsrv"
+            cp -r vcxsrv-extracted/. "$STAGE/vcxsrv/"
+          fi
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
 

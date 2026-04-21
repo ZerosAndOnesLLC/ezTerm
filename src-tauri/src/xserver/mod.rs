@@ -22,11 +22,16 @@ use crate::error::{AppError, Result};
 /// Default X11 display number. VcXsrv listens on TCP 127.0.0.1:6000.
 pub const DEFAULT_DISPLAY: u8 = 0;
 
-/// Where to look for vcxsrv.exe. Checked in order.
+/// Where to look for vcxsrv.exe **as a system install**. Checked after
+/// the bundled copy next to the ezTerm binary (see `detect_install_path`).
 const VCXSRV_CANDIDATES: &[&str] = &[
     r"C:\Program Files\VcXsrv\vcxsrv.exe",
     r"C:\Program Files (x86)\VcXsrv\vcxsrv.exe",
 ];
+
+/// Relative path under the ezTerm binary's directory where the release
+/// tarball places VcXsrv. Set during the CI package step.
+const BUNDLED_VCXSRV_REL: &str = "vcxsrv/vcxsrv.exe";
 
 pub struct XServerManager {
     displays: Mutex<HashMap<u8, DisplayEntry>>,
@@ -57,8 +62,21 @@ impl XServerManager {
         }
     }
 
-    /// Return the VcXsrv install path if we can find it.
+    /// Return the VcXsrv install path if we can find it. Priority:
+    /// 1. `vcxsrv/vcxsrv.exe` next to the ezTerm binary — the copy the
+    ///    Windows release tarball ships. Lets "extract and run" work
+    ///    without a separate VcXsrv install.
+    /// 2. `C:\Program Files\VcXsrv\` and the x86 variant — user's own
+    ///    system install (useful for dev builds / `cargo run`).
     pub fn detect_install_path() -> Option<PathBuf> {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let bundled = dir.join(BUNDLED_VCXSRV_REL);
+                if bundled.exists() {
+                    return Some(bundled);
+                }
+            }
+        }
         for candidate in VCXSRV_CANDIDATES {
             let p = PathBuf::from(candidate);
             if p.exists() {
