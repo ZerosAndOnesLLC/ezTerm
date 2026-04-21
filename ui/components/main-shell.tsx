@@ -21,15 +21,19 @@ export function MainShell({ onLock }: { onLock: () => void }) {
   const collapsed  = useTabs((s) => s.sidebarCollapsed);
   const toggle     = useTabs((s) => s.toggleSidebar);
 
-  // Persist sidebar width across sessions. SSR-safe: start with default and
-  // hydrate from localStorage in an effect so the initial render matches.
-  const [width, setWidth] = useState<number>(SIDEBAR_DEFAULT);
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  // Persist sidebar width across sessions. We hydrate via the lazy
+  // useState initialiser so the first render already shows the correct
+  // width (avoids a one-frame jump and satisfies
+  // react-hooks/set-state-in-effect). SSR-safe: `window` check for the
+  // initial render when localStorage is absent.
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return SIDEBAR_DEFAULT;
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
     if (Number.isFinite(stored) && stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX) {
-      setWidth(stored);
+      return stored;
     }
-  }, []);
+    return SIDEBAR_DEFAULT;
+  });
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
   }, [width]);

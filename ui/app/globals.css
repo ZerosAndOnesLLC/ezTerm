@@ -1,6 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4: single import replaces the three v3 directives.
+   `@config` keeps the JS/TS theme config (colours, font stacks,
+   borderRadius, etc.) working during the migration; a future pass
+   can inline the tokens into `@theme` and drop the config file. */
+@import "tailwindcss";
+@config "../tailwind.config.ts";
 
 /*
  * ezTerm theme tokens.
