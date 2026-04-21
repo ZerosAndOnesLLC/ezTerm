@@ -1,9 +1,11 @@
 name: release
 
-# Push a tag starting with `v` (e.g. `v0.11.0`) to kick off a release,
-# or trigger manually from the Actions tab. The workflow produces one
-# `tar.xz` archive per target platform and attaches them to a draft
-# GitHub Release that you review + publish by hand.
+# Push a tag starting with `v` (e.g. `v0.14.0`) to kick off a release,
+# or trigger manually from the Actions tab. Builds portable tar.xz
+# archives for every target plus MSI + NSIS (Windows) and AppImage +
+# deb (Linux) installers for in-app auto-update via
+# tauri-plugin-updater. Updater installer artifacts are minisign-signed
+# when TAURI_SIGNING_PRIVATE_KEY is available as a repo secret.
 on:
   push:
     tags:
@@ -25,18 +27,22 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin_name: ezterm.exe
+            bundles: "msi nsis"
           - name: linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin_name: ezterm
+            bundles: "appimage deb"
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             bin_name: ezterm
+            bundles: "appimage deb"
           - name: macos-aarch64
             os: macos-latest
             target: aarch64-apple-darwin
             bin_name: ezterm
+            bundles: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +57,15 @@ jobs:
         with:
           workspaces: src-tauri
           key: ${{ matrix.target }}
+
+      # Install the Tauri CLI as a pre-built binary (far faster than
+      # `cargo install`) so we can invoke `cargo tauri build` for the
+      # platforms that need installer bundles.
+      - name: Install Tauri CLI
+        if: matrix.bundles != ''
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@2
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -72,27 +87,37 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             build-essential \
-            curl wget file xz-utils patchelf
+            curl wget file xz-utils patchelf \
+            fuse libfuse2 desktop-file-utils
 
       - name: Build UI (Next.js static export)
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
 
-      # Raw cargo build — NOT cargo tauri build. tauri-build embeds the
-      # static UI into the binary via an OUT_DIR include, so the produced
-      # executable is self-contained. Skipping the MSI/DMG/AppImage
-      # bundles keeps the archive small and honours the tar.xz request.
-      - name: Build release binary
-        working-directory: src-tauri
-        run: cargo build --release --target ${{ matrix.target }}
+      # Two build modes. Platforms with bundles (Windows / Linux) go
+      # through `cargo tauri build` so the installer bundler runs;
+      # macOS currently stays on the lighter `cargo build` path since
+      # we don't ship DMG / notarised .app yet.
+      - name: Build release binary + installer bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.bundles }}" ]; then
+            cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
 
-      # Windows release ships VcXsrv (GPLv2, mere aggregation) so "extract
-      # and run" supports X11 forwarding out of the box. Uses the official
-      # installer from SourceForge and extracts its NSIS payload with 7z
-       # (pre-installed on windows-latest). Failures are fatal — a release
-      # that silently skipped VcXsrv would mislead users.
-      - name: Bundle VcXsrv (Windows only)
+      # Windows: pull VcXsrv's installer, extract its payload alongside
+      # the binary in the portable tar.xz so X11 forwarding works out
+      # of the box. Installer bundles (MSI / NSIS) already include the
+      # app's own icon + metadata; VcXsrv bundling into MSI is a
+      # separate pass and lives outside this workflow for now.
+      - name: Bundle VcXsrv (Windows portable only)
         if: matrix.name == 'windows-x86_64'
         shell: bash
         env:
@@ -100,30 +125,18 @@ jobs:
         run: |
           set -euo pipefail
           curl -L --retry 3 --retry-delay 5 -A "Mozilla/5.0" -o vcxsrv-installer.exe "$VCXSRV_URL"
-          # 7z is pre-installed on windows-latest. -aos skips overwriting
-          # duplicate-name entries (NSIS installers sometimes emit them).
           7z x vcxsrv-installer.exe -ovcxsrv-extracted -y -aos > /dev/null
           test -f vcxsrv-extracted/vcxsrv.exe
-          echo "vcxsrv-extracted ready:"
-          ls vcxsrv-extracted | head -20
 
-      - name: Package as tar.xz
+      - name: Package portable tar.xz + collect installers
         shell: bash
         run: |
           set -euo pipefail
-          # Workspace target dir lives at the repo root — cargo is
-          # workspace-aware, so building from src-tauri/ still writes
-          # here, NOT into src-tauri/target/.
           STAGE="stage/ezterm-${{ matrix.name }}"
           mkdir -p "$STAGE"
           cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
           cp README.md "$STAGE/"
-          # Include the licence in each archive so the tarball is
-          # self-describing for redistribution.
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
-          # Windows: drop the extracted VcXsrv tree into a /vcxsrv/ subdir
-          # of the stage. XServerManager::detect_install_path checks there
-          # first before falling back to %ProgramFiles%\VcXsrv\.
           if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
             mkdir -p "$STAGE/vcxsrv"
             cp -r vcxsrv-extracted/. "$STAGE/vcxsrv/"
@@ -131,21 +144,44 @@ jobs:
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
 
-      - name: Upload build artifact
+          # Copy installer bundles (+ .sig files produced by the tauri
+          # bundler when signing is configured) into a flat directory so
+          # the release job can upload them by glob.
+          mkdir -p installers
+          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
+          if [ -d "$BUNDLE_DIR" ]; then
+            find "$BUNDLE_DIR" -maxdepth 2 \( \
+              -name '*.msi' -o -name '*.msi.sig' -o \
+              -name '*-setup.exe' -o -name '*-setup.exe.sig' -o \
+              -name '*.nsis.zip' -o -name '*.nsis.zip.sig' -o \
+              -name '*.AppImage' -o -name '*.AppImage.sig' -o \
+              -name '*.deb' \
+              \) -print0 | xargs -0 -I {} cp -v {} installers/ || true
+          fi
+          echo "--- installers collected ---"
+          ls -la installers/ || true
+
+      - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ezterm-${{ matrix.name }}
+          name: portable-${{ matrix.name }}
           path: ezterm-${{ matrix.name }}.tar.xz
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload installer artifacts
+        if: matrix.bundles != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: installers/
+          if-no-files-found: warn
           retention-days: 7
 
   release:
     name: publish draft release
     needs: build
     runs-on: ubuntu-latest
-    # Only actually cut a release on tag pushes. workflow_dispatch runs
-    # still produce artifacts (attached to the workflow run) so you can
-    # iterate on the build without minting draft releases.
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -159,16 +195,73 @@ jobs:
       - name: List artifacts
         run: ls -la artifacts/
 
-      # Combined manifest so users can verify the whole release in one
-      # `sha256sum -c SHA256SUMS` pass. GitHub already displays per-asset
-      # SHA256 on the release page, so no per-file detached hashes.
       - name: Generate SHA256SUMS
+        working-directory: artifacts
         run: |
           set -euo pipefail
-          cd artifacts
-          sha256sum *.tar.xz > SHA256SUMS
+          # Only hash the user-facing archives + installers, not the .sig files.
+          shopt -s nullglob
+          sha256sum *.tar.xz *.msi *.exe *.AppImage *.deb 2>/dev/null > SHA256SUMS || true
           echo "--- SHA256SUMS ---"
-          cat SHA256SUMS
+          cat SHA256SUMS || true
+
+      # Build a tauri-plugin-updater manifest (`latest.json`) from the
+      # installer artifacts + their .sig files. One platform entry per
+      # signed installer we found.
+      - name: Generate latest.json updater manifest
+        working-directory: artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          notes_file="../docs/release-notes/${TAG}.md"
+          notes=""
+          if [ -f "$notes_file" ]; then
+            notes=$(head -c 4000 "$notes_file")
+          fi
+          pub_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          base="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Helper: emit a "platform -> { url, signature }" object for
+          # each installer file + matching .sig file present.
+          entries=""
+          for pair in \
+            "windows-x86_64:*-setup.exe" \
+            "linux-x86_64:*_amd64.AppImage" \
+            "linux-aarch64:*_aarch64.AppImage" \
+          ; do
+            plat="${pair%%:*}"
+            glob="${pair#*:}"
+            # shellcheck disable=SC2086
+            installer=$(ls $glob 2>/dev/null | head -n1 || true)
+            if [ -z "$installer" ]; then continue; fi
+            sig_file="${installer}.sig"
+            if [ ! -f "$sig_file" ]; then
+              echo "skip $plat — no signature for $installer (signing secret missing?)"
+              continue
+            fi
+            sig=$(cat "$sig_file")
+            if [ -n "$entries" ]; then entries="$entries,"; fi
+            entries+=$(printf '"%s":{"url":"%s/%s","signature":"%s"}' \
+              "$plat" "$base" "$installer" "$(echo "$sig" | tr -d '\n' | sed 's/"/\\"/g')")
+          done
+
+          if [ -z "$entries" ]; then
+            echo "No signed installers found — skipping latest.json."
+            exit 0
+          fi
+
+          jq -n \
+            --arg v "$version" \
+            --arg n "$notes" \
+            --arg d "$pub_date" \
+            --argjson p "{$entries}" \
+            '{version:$v, notes:$n, pub_date:$d, platforms:$p}' \
+            > latest.json
+          echo "--- latest.json ---"
+          cat latest.json
 
       - name: Create draft release
         env:
@@ -177,23 +270,29 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           NOTES_FILE="docs/release-notes/${TAG}.md"
-          # If a tag-specific notes file is committed to the repo, use it
-          # verbatim; otherwise fall back to GitHub's auto-generated
-          # commit-log summary so the release isn't blocked on notes.
+          ASSETS=$(ls artifacts/*.tar.xz artifacts/SHA256SUMS 2>/dev/null)
+          # Include installers + their sigs + manifest when present.
+          for f in artifacts/*.msi artifacts/*.msi.sig \
+                   artifacts/*-setup.exe artifacts/*-setup.exe.sig \
+                   artifacts/*.AppImage artifacts/*.AppImage.sig \
+                   artifacts/*.deb \
+                   artifacts/latest.json; do
+            [ -f "$f" ] && ASSETS="$ASSETS $f"
+          done
           if [ -f "$NOTES_FILE" ]; then
             echo "Using notes from $NOTES_FILE"
+            # shellcheck disable=SC2086
             gh release create "$TAG" \
               --title "$TAG" \
               --notes-file "$NOTES_FILE" \
               --draft \
-              artifacts/*.tar.xz \
-              artifacts/SHA256SUMS
+              $ASSETS
           else
             echo "No $NOTES_FILE — falling back to --generate-notes"
+            # shellcheck disable=SC2086
             gh release create "$TAG" \
               --title "$TAG" \
               --generate-notes \
               --draft \
-              artifacts/*.tar.xz \
-              artifacts/SHA256SUMS
+              $ASSETS
           fi

@@ -30,5 +30,18 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": [
+        "https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_ME_WITH_MINISIGN_PUBLIC_KEY",
+      "dialog": false,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
