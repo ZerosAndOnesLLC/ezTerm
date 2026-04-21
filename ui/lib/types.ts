@@ -1,6 +1,13 @@
 export type AuthType = 'password' | 'key' | 'agent';
 export type CredentialKind = 'password' | 'private_key' | 'key_passphrase';
 export type VaultStatus = 'uninitialized' | 'locked' | 'unlocked';
+/** 'ssh' is a remote SSH session (full host/port/auth semantics).
+ *  'wsl' launches `wsl.exe -d <host>` with `username` as the optional
+ *       WSL user (empty = distro default user).
+ *  'local' launches a local shell — `host` is the program short-name
+ *       ('cmd' | 'pwsh' | 'powershell') or an absolute path, and
+ *       `username` is the optional starting directory. */
+export type SessionKind = 'ssh' | 'wsl' | 'local';
 
 export interface Folder {
   id: number;
@@ -35,6 +42,7 @@ export interface Session {
   compression: number; // 0 | 1
   keepalive_secs: number;
   connect_timeout_secs: number;
+  session_kind: SessionKind;
 }
 
 export interface SessionInput {
@@ -55,6 +63,7 @@ export interface SessionInput {
   keepalive_secs: number;
   connect_timeout_secs: number;
   env: EnvPair[];
+  session_kind: SessionKind;
 }
 
 export interface CredentialMeta {
@@ -116,12 +125,15 @@ export interface TransferTicket {
 export interface ParsedMobaSession {
   folder_path: string[];
   name: string;
+  /** 'ssh' for type-0 rows, 'wsl' for type-14 rows. */
+  session_kind: 'ssh' | 'wsl';
   host: string;
   port: number;
   username: string;
-  /** 'key' when the source row referenced a private-key file, else 'password'. */
-  auth_type: 'key' | 'password';
-  /** Raw MobaXterm-style path to the private key file, or null for password rows. */
+  /** SSH-only: 'key' if source referenced a key file, else 'password'.
+   *  WSL rows always have 'agent'. */
+  auth_type: 'key' | 'password' | 'agent';
+  /** Raw MobaXterm-style path to the private key file, or null. */
   private_key_path: string | null;
 }
 

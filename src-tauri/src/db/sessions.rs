@@ -24,6 +24,11 @@ pub struct Session {
     pub compression: i64,     // 0 | 1 (SQLite has no bool)
     pub keepalive_secs: i64,
     pub connect_timeout_secs: i64,
+    /// 'ssh' | 'wsl' | 'local'. For wsl/local, `host` re-purposes as the
+    /// distro name or shell program, and `username` re-purposes as the
+    /// wsl user or starting directory. Auth fields are forced to
+    /// agent/NULL for non-ssh rows by the command-layer validator.
+    pub session_kind: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +52,12 @@ pub struct SessionInput {
     /// Environment variables sent via `channel.set_env` at connect time.
     /// Sent separately from the sessions row; see `session_env` table.
     pub env: Vec<EnvPair>,
+    #[serde(default = "default_session_kind")]
+    pub session_kind: String,
+}
+
+fn default_session_kind() -> String {
+    "ssh".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,7 +69,7 @@ pub struct EnvPair {
 const SELECT_COLS: &str = "id, folder_id, name, host, port, username, auth_type, \
 credential_id, key_passphrase_credential_id, color, sort, \
 initial_command, scrollback_lines, font_size, cursor_style, compression, \
-keepalive_secs, connect_timeout_secs";
+keepalive_secs, connect_timeout_secs, session_kind";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
     let sql = format!(
@@ -116,8 +127,8 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \
          initial_command, scrollback_lines, font_size, cursor_style, \
-         compression, keepalive_secs, connect_timeout_secs) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         compression, keepalive_secs, connect_timeout_secs, session_kind) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -135,6 +146,7 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .bind(input.compression)
     .bind(input.keepalive_secs)
     .bind(input.connect_timeout_secs)
+    .bind(&input.session_kind)
     .execute(&mut *tx)
     .await?
     .last_insert_rowid();
@@ -149,7 +161,8 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
          auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
          initial_command = ?, scrollback_lines = ?, font_size = ?, cursor_style = ?, \
-         compression = ?, keepalive_secs = ?, connect_timeout_secs = ? \
+         compression = ?, keepalive_secs = ?, connect_timeout_secs = ?, \
+         session_kind = ? \
          WHERE id = ?",
     )
     .bind(input.folder_id)
@@ -168,6 +181,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(input.compression)
     .bind(input.keepalive_secs)
     .bind(input.connect_timeout_secs)
+    .bind(&input.session_kind)
     .bind(id)
     .execute(&mut *tx)
     .await?;
@@ -178,6 +192,21 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
 
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
     sqlx::query("DELETE FROM sessions WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn mv(
+    pool: &SqlitePool,
+    id: i64,
+    folder_id: Option<i64>,
+    sort: i64,
+) -> Result<()> {
+    sqlx::query("UPDATE sessions SET folder_id = ?, sort = ? WHERE id = ?")
+        .bind(folder_id)
+        .bind(sort)
         .bind(id)
         .execute(pool)
         .await?;
@@ -205,6 +234,7 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
         keepalive_secs: src.keepalive_secs,
         connect_timeout_secs: src.connect_timeout_secs,
         env,
+        session_kind: src.session_kind,
     };
     create(pool, &input).await
 }
@@ -243,6 +273,7 @@ mod tests {
             keepalive_secs: 0,
             connect_timeout_secs: 15,
             env: Vec::new(),
+            session_kind: "ssh".into(),
         }
     }
 

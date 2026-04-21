@@ -1,0 +1,203 @@
+use tauri::{AppHandle, State};
+
+use crate::commands::require_unlocked;
+use crate::error::Result;
+use crate::local;
+use crate::state::AppState;
+
+#[derive(serde::Serialize)]
+pub struct LocalConnectResult {
+    pub connection_id: u64,
+}
+
+#[tauri::command]
+pub async fn local_connect(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    session_id: i64,
+    cols: u16,
+    rows: u16,
+) -> Result<LocalConnectResult> {
+    require_unlocked(&state).await?;
+    let out = local::spawn_from_session(&state, app, session_id, cols, rows).await?;
+    Ok(LocalConnectResult {
+        connection_id: out.connection_id,
+    })
+}
+
+#[tauri::command]
+pub async fn local_write(
+    state: State<'_, AppState>,
+    connection_id: u64,
+    bytes: Vec<u8>,
+) -> Result<()> {
+    state.local.write(connection_id, bytes).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn local_resize(
+    state: State<'_, AppState>,
+    connection_id: u64,
+    cols: u16,
+    rows: u16,
+) -> Result<()> {
+    state.local.resize(connection_id, cols, rows).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn local_disconnect(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
+    state.local.close(connection_id).await;
+    Ok(())
+}
+
+/// Returns the list of installed WSL distros (trimmed, in registered order).
+/// Empty when WSL is not installed or the command fails.
+#[tauri::command]
+pub async fn wsl_list_distros(state: State<'_, AppState>) -> Result<Vec<String>> {
+    require_unlocked(&state).await?;
+    Ok(tokio::task::spawn_blocking(detect_wsl_distros_blocking)
+        .await
+        .unwrap_or_default())
+}
+
+/// Serializes concurrent autodetect calls. React 18 strict-mode in the
+/// dev build can fire two mount effects back-to-back before the first
+/// one's promise resolves; without this lock both calls race into a
+/// "find WSL folder → create if missing" sequence and we end up with
+/// two duplicate folders.
+static AUTODETECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Invoked from the frontend once per vault unlock. If WSL is installed,
+/// creates (or reuses) a single root-level "WSL" folder and adds one
+/// session per detected distro.
+///
+/// Also consolidates pre-existing duplicates: if multiple root-level
+/// "WSL" folders exist (leftover from an earlier race before this lock
+/// was added), all sessions are moved into the lowest-id folder and the
+/// extra folders are deleted.
+#[tauri::command]
+pub async fn wsl_autodetect_seed(state: State<'_, AppState>) -> Result<usize> {
+    require_unlocked(&state).await?;
+    let _guard = AUTODETECT_LOCK.lock().await;
+
+    let distros = tokio::task::spawn_blocking(detect_wsl_distros_blocking)
+        .await
+        .unwrap_or_default();
+    if distros.is_empty() {
+        return Ok(0);
+    }
+
+    // Resolve (or consolidate) the root-level "WSL" folder.
+    let folders = crate::db::folders::list(&state.db).await?;
+    let wsl_folders: Vec<_> = folders
+        .iter()
+        .filter(|f| f.parent_id.is_none() && f.name == "WSL")
+        .collect();
+    let folder = match wsl_folders.as_slice() {
+        [] => crate::db::folders::create(&state.db, None, "WSL").await?,
+        [only] => (*only).clone(),
+        many => {
+            // Pick lowest-id as canonical. Move sessions in others into it,
+            // then delete the duplicates.
+            let mut sorted = many.to_vec();
+            sorted.sort_by_key(|f| f.id);
+            let canonical = sorted[0].clone();
+            for dup in sorted.iter().skip(1) {
+                sqlx::query("UPDATE sessions SET folder_id = ? WHERE folder_id = ?")
+                    .bind(canonical.id)
+                    .bind(dup.id)
+                    .execute(&state.db)
+                    .await?;
+                crate::db::folders::delete(&state.db, dup.id).await?;
+            }
+            canonical
+        }
+    };
+
+    // Add sessions for distros that don't already exist in the canonical
+    // folder (matched by name).
+    let existing = crate::db::sessions::list(&state.db).await?;
+    let mut created = 0usize;
+    for distro in &distros {
+        let already = existing.iter().any(|s| {
+            s.folder_id == Some(folder.id) && s.name == distro.as_str()
+        });
+        if already {
+            continue;
+        }
+        let input = crate::db::sessions::SessionInput {
+            folder_id: Some(folder.id),
+            name: distro.clone(),
+            host: distro.clone(),
+            port: 22,
+            username: String::new(),
+            auth_type: "agent".into(),
+            credential_id: None,
+            key_passphrase_credential_id: None,
+            color: Some("#34d399".into()),
+            initial_command: None,
+            scrollback_lines: 5000,
+            font_size: 13,
+            cursor_style: "block".into(),
+            compression: 0,
+            keepalive_secs: 0,
+            connect_timeout_secs: 15,
+            env: Vec::new(),
+            session_kind: "wsl".into(),
+        };
+        crate::db::sessions::create(&state.db, &input).await?;
+        created += 1;
+    }
+
+    Ok(created)
+}
+
+fn detect_wsl_distros_blocking() -> Vec<String> {
+    // `wsl.exe -l --quiet` prints one distro per line; on Windows it emits
+    // the output as UTF-16LE. We decode defensively so a rogue byte doesn't
+    // bubble up as a Rust error — if the exe is missing or WSL isn't
+    // installed we just return an empty list.
+    let output = match std::process::Command::new("wsl.exe")
+        .args(["-l", "--quiet"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("[wsl-autodetect] wsl.exe spawn failed: {e}");
+            return Vec::new();
+        }
+    };
+    if !output.status.success() {
+        eprintln!(
+            "[wsl-autodetect] wsl.exe exit {:?} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Vec::new();
+    }
+    let text = decode_wsl_output(&output.stdout);
+    let distros: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().trim_matches('\0').to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    eprintln!("[wsl-autodetect] detected {} distros: {:?}", distros.len(), distros);
+    distros
+}
+
+fn decode_wsl_output(bytes: &[u8]) -> String {
+    // wsl.exe output is UTF-16LE on Windows. Decode pairs of bytes into
+    // u16 code units and then into a String via char::decode_utf16.
+    if bytes.len() >= 2 && bytes.len() % 2 == 0 {
+        let u16s: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        return char::decode_utf16(u16s)
+            .filter_map(|r| r.ok())
+            .collect();
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}

@@ -1,6 +1,7 @@
 pub mod credentials;
 pub mod folders;
 pub mod import;
+pub mod local;
 pub mod scp;
 pub mod sessions;
 pub mod settings;

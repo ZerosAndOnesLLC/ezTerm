@@ -31,28 +31,58 @@ fn validate(input: &SessionInput) -> Result<()> {
     if input.name.trim().is_empty() {
         return Err(AppError::Validation("name required".into()));
     }
-    if input.host.trim().is_empty() {
-        return Err(AppError::Validation("host required".into()));
-    }
-    if input.username.trim().is_empty() {
-        return Err(AppError::Validation("username required".into()));
-    }
     if input.name.len() > 128 {
         return Err(AppError::Validation("name too long".into()));
     }
-    // RFC 1035: DNS names are capped at 253 octets. This also bounds IPv4/IPv6 literals.
-    if input.host.len() > 253 {
-        return Err(AppError::Validation("host too long".into()));
+    if !matches!(input.session_kind.as_str(), "ssh" | "wsl" | "local") {
+        return Err(AppError::Validation("invalid session_kind".into()));
     }
-    // POSIX/Linux useradd caps usernames at 32; we allow 64 to cover AD/UPN forms.
-    if input.username.len() > 64 {
-        return Err(AppError::Validation("username too long".into()));
-    }
-    if input.port <= 0 || input.port > 65535 {
-        return Err(AppError::Validation("port out of range".into()));
-    }
-    if !matches!(input.auth_type.as_str(), "password" | "key" | "agent") {
-        return Err(AppError::Validation("invalid auth_type".into()));
+    // Per-kind input rules. SSH retains the original tight checks; wsl and
+    // local relax port/auth since host/username are repurposed to distro/
+    // shell-program and wsl-user/cwd respectively.
+    if input.session_kind == "ssh" {
+        if input.host.trim().is_empty() {
+            return Err(AppError::Validation("host required".into()));
+        }
+        if input.username.trim().is_empty() {
+            return Err(AppError::Validation("username required".into()));
+        }
+        // RFC 1035: DNS names are capped at 253 octets. This also bounds IPv4/IPv6 literals.
+        if input.host.len() > 253 {
+            return Err(AppError::Validation("host too long".into()));
+        }
+        if input.username.len() > 64 {
+            return Err(AppError::Validation("username too long".into()));
+        }
+        if input.port <= 0 || input.port > 65535 {
+            return Err(AppError::Validation("port out of range".into()));
+        }
+        if !matches!(input.auth_type.as_str(), "password" | "key" | "agent") {
+            return Err(AppError::Validation("invalid auth_type".into()));
+        }
+    } else {
+        // wsl / local rows.
+        //
+        // host = distro name (wsl, empty ok for default distro) or shell
+        //        short-name / absolute path (local, empty ok = cmd).
+        // username = wsl user (wsl) or starting directory (local). Both
+        //            optional.
+        if input.host.len() > 512 {
+            return Err(AppError::Validation("host too long".into()));
+        }
+        if input.username.len() > 512 {
+            return Err(AppError::Validation("username too long".into()));
+        }
+        if input.auth_type != "agent" {
+            return Err(AppError::Validation(
+                "non-ssh sessions must use auth_type='agent'".into(),
+            ));
+        }
+        if input.credential_id.is_some() || input.key_passphrase_credential_id.is_some() {
+            return Err(AppError::Validation(
+                "non-ssh sessions cannot attach a credential".into(),
+            ));
+        }
     }
     if !matches!(input.cursor_style.as_str(), "block" | "bar" | "underline") {
         return Err(AppError::Validation("invalid cursor_style".into()));
@@ -148,4 +178,15 @@ pub async fn session_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
 pub async fn session_duplicate(state: State<'_, AppState>, id: i64) -> Result<Session> {
     require_unlocked(&state).await?;
     sessions::duplicate(&state.db, id).await
+}
+
+#[tauri::command]
+pub async fn session_move(
+    state: State<'_, AppState>,
+    id: i64,
+    folder_id: Option<i64>,
+    sort: i64,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    sessions::mv(&state.db, id, folder_id, sort).await
 }

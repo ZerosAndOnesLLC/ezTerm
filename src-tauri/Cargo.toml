@@ -40,6 +40,7 @@ sha2 = "0.10"
 base64 = "0.22"
 async-channel = "2"
 bytes = "1"
+portable-pty = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

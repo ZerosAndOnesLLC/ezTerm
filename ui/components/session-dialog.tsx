@@ -6,9 +6,12 @@ import {
   Key,
   KeyRound,
   Minus,
+  MonitorDot,
+  Network,
   Plus,
   Sliders,
   Square,
+  SquareTerminal,
   Terminal as TerminalIcon,
   Trash2,
   Type,
@@ -23,6 +26,7 @@ import type {
   Folder,
   Session,
   SessionInput,
+  SessionKind,
 } from '@/lib/types';
 import { CredentialPicker } from './credential-picker';
 
@@ -53,6 +57,7 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   keepalive_secs: 0,
   connect_timeout_secs: 15,
   env: [],
+  session_kind: 'ssh',
 };
 
 // Palette for the tab-color dot. Slate stores null = "no accent".
@@ -90,6 +95,7 @@ export function SessionDialog(props: Props) {
         keepalive_secs: s.keepalive_secs,
         connect_timeout_secs: s.connect_timeout_secs,
         env: [], // populated async below
+        session_kind: s.session_kind,
       };
     }
     return {
@@ -142,13 +148,15 @@ export function SessionDialog(props: Props) {
 
   function validate(input: SessionInput): string | null {
     if (!input.name.trim()) return 'Name is required';
-    if (!input.host.trim()) return 'Host is required';
-    if (!input.username.trim()) return 'Username is required';
-    if (!Number.isFinite(input.port) || input.port < 1 || input.port > 65535) {
-      return 'Port must be between 1 and 65535';
-    }
-    if ((input.auth_type === 'password' || input.auth_type === 'key') && input.credential_id == null) {
-      return 'Credential is required for this auth type';
+    if (input.session_kind === 'ssh') {
+      if (!input.host.trim()) return 'Host is required';
+      if (!input.username.trim()) return 'Username is required';
+      if (!Number.isFinite(input.port) || input.port < 1 || input.port > 65535) {
+        return 'Port must be between 1 and 65535';
+      }
+      if ((input.auth_type === 'password' || input.auth_type === 'key') && input.credential_id == null) {
+        return 'Credential is required for this auth type';
+      }
     }
     if (input.scrollback_lines < 0 || input.scrollback_lines > 100_000) {
       return 'Scrollback must be between 0 and 100000';
@@ -336,8 +344,42 @@ function GeneralPane({
   folders: Folder[];
   credKind: 'password' | 'private_key' | null;
 }) {
+  function switchKind(next: SessionKind) {
+    // Reset kind-specific fields when switching so stale values don't leak
+    // across kinds (port only makes sense for ssh; credentials only for ssh).
+    setV((cur) => ({
+      ...cur,
+      session_kind: next,
+      host: next === cur.session_kind ? cur.host : defaultHost(next),
+      port: next === 'ssh' ? (cur.port || 22) : 0,
+      username: next === cur.session_kind ? cur.username : '',
+      auth_type: next === 'ssh' ? cur.auth_type : 'agent',
+      credential_id: next === 'ssh' ? cur.credential_id : null,
+      key_passphrase_credential_id: next === 'ssh' ? cur.key_passphrase_credential_id : null,
+    }));
+  }
+  const isSsh   = v.session_kind === 'ssh';
+  const isWsl   = v.session_kind === 'wsl';
+  const isLocal = v.session_kind === 'local';
+
   return (
     <>
+      <SectionHeading>Type</SectionHeading>
+      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Session type">
+        <KindOption
+          value="ssh" current={v.session_kind} Icon={Network}
+          onSelect={switchKind}
+          title="SSH" hint="Remote Linux / Unix server" />
+        <KindOption
+          value="wsl" current={v.session_kind} Icon={SquareTerminal}
+          onSelect={switchKind}
+          title="WSL" hint="Local Linux subsystem distro" />
+        <KindOption
+          value="local" current={v.session_kind} Icon={MonitorDot}
+          onSelect={switchKind}
+          title="Local Shell" hint="cmd / PowerShell / pwsh" />
+      </div>
+
       <SectionHeading>Connection</SectionHeading>
       <Field label="Name">
         <input
@@ -345,7 +387,7 @@ function GeneralPane({
           onChange={(e) => setV({ ...v, name: e.target.value })}
           className="input"
           autoFocus
-          placeholder="My production server"
+          placeholder={isWsl ? 'My Ubuntu WSL' : isLocal ? 'Local PowerShell' : 'My production server'}
         />
       </Field>
       <Field label="Folder">
@@ -360,73 +402,145 @@ function GeneralPane({
           ))}
         </select>
       </Field>
-      <div className="grid grid-cols-[1fr_110px] gap-3">
-        <Field label="Host">
-          <input
-            value={v.host}
-            onChange={(e) => setV({ ...v, host: e.target.value })}
-            className="input"
-            placeholder="example.com or 10.0.0.1"
-          />
-        </Field>
-        <Field label="Port">
-          <input
-            type="number" min={1} max={65535}
-            value={v.port}
-            onChange={(e) => setV({ ...v, port: Number(e.target.value) })}
-            className="input"
-          />
-        </Field>
-      </div>
-      <Field label="Username">
-        <input
-          value={v.username}
-          onChange={(e) => setV({ ...v, username: e.target.value })}
-          className="input"
-          placeholder="root"
-        />
-      </Field>
 
-      <SectionHeading>Authentication</SectionHeading>
-      <Field label="Method">
-        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Auth method">
-          <AuthOption value="password" current={v.auth_type} Icon={Key}
-            onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
-            title="Password" hint="Static password in vault" />
-          <AuthOption value="key" current={v.auth_type} Icon={KeyRound}
-            onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
-            title="Private Key" hint="PEM / OpenSSH key" />
-          <AuthOption value="agent" current={v.auth_type} Icon={Cpu}
-            onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
-            title="SSH Agent" hint="Pageant / OpenSSH Agent" />
-        </div>
-      </Field>
+      {isSsh && (
+        <>
+          <div className="grid grid-cols-[1fr_110px] gap-3">
+            <Field label="Host">
+              <input
+                value={v.host}
+                onChange={(e) => setV({ ...v, host: e.target.value })}
+                className="input"
+                placeholder="example.com or 10.0.0.1"
+              />
+            </Field>
+            <Field label="Port">
+              <input
+                type="number" min={1} max={65535}
+                value={v.port}
+                onChange={(e) => setV({ ...v, port: Number(e.target.value) })}
+                className="input"
+              />
+            </Field>
+          </div>
+          <Field label="Username">
+            <input
+              value={v.username}
+              onChange={(e) => setV({ ...v, username: e.target.value })}
+              className="input"
+              placeholder="root"
+            />
+          </Field>
+        </>
+      )}
 
-      {credKind && (
-        <Field label={credKind === 'password' ? 'Password credential' : 'Private key'}>
-          <CredentialPicker
-            kind={credKind}
-            value={v.credential_id}
-            onChange={(id) => setV({ ...v, credential_id: id })}
-          />
-        </Field>
+      {isWsl && (
+        <>
+          <Field
+            label="Distro"
+            hint="Leave blank to launch the default distro. Type exactly as shown by `wsl -l --quiet`."
+          >
+            <input
+              value={v.host}
+              onChange={(e) => setV({ ...v, host: e.target.value })}
+              className="input font-mono"
+              placeholder="Ubuntu-24.04"
+            />
+          </Field>
+          <Field label="WSL user (optional)">
+            <input
+              value={v.username}
+              onChange={(e) => setV({ ...v, username: e.target.value })}
+              className="input font-mono"
+              placeholder="(distro default)"
+            />
+          </Field>
+        </>
       )}
-      {v.auth_type === 'key' && (
-        <Field label="Key passphrase (optional)">
-          <CredentialPicker
-            kind="key_passphrase"
-            value={v.key_passphrase_credential_id}
-            onChange={(id) => setV({ ...v, key_passphrase_credential_id: id })}
-          />
-        </Field>
+
+      {isLocal && (
+        <>
+          <Field
+            label="Shell"
+            hint="Short name or absolute path. Short names resolve via %PATH%."
+          >
+            <select
+              value={['cmd', 'pwsh', 'powershell'].includes(v.host) ? v.host : '__custom'}
+              onChange={(e) => {
+                const val = e.target.value;
+                setV({ ...v, host: val === '__custom' ? (v.host || '') : val });
+              }}
+              className="input font-mono"
+            >
+              <option value="cmd">cmd</option>
+              <option value="pwsh">pwsh</option>
+              <option value="powershell">powershell</option>
+              <option value="__custom">Custom path…</option>
+            </select>
+            {!['cmd', 'pwsh', 'powershell'].includes(v.host) && (
+              <input
+                value={v.host}
+                onChange={(e) => setV({ ...v, host: e.target.value })}
+                className="input font-mono mt-2"
+                placeholder={'C:\\Program Files\\Git\\bin\\bash.exe'}
+              />
+            )}
+          </Field>
+          <Field label="Starting directory (optional)">
+            <input
+              value={v.username}
+              onChange={(e) => setV({ ...v, username: e.target.value })}
+              className="input font-mono"
+              placeholder={'C:\\Users\\you\\projects'}
+            />
+          </Field>
+        </>
       )}
-      {v.auth_type === 'agent' && (
-        <p className="text-muted text-xs">
-          Uses your OS SSH agent (Pageant / OpenSSH Agent service). On Windows
-          the agent service is disabled by default — if you see
-          <span className="font-mono mx-1">Agent failure</span>,
-          switch to Password or Private Key.
-        </p>
+
+      {isSsh && (
+        <>
+          <SectionHeading>Authentication</SectionHeading>
+          <Field label="Method">
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Auth method">
+              <AuthOption value="password" current={v.auth_type} Icon={Key}
+                onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
+                title="Password" hint="Static password in vault" />
+              <AuthOption value="key" current={v.auth_type} Icon={KeyRound}
+                onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
+                title="Private Key" hint="PEM / OpenSSH key" />
+              <AuthOption value="agent" current={v.auth_type} Icon={Cpu}
+                onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
+                title="SSH Agent" hint="Pageant / OpenSSH Agent" />
+            </div>
+          </Field>
+
+          {credKind && (
+            <Field label={credKind === 'password' ? 'Password credential' : 'Private key'}>
+              <CredentialPicker
+                kind={credKind}
+                value={v.credential_id}
+                onChange={(id) => setV({ ...v, credential_id: id })}
+              />
+            </Field>
+          )}
+          {v.auth_type === 'key' && (
+            <Field label="Key passphrase (optional)">
+              <CredentialPicker
+                kind="key_passphrase"
+                value={v.key_passphrase_credential_id}
+                onChange={(id) => setV({ ...v, key_passphrase_credential_id: id })}
+              />
+            </Field>
+          )}
+          {v.auth_type === 'agent' && (
+            <p className="text-muted text-xs">
+              Uses your OS SSH agent (Pageant / OpenSSH Agent service). On Windows
+              the agent service is disabled by default — if you see
+              <span className="font-mono mx-1">Agent failure</span>,
+              switch to Password or Private Key.
+            </p>
+          )}
+        </>
       )}
 
       <SectionHeading>Appearance</SectionHeading>
@@ -653,6 +767,41 @@ function AuthOption({
       <div className="text-xs text-muted">{hint}</div>
     </button>
   );
+}
+
+function KindOption({
+  value, current, onSelect, title, hint, Icon,
+}: {
+  value:    SessionKind;
+  current:  SessionKind;
+  onSelect: (k: SessionKind) => void;
+  title:    string;
+  hint:     string;
+  Icon:     LucideIcon;
+}) {
+  const on = value === current;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={() => onSelect(value)}
+      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
+        on
+          ? 'border-accent bg-accent/10 text-fg'
+          : 'border-border hover:border-muted text-muted hover:text-fg'
+      }`}
+    >
+      <Icon size={16} className={on ? 'text-accent' : ''} />
+      <div className="font-medium text-sm">{title}</div>
+      <div className="text-xs text-muted">{hint}</div>
+    </button>
+  );
+}
+
+function defaultHost(kind: SessionKind): string {
+  if (kind === 'local') return 'cmd';
+  return '';
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {

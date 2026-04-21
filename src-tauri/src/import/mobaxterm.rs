@@ -19,8 +19,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// SSH session type code in MobaXterm's bookmark format.
+/// Session type codes in MobaXterm's bookmark format.
 const SESSION_TYPE_SSH: &str = "0";
+const SESSION_TYPE_WSL: &str = "14";
 
 /// Zero-based index of the private-key-path slot in the `%`-separated SSH
 /// descriptor (after host/port/user/…). When non-empty MobaXterm will use
@@ -34,16 +35,23 @@ pub struct ParsedMobaSession {
     /// Folder path from `SubRep`, split on `\`. Empty = root.
     pub folder_path: Vec<String>,
     pub name:     String,
+    /// ezTerm session kind: `"ssh"` or `"wsl"`. Other MobaXterm types
+    /// (RDP, VNC, Serial, …) are skipped during parse, not reported here.
+    pub session_kind: String,
+    /// For ssh: remote hostname. For wsl: distro name (empty = default).
     pub host:     String,
+    /// For ssh: TCP port. For wsl: unused (stored as 22 for schema
+    /// compatibility; validator ignores it).
     pub port:     i64,
+    /// For ssh: remote username. For wsl: optional WSL user (empty = distro
+    /// default).
     pub username: String,
-    /// `"key"` if the source row referenced a private-key file, otherwise
-    /// `"password"`. Never `"agent"` — MobaXterm doesn't use agent auth.
+    /// SSH-only: `"key"` if the row referenced a private-key file, else
+    /// `"password"`. For wsl this is always `"agent"` (meaning "no
+    /// credential") and `private_key_path` is None.
     pub auth_type: String,
-    /// Raw key-file path string from the source row (MobaXterm-style with
-    /// `_MyDocuments_` / `_HomeDir_` / `_AppDataDir_` placeholders or an
-    /// absolute Windows path). `None` for password rows. The commit step
-    /// resolves this to a filesystem path.
+    /// SSH-only: raw key-file path from the source row (MobaXterm-style
+    /// placeholders or absolute Windows path). None for password or wsl.
     pub private_key_path: Option<String>,
 }
 
@@ -125,11 +133,11 @@ fn split_subrep(value: &str) -> Vec<String> {
 /// Parse a single session row.
 ///
 /// `name` is the raw INI key (session name); `value` is everything after the
-/// first `=` and starts with `#<ImgNum>#<Type>%<Host>%<Port>%<Username>%…`.
+/// first `=` and starts with `#<ImgNum>#<Type>%<fields>…`.
 ///
-/// Returns `Ok(Some(..))` for SSH, `Ok(None)` for other protocols (RDP,
-/// VNC, Serial, WSL, …), `Err(())` if the row claims to be SSH but lacks
-/// host/port/user.
+/// Returns `Ok(Some(..))` for SSH (type 0) and WSL (type 14), `Ok(None)`
+/// for other protocols (RDP, VNC, Serial, …), `Err(())` if the row claims
+/// to be one of our supported types but lacks required fields.
 fn parse_session_line(
     name: &str,
     value: &str,
@@ -140,7 +148,6 @@ fn parse_session_line(
         return Err(());
     }
 
-    // Value = "#<Img>#<Type>%<Host>%<Port>%<Username>%<…>"
     let (header, rest) = value.split_once('%').ok_or(())?;
     let session_type = header
         .trim_start_matches('#')
@@ -148,11 +155,21 @@ fn parse_session_line(
         .next()
         .unwrap_or("")
         .trim();
-    if session_type != SESSION_TYPE_SSH {
-        return Ok(None);
-    }
 
     let fields: Vec<&str> = rest.split('%').collect();
+
+    match session_type {
+        SESSION_TYPE_SSH => parse_ssh_row(name, &fields, folder),
+        SESSION_TYPE_WSL => parse_wsl_row(name, &fields, folder),
+        _ => Ok(None),
+    }
+}
+
+fn parse_ssh_row(
+    name: String,
+    fields: &[&str],
+    folder: &[String],
+) -> Result<Option<ParsedMobaSession>, ()> {
     let host = fields.first().copied().unwrap_or("").trim().to_string();
     let port_str = fields.get(1).copied().unwrap_or("").trim();
     let username = fields.get(2).copied().unwrap_or("").trim().to_string();
@@ -178,11 +195,38 @@ fn parse_session_line(
     Ok(Some(ParsedMobaSession {
         folder_path: folder.to_vec(),
         name,
+        session_kind: "ssh".into(),
         host,
         port,
         username,
         auth_type: auth_type.into(),
         private_key_path,
+    }))
+}
+
+/// WSL row layout (from the real MobaXterm `.mxtsessions` format):
+/// `<Name>=#<Img>#14%<Distro>%%<ShellHint>%%<WslUser>%<…>%…`
+/// We care about fields[0] (distro) and fields[4] (wsl user). Everything
+/// else is MobaXterm terminal state that doesn't round-trip cleanly.
+fn parse_wsl_row(
+    name: String,
+    fields: &[&str],
+    folder: &[String],
+) -> Result<Option<ParsedMobaSession>, ()> {
+    let distro = fields.first().copied().unwrap_or("").trim().to_string();
+    let wsl_user = fields.get(4).copied().unwrap_or("").trim().to_string();
+    // An empty distro is legal (falls back to the default distro) but we
+    // require SOMETHING identifying — name is enough. No host/user validation
+    // needed beyond what we already enforce for the session_kind='wsl' rules.
+    Ok(Some(ParsedMobaSession {
+        folder_path: folder.to_vec(),
+        name,
+        session_kind: "wsl".into(),
+        host: distro,
+        port: 22, // schema default; validator ignores port for wsl.
+        username: wsl_user,
+        auth_type: "agent".into(),
+        private_key_path: None,
     }))
 }
 
@@ -281,13 +325,35 @@ COM6 (USB Serial Port (COM6))=#131#8%2%100960%3%0%0
 SubRep=
 rdp-box=#0#4%rdp.example.com%3389%admin%%
 vnc-box=#0#5%vnc.example.com%5900%admin%%
-wsl-ubuntu=#0#14%Ubuntu-24.04%%
+serial-box=#0#8%2%100960%3%0%0%1%2%
 ssh-ok=#0#0%ssh.example.com%22%root%%
 ";
         let r = parse(ini);
         assert_eq!(r.sessions.len(), 1);
         assert_eq!(r.skipped_non_ssh, 3);
         assert_eq!(r.sessions[0].name, "ssh-ok");
+        assert_eq!(r.sessions[0].session_kind, "ssh");
+    }
+
+    #[test]
+    fn wsl_rows_are_imported() {
+        // Real MobaXterm WSL rows: type 14, distro in field[0], WSL user in field[4].
+        let ini = "\
+[Bookmarks_1]
+SubRep=Linux
+WSL-Ubuntu=#151#14%Ubuntu-24.04%%Interactive shell%%mack%0#MobaFont
+WSL-Default=#151#14%%%Interactive shell%%%0
+";
+        let r = parse(ini);
+        assert_eq!(r.sessions.len(), 2);
+        assert_eq!(r.sessions[0].session_kind, "wsl");
+        assert_eq!(r.sessions[0].host, "Ubuntu-24.04");
+        assert_eq!(r.sessions[0].username, "mack");
+        assert_eq!(r.sessions[0].auth_type, "agent");
+        assert_eq!(r.sessions[0].folder_path, vec!["Linux"]);
+        // Default-distro row has empty host — that's legal.
+        assert_eq!(r.sessions[1].host, "");
+        assert_eq!(r.sessions[1].username, "");
     }
 
     #[test]

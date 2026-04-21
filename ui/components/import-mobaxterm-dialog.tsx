@@ -159,12 +159,14 @@ export function ImportMobaxtermDialog({ filePath, onCancel, onDone }: Props) {
                         <span>{s.username}@{s.host}{s.port !== 22 ? `:${s.port}` : ''}</span>
                         <span
                           className={`ml-2 px-1 rounded text-[10px] ${
-                            s.auth_type === 'key'
-                              ? 'bg-accent/20 text-accent'
-                              : 'bg-warning/20 text-warning'
+                            s.session_kind === 'wsl'
+                              ? 'bg-success/20 text-success'
+                              : s.auth_type === 'key'
+                                ? 'bg-accent/20 text-accent'
+                                : 'bg-warning/20 text-warning'
                           }`}
                         >
-                          {s.auth_type}
+                          {s.session_kind === 'wsl' ? 'wsl' : s.auth_type}
                         </span>
                         {s.private_key_path && (
                           <span className="ml-1 opacity-80">{keyFileName(s.private_key_path)}</span>

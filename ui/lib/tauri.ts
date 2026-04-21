@@ -36,6 +36,8 @@ export const api = {
   sessionUpdate:    (id: number, input: SessionInput) => invoke<Session>('session_update', { id, input }),
   sessionDelete:    (id: number) => invoke<void>('session_delete', { id }),
   sessionDuplicate: (id: number) => invoke<Session>('session_duplicate', { id }),
+  sessionMove:      (id: number, folderId: number | null, sort: number) =>
+    invoke<void>('session_move', { id, folderId, sort }),
 
   // Credentials
   credentialList:   () => invoke<CredentialMeta[]>('credential_list'),
@@ -81,6 +83,18 @@ export const api = {
     invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
+
+  // Local PTY (WSL / cmd / pwsh)
+  localConnect:    (sessionId: number, cols: number, rows: number) =>
+    invoke<{ connection_id: number }>('local_connect', { sessionId, cols, rows }),
+  localWrite:      (connectionId: number, bytes: number[]) =>
+    invoke<void>('local_write', { connectionId, bytes }),
+  localResize:     (connectionId: number, cols: number, rows: number) =>
+    invoke<void>('local_resize', { connectionId, cols, rows }),
+  localDisconnect: (connectionId: number) =>
+    invoke<void>('local_disconnect', { connectionId }),
+  wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
+  wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
 
   // Import
   mobaxtermPreview: (path: string) =>

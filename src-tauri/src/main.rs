@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod error;
 mod import;
+mod local;
 mod log_redacted;
 mod scp;
 mod sftp;
@@ -49,6 +50,7 @@ async fn main() {
             commands::sessions::session_update,
             commands::sessions::session_delete,
             commands::sessions::session_duplicate,
+            commands::sessions::session_move,
             commands::import::mobaxterm_preview,
             commands::import::mobaxterm_commit,
             commands::settings::settings_get,
@@ -75,6 +77,12 @@ async fn main() {
             commands::sftp::sftp_download,
             commands::scp::scp_upload,
             commands::scp::scp_download,
+            commands::local::local_connect,
+            commands::local::local_write,
+            commands::local::local_resize,
+            commands::local::local_disconnect,
+            commands::local::wsl_list_distros,
+            commands::local::wsl_autodetect_seed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

@@ -367,13 +367,15 @@ async fn insert_imported_session(
     // Defaults match the UI's new-session defaults (see session-dialog.tsx).
     // `credential_id` is attached when a referenced key file was read into
     // the vault; otherwise the session lands with no credential and the
-    // user attaches one later from the session dialog.
+    // user attaches one later from the session dialog. WSL rows force a
+    // green-tinted dot so they stand out in the tree.
+    let color: Option<&str> = if s.session_kind == "wsl" { Some("#34d399") } else { None };
     sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \
          initial_command, scrollback_lines, font_size, cursor_style, \
-         compression, keepalive_secs, connect_timeout_secs) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 5000, 13, 'block', 0, 0, 15)",
+         compression, keepalive_secs, connect_timeout_secs, session_kind) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 5000, 13, 'block', 0, 0, 15, ?)",
     )
     .bind(folder_id)
     .bind(name)
@@ -382,6 +384,8 @@ async fn insert_imported_session(
     .bind(&s.username)
     .bind(&s.auth_type)
     .bind(credential_id)
+    .bind(color)
+    .bind(&s.session_kind)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -498,6 +502,7 @@ mod tests {
             ParsedMobaSession {
                 folder_path: path,
                 name: name.into(),
+                session_kind: "ssh".into(),
                 host: "h".into(),
                 port: 22,
                 username: "u".into(),

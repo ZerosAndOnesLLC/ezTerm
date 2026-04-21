@@ -46,6 +46,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Root package-lock (no root deps — file would just be an empty lock)
+/package-lock.json
+
 # ---------- Claude Code runtime ----------
 .claude/
 

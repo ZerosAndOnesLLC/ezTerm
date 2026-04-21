@@ -7,10 +7,27 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  MonitorDot,
   PanelLeftClose,
   Plus,
+  Server,
+  SquareTerminal,
   Terminal,
+  Trash2,
 } from 'lucide-react';
+
+/** Colour palette for folder icons. Deterministic hash of the folder name
+ *  picks one — gives the tree visual variety without a DB column. */
+const FOLDER_PALETTE = [
+  '#60a5fa', '#34d399', '#fbbf24', '#f87171',
+  '#a78bfa', '#22d3ee', '#f472b6', '#fb923c',
+] as const;
+
+function folderColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (Math.imul(h, 31) + name.charCodeAt(i)) | 0;
+  return FOLDER_PALETTE[Math.abs(h) % FOLDER_PALETTE.length];
+}
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
 import type { Folder as TFolder, Session } from '@/lib/types';
@@ -27,6 +44,12 @@ interface TreeNode {
   folder: TFolder | null; // null = root
   folders: TreeNode[];
   sessions: Session[];
+}
+
+function countDescendantSessions(node: TreeNode): number {
+  let n = node.sessions.length;
+  for (const c of node.folders) n += countDescendantSessions(c);
+  return n;
 }
 
 function buildTree(folders: TFolder[], sessions: Session[]): TreeNode {
@@ -74,6 +97,11 @@ export function SessionsSidebar() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [importPath, setImportPath] = useState<string | null>(null);
+  // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
+  // source); `dragTarget` is the hovered drop zone — a folder id, or 'root'
+  // for the background drop zone. null when nothing is being dragged-over.
+  const [drag, setDrag] = useState<{ kind: 'session' | 'folder'; id: number } | null>(null);
+  const [dragTarget, setDragTarget] = useState<number | 'root' | null>(null);
 
   const openTabAction   = useTabs((s) => s.open);
   const openTabs        = useTabs((s) => s.tabs);
@@ -160,6 +188,75 @@ export function SessionsSidebar() {
     }
   }
 
+  // --- Drag & drop ------------------------------------------------------
+  //
+  // HTML5 DnD. The dragged row puts {kind,id} into dataTransfer so the drop
+  // handler can route to api.sessionMove / folderMove. Sort is always 0 on
+  // drop (new-top-of-folder); intra-folder reordering is a separate pass.
+
+  function handleDragStart(
+    e: React.DragEvent,
+    kind: 'session' | 'folder',
+    id: number,
+  ) {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/json', JSON.stringify({ kind, id }));
+    setDrag({ kind, id });
+  }
+
+  function handleDragEnd() {
+    setDrag(null);
+    setDragTarget(null);
+  }
+
+  function handleDragOver(e: React.DragEvent, target: number | 'root') {
+    if (!drag) return;
+    // Never allow a folder to be dropped into itself — instant rejection.
+    if (drag.kind === 'folder' && target === drag.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragTarget !== target) setDragTarget(target);
+  }
+
+  async function handleDrop(e: React.DragEvent, target: number | 'root') {
+    e.preventDefault();
+    e.stopPropagation();
+    const raw = e.dataTransfer.getData('application/json');
+    setDrag(null);
+    setDragTarget(null);
+    if (!raw) return;
+    let payload: { kind: 'session' | 'folder'; id: number };
+    try { payload = JSON.parse(raw); } catch { return; }
+    const folderId: number | null = target === 'root' ? null : target;
+
+    // No-op if dropping onto current parent.
+    if (payload.kind === 'session') {
+      const cur = sessions.find((s) => s.id === payload.id);
+      if (cur && cur.folder_id === folderId) return;
+    } else {
+      const cur = folders.find((f) => f.id === payload.id);
+      if (!cur) return;
+      if (cur.parent_id === folderId) return;
+      if (folderId === payload.id) return; // self
+    }
+
+    try {
+      if (payload.kind === 'session') {
+        await api.sessionMove(payload.id, folderId, 0);
+      } else {
+        await api.folderMove(payload.id, folderId, 0);
+      }
+      if (folderId !== null) {
+        setExpanded((prev) => new Set(prev).add(folderId));
+      }
+      reload();
+    } catch (err) {
+      toast.danger('Move failed', errMessage(err));
+    }
+  }
+
   function openSessionMenu(e: React.MouseEvent, s: Session) {
     e.preventDefault();
     setSelectedId(s.id);
@@ -184,23 +281,65 @@ export function SessionsSidebar() {
   function NodeView({ node, depth }: { node: TreeNode; depth: number }) {
     const isOpen = node.folder ? expanded.has(node.folder.id) : true;
     const FolderIcon = isOpen ? FolderOpen : Folder;
+    const folderId = node.folder?.id ?? null;
+    const isDragSource = !!(
+      node.folder && drag?.kind === 'folder' && drag.id === node.folder.id
+    );
+    const isDropTarget =
+      node.folder != null && dragTarget === node.folder.id;
+    const folderTint = node.folder ? folderColor(node.folder.name) : undefined;
+    const sessionCount = countDescendantSessions(node);
     return (
       <div>
         {node.folder && (
           <div
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'folder', node.folder!.id)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOver(e, node.folder!.id)}
+            onDrop={(e) => handleDrop(e, node.folder!.id)}
             onClick={() => toggleFolder(node.folder!.id)}
             onContextMenu={(e) => openFolderMenu(e, node.folder!)}
-            className="h-6 flex items-center gap-1.5 text-muted hover:text-fg hover:bg-surface2/60 cursor-default select-none pr-2"
-            style={{ paddingLeft: 4 + depth * 10 }}
+            className={`group relative h-7 flex items-center gap-1.5 cursor-default select-none pr-2 transition-colors ${
+              isDropTarget
+                ? 'bg-accent/20 outline outline-1 outline-accent/60 text-fg'
+                : 'text-fg/80 hover:text-fg hover:bg-surface2/70'
+            } ${isDragSource ? 'opacity-50' : ''}`}
+            style={{ paddingLeft: 6 + depth * 12 }}
             role="treeitem"
             aria-expanded={isOpen}
             aria-selected={false}
           >
             <span className="w-3 h-3 flex items-center justify-center text-muted/80 shrink-0">
-              {isOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
             </span>
-            <FolderIcon size={13} className="text-muted shrink-0" />
-            <span className="truncate text-xs">{node.folder.name}</span>
+            <FolderIcon
+              size={14}
+              className="shrink-0"
+              style={{ color: folderTint }}
+              strokeWidth={2}
+            />
+            <span className="truncate text-xs font-medium flex-1">{node.folder.name}</span>
+            {sessionCount > 0 && (
+              <span
+                className="shrink-0 text-[10px] font-mono tabular-nums px-1.5 py-[1px] rounded-sm bg-surface2/80 text-muted group-hover:bg-surface2 group-hover:text-fg/80"
+                title={`${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
+              >
+                {sessionCount}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirm({ kind: 'delete-folder', folder: node.folder! });
+              }}
+              aria-label={`Delete folder ${node.folder.name}`}
+              title="Delete folder"
+              className="shrink-0 w-5 h-5 flex items-center justify-center rounded-sm opacity-0 group-hover:opacity-100 text-muted hover:text-danger hover:bg-danger/10"
+            >
+              <Trash2 size={11} />
+            </button>
           </div>
         )}
         {isOpen && (
@@ -212,37 +351,65 @@ export function SessionsSidebar() {
             {node.sessions.map((s) => {
               const isSelected  = selectedId === s.id;
               const isConnected = connectedSessionIds.has(s.id);
+              const isSrc = drag?.kind === 'session' && drag.id === s.id;
+              // Left-rail colour priority: connected green > selected accent
+              // > session's own colour > transparent.
+              const rail = isConnected
+                ? 'rgb(var(--success))'
+                : isSelected
+                  ? 'rgb(var(--accent))'
+                  : s.color ?? 'transparent';
               return (
                 <div
                   key={s.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, 'session', s.id)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => setSelectedId(s.id)}
                   onContextMenu={(e) => openSessionMenu(e, s)}
                   onDoubleClick={() => openTabAction(s)}
-                  className={`group relative h-6 flex items-center gap-1.5 cursor-default select-none pr-2 ${
-                    isSelected ? 'bg-accent/18 text-fg' : 'hover:bg-surface2/60 text-fg/90 hover:text-fg'
-                  }`}
-                  style={{ paddingLeft: 4 + (depth + 1) * 10 }}
+                  onDragOver={(e) => {
+                    // Sessions aren't drop targets themselves; redirect the
+                    // hover highlight to the enclosing folder (or root) so
+                    // dragging over a session inside a folder still signals
+                    // the valid drop location.
+                    if (!drag) return;
+                    handleDragOver(e, folderId ?? 'root');
+                  }}
+                  onDrop={(e) => { if (drag) handleDrop(e, folderId ?? 'root'); }}
+                  className={`group relative h-7 flex items-center gap-2 cursor-default select-none pr-2 transition-colors ${
+                    isSelected
+                      ? 'bg-accent/18 text-fg'
+                      : 'hover:bg-surface2/70 text-fg/90 hover:text-fg'
+                  } ${isSrc ? 'opacity-50' : ''}`}
+                  style={{ paddingLeft: 6 + (depth + 1) * 12 }}
                   role="treeitem"
                   aria-selected={isSelected}
                   title={`${s.username}@${s.host}${s.port !== 22 ? `:${s.port}` : ''}`}
                 >
-                  {isConnected && (
-                    <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-success" aria-hidden />
-                  )}
-                  <Terminal
-                    size={13}
-                    className={`shrink-0 ${isConnected ? 'text-success' : 'text-muted'}`}
+                  <span
+                    className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm ${
+                      isConnected ? 'animate-pulse' : ''
+                    }`}
+                    style={{ background: rail }}
+                    aria-hidden
                   />
-                  {s.color && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: s.color }}
-                      aria-hidden
-                    />
-                  )}
-                  <span className="truncate text-xs flex-1">{s.name}</span>
-                  <span className="text-muted text-[10px] opacity-0 group-hover:opacity-100 font-mono truncate max-w-[100px]">
-                    {s.username}@{s.host}
+                  {(() => {
+                    const KindIcon =
+                      s.session_kind === 'wsl' ? SquareTerminal :
+                      s.session_kind === 'local' ? MonitorDot :
+                      Server;
+                    return (
+                      <KindIcon
+                        size={13}
+                        className="shrink-0"
+                        style={{ color: isConnected ? 'rgb(var(--success))' : (s.color ?? undefined) }}
+                        strokeWidth={2}
+                      />
+                    );
+                  })()}
+                  <span className={`truncate text-xs flex-1 ${isSelected ? 'font-medium' : ''}`}>
+                    {s.name}
                   </span>
                 </div>
               );
@@ -300,12 +467,19 @@ export function SessionsSidebar() {
         </button>
       </div>
 
-      {/* Tree */}
+      {/* Tree — the whole container is a drop zone for "move to root".
+          Individual rows have their own onDragOver that stops propagation
+          for folder drops, so this only fires when the user hovers open
+          whitespace or a root-level row while dragging. */}
       <div
-        className="flex-1 min-h-0 overflow-auto py-1"
+        className={`flex-1 min-h-0 overflow-auto py-1 transition-colors ${
+          drag && dragTarget === 'root' ? 'bg-accent/10 outline outline-1 outline-accent/40 -outline-offset-1' : ''
+        }`}
         role="tree"
         aria-label="Sessions"
         onContextMenu={(e) => { if (e.target === e.currentTarget) openFolderMenu(e, null); }}
+        onDragOver={(e) => handleDragOver(e, 'root')}
+        onDrop={(e) => handleDrop(e, 'root')}
       >
         {empty ? (
           <EmptyState

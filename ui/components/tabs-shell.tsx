@@ -69,19 +69,21 @@ export function TabsShell() {
               >
                 {t.session.name}
               </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  useTabs.getState().setSftpOpen(t.tabId, !t.sftpOpen);
-                }}
-                title={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
-                aria-label={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
-                aria-pressed={t.sftpOpen}
-                className="icon-btn w-5 h-5 ml-1"
-              >
-                <FolderTree size={12} />
-              </button>
+              {t.session.session_kind === 'ssh' && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useTabs.getState().setSftpOpen(t.tabId, !t.sftpOpen);
+                  }}
+                  title={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
+                  aria-label={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
+                  aria-pressed={t.sftpOpen}
+                  className="icon-btn w-5 h-5 ml-1"
+                >
+                  <FolderTree size={12} />
+                </button>
+              )}
               <button
                 type="button"
                 aria-label="Close tab"
@@ -119,7 +121,7 @@ export function TabsShell() {
                 }}
                 aria-hidden={!active}
               >
-                {t.sftpOpen && <SftpPane tab={t} />}
+                {t.sftpOpen && t.session.session_kind === 'ssh' && <SftpPane tab={t} />}
                 <div className="flex-1 min-h-0 relative">
                   <TerminalView tab={t} visible={active} />
                 </div>
