@@ -12,14 +12,18 @@
   leave it behind without this custom action.
 
   User data (sessions DB, vault, settings) is left untouched — that
-  should be an explicit user choice, not a silent uninstall side effect.
+  should be an explicit user choice, not a silent uninstall side
+  effect.
 
+  Schema note: Tauri v2 bundles WiX v3 (WixTools314) — the namespace
+  and the condition-as-inner-text form of `<Custom>` are v3-specific.
   `Return="ignore"` so the uninstall still succeeds if the directory
   doesn't exist (user never ran the in-app install).
   `Execute="deferred"` + `Impersonate="yes"` so rmdir runs under the
   user's AppData, not the SYSTEM context the installer runs in.
+  `REMOVE~="ALL"` fires only on uninstall (not on upgrade/repair).
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
     <CustomAction
       Id="RemoveEzTermUserVcXsrv"
@@ -29,12 +33,7 @@
       Impersonate="yes"
       Return="ignore" />
     <InstallExecuteSequence>
-      <!--
-        REMOVE~="ALL" fires only on uninstall (not on upgrade/repair).
-        Sequence before RemoveFiles so the custom action owns a
-        deterministic slot in the uninstall pipeline.
-      -->
-      <Custom Action="RemoveEzTermUserVcXsrv" Before="RemoveFiles" Condition='REMOVE~="ALL"' />
+      <Custom Action="RemoveEzTermUserVcXsrv" Before="RemoveFiles">REMOVE~="ALL"</Custom>
     </InstallExecuteSequence>
   </Fragment>
 </Wix>

@@ -21,9 +21,9 @@ use crate::error::Result;
 use crate::state::AppState;
 
 /// How long the splash stays visible at minimum, counted from
-/// `AppState::started_at`. Picked small enough not to feel sluggish on
-/// fast hardware, large enough to let users see the logo on slow disks.
-const SPLASH_MIN_VISIBLE: Duration = Duration::from_millis(600);
+/// `AppState::started_at`. ~2 s lets the logo register as a branded
+/// splash on fast hardware without feeling sluggish.
+const SPLASH_MIN_VISIBLE: Duration = Duration::from_millis(2000);
 
 #[tauri::command]
 pub async fn ui_ready(state: State<'_, AppState>, app: AppHandle) -> Result<()> {
