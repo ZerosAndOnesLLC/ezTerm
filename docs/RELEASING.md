@@ -49,6 +49,19 @@ workflow run but no GitHub Release is created.
   launch (Gatekeeper blocks unsigned binaries). Signing / notarisation
   would eliminate that prompt but needs secrets.
 
+## Why `gh release` and not an action?
+
+`gh` is pre-installed on every GitHub runner and the CLI is the same
+locally and in CI — matches what we use in other repos. No third-party
+action in the release job (build jobs still use stable first-party
+actions like `actions/checkout`, `actions/setup-node`, and
+`dtolnay/rust-toolchain`). If you ever want to cut a release without
+tagging, you can download the workflow artifacts locally and run:
+
+```bash
+gh release create v0.11.0 --generate-notes --draft artifacts/*.tar.xz
+```
+
 ## Why not `cargo tauri build` with installers?
 
 `tauri-action` would produce MSI + NSIS on Windows, DMG on macOS, and
