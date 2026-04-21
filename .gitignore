@@ -54,3 +54,7 @@ yarn-error.log*
 
 # ---------- User-local MobaXterm exports (for import testing) ----------
 *.mxtsessions
+
+# ---------- Release staging scratch (gh release download) ----------
+tmp-release-hashes/
+.release-notes-*.md
