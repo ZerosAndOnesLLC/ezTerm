@@ -603,7 +603,13 @@ export function SessionsSidebar() {
       )}
 
       {syncOpen && (
-        <SyncDialog onClose={() => setSyncOpen(false)} />
+        <SyncDialog
+          onClose={() => setSyncOpen(false)}
+          onPullToRestore={(tempPath) => {
+            setSyncOpen(false);
+            setRestorePath(tempPath);
+          }}
+        />
       )}
 
       {backupOpen && (

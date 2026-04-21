@@ -139,14 +139,30 @@ export interface RestoreSummary {
 
 // --- Cloud sync (phase 1 = local folder) ---------------------------------
 
-export type SyncKind = 'none' | 'local';
+export type SyncKind = 'none' | 'local' | 's3';
 
 export interface SyncStatus {
-  kind:            SyncKind;
-  local_path:      string | null;
-  last_success_at: string | null;
-  last_error:      string | null;
-  pending:         boolean;
+  kind:               SyncKind;
+  local_path:         string | null;
+  s3_endpoint:        string | null;
+  s3_bucket:          string | null;
+  s3_prefix:          string | null;
+  s3_region:          string | null;
+  s3_access_key_id:   string | null;
+  s3_last_etag:       string | null;
+  last_success_at:    string | null;
+  last_error:         string | null;
+  pending:            boolean;
+}
+
+export interface S3ConfigInput {
+  endpoint:          string;
+  region:            string;
+  bucket:            string;
+  prefix:            string;
+  access_key_id:     string;
+  secret_access_key: string;
+  passphrase:        string;
 }
 
 export interface CredentialMeta {

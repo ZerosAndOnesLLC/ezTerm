@@ -96,8 +96,10 @@ async fn main() {
             commands::xserver::xserver_status,
             commands::sync::sync_status,
             commands::sync::sync_configure_local,
+            commands::sync::sync_configure_s3,
             commands::sync::sync_disable,
             commands::sync::sync_push_now,
+            commands::sync::sync_pull_to_temp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

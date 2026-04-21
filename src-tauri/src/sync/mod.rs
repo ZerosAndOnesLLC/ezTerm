@@ -1,15 +1,16 @@
-//! Cloud sync — Phase 1: auto-backup to a user-chosen folder.
+//! Cloud sync — auto-backup to a local folder (phase 1) or to an
+//! S3-compatible bucket (phase 2).
 //!
-//! Intended use: point at a folder synced by Dropbox / OneDrive / iCloud /
-//! Google Drive for Desktop, and the user's encrypted backup stays in sync
-//! across devices without ezTerm needing to know anything about those
-//! services. On every mutation (create/update/delete across sessions,
-//! folders, credentials, known-hosts) we enqueue a "write latest" trigger;
-//! a background task debounces for a few seconds then writes a fresh
-//! encrypted backup to the configured path.
+//! Phase 1 — local folder: point at a folder synced by Dropbox / OneDrive /
+//! iCloud / Google Drive and the encrypted backup stays in sync across
+//! devices without ezTerm touching the cloud provider's APIs.
 //!
-//! Phase 2 will add an S3-compatible driver behind the same `SyncManager`
-//! interface with ETag-based conflict detection.
+//! Phase 2 — S3: direct PUT/HEAD/GET on a single object in the user's
+//! bucket (AWS, R2, B2, Wasabi, MinIO, …). ETag-based optimistic
+//! conflict check: HEAD before PUT, refuse to overwrite if the remote
+//! ETag drifted from our last-known value.
+
+pub mod s3;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -35,7 +36,7 @@ pub const LOCAL_FILENAME: &str = "ezterm-sync.json";
 
 // ===== settings keys =====================================================
 
-/// Active sync backend. Values: `"none"` | `"local"` (phase 2 adds `"s3"`).
+/// Active sync backend. Values: `"none"` | `"local"` | `"s3"`.
 pub const KEY_KIND: &str = "sync.kind";
 pub const KEY_LOCAL_PATH: &str = "sync.local.path";
 /// Backup passphrase, stored as base64(nonce || ciphertext) encrypted
@@ -46,6 +47,21 @@ pub const KEY_LOCAL_PASSPHRASE_BLOB: &str = "sync.local.passphrase_blob";
 pub const KEY_LAST_SUCCESS_AT: &str = "sync.last_success_at";
 /// Error message from the last failed write (UI surfaces via `sync_status`).
 pub const KEY_LAST_ERROR: &str = "sync.last_error";
+
+// S3 keys. The access-key ID is not secret-grade on its own so we store
+// it in plaintext; the secret access key and the backup passphrase are
+// vault-encrypted blobs.
+pub const KEY_S3_ENDPOINT:      &str = "sync.s3.endpoint";
+pub const KEY_S3_REGION:        &str = "sync.s3.region";
+pub const KEY_S3_BUCKET:        &str = "sync.s3.bucket";
+pub const KEY_S3_PREFIX:        &str = "sync.s3.prefix";
+pub const KEY_S3_ACCESS_KEY_ID: &str = "sync.s3.access_key_id";
+pub const KEY_S3_SECRET_BLOB:   &str = "sync.s3.secret_blob";
+pub const KEY_S3_PASSPHRASE_BLOB: &str = "sync.s3.passphrase_blob";
+/// Last remote ETag this device observed — used for optimistic conflict
+/// detection before every push and to decide whether a startup pull has
+/// anything to bring in.
+pub const KEY_S3_LAST_ETAG:     &str = "sync.s3.last_etag";
 
 // ===== public types ======================================================
 
@@ -60,12 +76,29 @@ pub enum SyncTarget {
         /// so the trigger task doesn't need to re-ask per write.
         passphrase: String,
     },
+    /// PUT the encrypted backup to `<prefix>/ezterm-sync.json` in the
+    /// configured S3-compatible bucket.
+    S3 {
+        endpoint:          String,
+        region:            String,
+        bucket:            String,
+        prefix:            String,
+        access_key_id:     String,
+        secret_access_key: String,
+        passphrase:        String,
+    },
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct SyncStatus {
-    pub kind:            String,     // 'none' | 'local'
+    pub kind:            String,     // 'none' | 'local' | 's3'
     pub local_path:      Option<String>,
+    pub s3_endpoint:     Option<String>,
+    pub s3_bucket:       Option<String>,
+    pub s3_prefix:       Option<String>,
+    pub s3_region:       Option<String>,
+    pub s3_access_key_id: Option<String>,
+    pub s3_last_etag:    Option<String>,
     pub last_success_at: Option<String>,
     pub last_error:      Option<String>,
     pub pending:         bool,
@@ -132,12 +165,23 @@ impl SyncManager {
         match &*self.target.read().await {
             SyncTarget::None => "none",
             SyncTarget::LocalFolder { .. } => "local",
+            SyncTarget::S3 { .. } => "s3",
         }
     }
 
     pub async fn local_path(&self) -> Option<PathBuf> {
         match &*self.target.read().await {
             SyncTarget::LocalFolder { path, .. } => Some(path.clone()),
+            _ => None,
+        }
+    }
+
+    /// Immutable snapshot of the active S3 config for ad-hoc operations
+    /// like pull-now (downloads the remote bundle). Caller must make sure
+    /// the vault is unlocked.
+    pub async fn s3_target(&self) -> Option<SyncTarget> {
+        match &*self.target.read().await {
+            s3 @ SyncTarget::S3 { .. } => Some(s3.clone()),
             _ => None,
         }
     }
@@ -160,6 +204,7 @@ impl SyncManager {
         let kind = db::settings::get(pool, KEY_KIND).await?.unwrap_or_default();
         let new_target = match kind.as_str() {
             "local" => load_local_target(pool, vault_state).await?,
+            "s3" => load_s3_target(pool, vault_state).await?,
             _ => SyncTarget::None,
         };
         self.set_target(new_target).await;
@@ -181,6 +226,29 @@ async fn load_local_target(
     Ok(SyncTarget::LocalFolder {
         path: PathBuf::from(path),
         passphrase,
+    })
+}
+
+async fn load_s3_target(
+    pool: &sqlx::SqlitePool,
+    vault_state: &vault::VaultState,
+) -> Result<SyncTarget> {
+    let endpoint = db::settings::get(pool, KEY_S3_ENDPOINT).await?
+        .ok_or_else(|| AppError::Validation("sync.s3.endpoint missing".into()))?;
+    let region = db::settings::get(pool, KEY_S3_REGION).await?.unwrap_or_else(|| "auto".into());
+    let bucket = db::settings::get(pool, KEY_S3_BUCKET).await?
+        .ok_or_else(|| AppError::Validation("sync.s3.bucket missing".into()))?;
+    let prefix = db::settings::get(pool, KEY_S3_PREFIX).await?.unwrap_or_default();
+    let access_key_id = db::settings::get(pool, KEY_S3_ACCESS_KEY_ID).await?
+        .ok_or_else(|| AppError::Validation("sync.s3.access_key_id missing".into()))?;
+    let secret_blob = db::settings::get(pool, KEY_S3_SECRET_BLOB).await?
+        .ok_or_else(|| AppError::Validation("sync.s3.secret missing".into()))?;
+    let secret_access_key = decrypt_stored_blob(&secret_blob, vault_state)?;
+    let passphrase_blob = db::settings::get(pool, KEY_S3_PASSPHRASE_BLOB).await?
+        .ok_or_else(|| AppError::Validation("sync.s3.passphrase missing".into()))?;
+    let passphrase = decrypt_stored_blob(&passphrase_blob, vault_state)?;
+    Ok(SyncTarget::S3 {
+        endpoint, region, bucket, prefix, access_key_id, secret_access_key, passphrase,
     })
 }
 
@@ -244,15 +312,66 @@ impl WriterTask {
                         .await;
                     self.finish(outcome).await;
                 }
+                SyncTarget::S3 {
+                    endpoint, region, bucket, prefix,
+                    access_key_id, secret_access_key, passphrase,
+                } => {
+                    let outcome = self
+                        .build_and_push_s3(
+                            &endpoint, &region, &bucket, &prefix,
+                            &access_key_id, &secret_access_key, &passphrase,
+                        )
+                        .await;
+                    self.finish(outcome).await;
+                }
             }
         }
     }
 
-    async fn build_and_write_local(&self, path: &std::path::Path, passphrase: &str) -> Result<()> {
+    /// Build the encrypted bundle and PUT it to S3. Includes the ETag
+    /// conflict check: if a prior push stored an ETag, HEAD the object
+    /// first and refuse to overwrite if the remote drifted.
+    #[allow(clippy::too_many_arguments)]
+    async fn build_and_push_s3(
+        &self,
+        endpoint: &str, region: &str, bucket: &str, prefix: &str,
+        access_key_id: &str, secret_access_key: &str, passphrase: &str,
+    ) -> Result<()> {
+        let bundle = self.build_bundle().await?;
+        let bytes = backup::encrypt_bundle(&bundle, passphrase)?;
+
+        let driver = s3::S3Driver::new(s3::S3Config {
+            endpoint, region, bucket, prefix,
+            access_key_id, secret_access_key,
+        })?;
+
+        // Optimistic conflict check: if we have a last-known ETag, HEAD
+        // the object and bail if the remote is newer than what we last
+        // saw. The user can resolve by pulling first (sync_pull_preview
+        // / sync_pull_commit) and then retrying.
+        let known = db::settings::get(&self.db_pool, KEY_S3_LAST_ETAG).await?
+            .filter(|s| !s.is_empty());
+        if let Some(known) = known.as_deref() {
+            if let Some(remote) = driver.head().await? {
+                if remote != known {
+                    return Err(AppError::Validation(format!(
+                        "remote S3 object changed since last sync (remote ETag {remote}, \
+                         last known {known}) — pull first to merge"
+                    )));
+                }
+            }
+        }
+
+        let new_etag = driver.put(&bytes).await?;
+        db::settings::set(&self.db_pool, KEY_S3_LAST_ETAG, &new_etag).await?;
+        Ok(())
+    }
+
+    /// Shared bundle-building path — collects all tables, decrypts every
+    /// credential, and produces the Bundle struct. Used by both the
+    /// local-folder and S3 writers.
+    async fn build_bundle(&self) -> Result<backup::Bundle> {
         use base64::{engine::general_purpose::STANDARD as B64, Engine};
-        // Collect every data type. Credentials are decrypted on the fly
-        // (need the unlocked vault) so the bundle carries plaintexts
-        // protected only by the backup passphrase.
         let folders = db::folders::list(&self.db_pool).await?;
         let sessions_raw = db::sessions::list(&self.db_pool).await?;
         let mut sessions = Vec::with_capacity(sessions_raw.len());
@@ -279,13 +398,11 @@ impl WriterTask {
             }
         }
         let known_hosts = db::known_hosts::list(&self.db_pool).await?;
-        let settings = db::settings::list_all(&self.db_pool)
-            .await?
+        let settings = db::settings::list_all(&self.db_pool).await?
             .into_iter()
             .map(|(k, v)| backup::SettingEntry { key: k, value: v })
             .collect();
-
-        let bundle = backup::Bundle {
+        Ok(backup::Bundle {
             version: backup::BACKUP_VERSION,
             created_at: Utc::now().to_rfc3339(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -294,8 +411,11 @@ impl WriterTask {
             credentials,
             known_hosts,
             settings,
-        };
+        })
+    }
 
+    async fn build_and_write_local(&self, path: &std::path::Path, passphrase: &str) -> Result<()> {
+        let bundle = self.build_bundle().await?;
         let bytes = backup::encrypt_bundle(&bundle, passphrase)?;
 
         // Atomic write: tempfile in same directory then rename. Avoids

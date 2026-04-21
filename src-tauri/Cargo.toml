@@ -44,6 +44,12 @@ async-channel = "2"
 bytes = "1"
 portable-pty = "0.8"
 
+# S3-compatible cloud sync (AWS S3, Cloudflare R2, Backblaze B2, Wasabi,
+# MinIO, DigitalOcean Spaces, etc.). Narrow feature set — we only need
+# PUT/HEAD/GET on a single object per bucket. Default features bring
+# rustls so we avoid a system OpenSSL dep on Windows.
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
