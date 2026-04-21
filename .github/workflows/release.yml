@@ -132,18 +132,15 @@ jobs:
       - name: List artifacts
         run: ls -la artifacts/
 
-      # Per-archive detached hashes + a combined manifest so users can
-      # verify downloads. `sha256sum -c SHA256SUMS` works when the
-      # manifest sits next to the archives.
-      - name: Generate checksums
+      # Combined manifest so users can verify the whole release in one
+      # `sha256sum -c SHA256SUMS` pass. GitHub already displays per-asset
+      # SHA256 on the release page, so no per-file detached hashes.
+      - name: Generate SHA256SUMS
         run: |
           set -euo pipefail
           cd artifacts
-          for f in *.tar.xz; do
-            sha256sum "$f" > "$f.sha256"
-          done
           sha256sum *.tar.xz > SHA256SUMS
-          echo "--- Generated checksums ---"
+          echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
       - name: Create draft release
@@ -157,5 +154,4 @@ jobs:
             --generate-notes \
             --draft \
             artifacts/*.tar.xz \
-            artifacts/*.sha256 \
             artifacts/SHA256SUMS
