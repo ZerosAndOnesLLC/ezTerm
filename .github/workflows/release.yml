@@ -120,11 +120,32 @@ jobs:
       - name: Bundle VcXsrv (Windows portable only)
         if: matrix.name == 'windows-x86_64'
         shell: bash
-        env:
-          VCXSRV_URL: "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe/download"
         run: |
           set -euo pipefail
-          curl -L --retry 3 --retry-delay 5 -A "Mozilla/5.0" -o vcxsrv-installer.exe "$VCXSRV_URL"
+          # SourceForge's /files/.../download URL returns an HTML
+          # interstitial now (April 2026) so the ~5 KB page passes curl
+          # but 7z chokes on it. Use the direct mirror host, which still
+          # serves the actual binary, and fall back to a named mirror
+          # if the auto-picked one fails.
+          BASE="https://downloads.sourceforge.net/project/vcxsrv/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe"
+          FALLBACK="https://netix.dl.sourceforge.net/project/vcxsrv/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe"
+          for url in "$BASE" "$FALLBACK"; do
+            echo "Fetching VcXsrv from $url"
+            curl -L --fail --retry 3 --retry-delay 5 \
+              -A "Mozilla/5.0" \
+              -o vcxsrv-installer.exe "$url" || continue
+            size=$(stat -c%s vcxsrv-installer.exe 2>/dev/null || wc -c < vcxsrv-installer.exe)
+            echo "Downloaded $size bytes"
+            # Real installer is ~40 MB; anything under 1 MB is an HTML
+            # redirect page or a partial download.
+            if [ "$size" -lt 1048576 ]; then
+              echo "Download too small — likely an HTML redirect; trying next mirror."
+              rm -f vcxsrv-installer.exe
+              continue
+            fi
+            break
+          done
+          test -s vcxsrv-installer.exe
           7z x vcxsrv-installer.exe -ovcxsrv-extracted -y -aos > /dev/null
           test -f vcxsrv-extracted/vcxsrv.exe
 
