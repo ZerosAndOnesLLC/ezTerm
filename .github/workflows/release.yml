@@ -176,9 +176,24 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes \
-            --draft \
-            artifacts/*.tar.xz \
-            artifacts/SHA256SUMS
+          NOTES_FILE="docs/release-notes/${TAG}.md"
+          # If a tag-specific notes file is committed to the repo, use it
+          # verbatim; otherwise fall back to GitHub's auto-generated
+          # commit-log summary so the release isn't blocked on notes.
+          if [ -f "$NOTES_FILE" ]; then
+            echo "Using notes from $NOTES_FILE"
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file "$NOTES_FILE" \
+              --draft \
+              artifacts/*.tar.xz \
+              artifacts/SHA256SUMS
+          else
+            echo "No $NOTES_FILE — falling back to --generate-notes"
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --draft \
+              artifacts/*.tar.xz \
+              artifacts/SHA256SUMS
+          fi
