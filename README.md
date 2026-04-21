@@ -9,7 +9,7 @@ WSL + X11 feature set. Windows-first; Linux and macOS binaries are produced by
 the release pipeline but only the SSH / SFTP / terminal features are meaningful
 on those platforms.
 
-**Licence:** GNU General Public License, version 3 — see [LICENSE.md](LICENSE.md).
+**Licence:** GNU General Public License, version 3 — see [LICENSE](LICENSE).
 
 ## Features
 
@@ -153,7 +153,7 @@ four `tar.xz` archives and opens a draft release for you to review.
 ## Licence
 
 ezTerm is licensed under the **GNU General Public License, version 3** (GPLv3
-only — not "or later"). See [LICENSE.md](LICENSE.md) for the full text.
+only — not "or later"). See [LICENSE](LICENSE) for the full text.
 
 Third-party components retain their own licences:
 - `russh`, `russh-keys`, `russh-sftp` — Apache 2.0

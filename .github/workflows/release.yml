@@ -100,7 +100,6 @@ jobs:
           cp README.md "$STAGE/"
           # Include the licence in each archive so the tarball is
           # self-describing for redistribution.
-          if [ -f LICENSE.md ]; then cp LICENSE.md "$STAGE/"; fi
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
