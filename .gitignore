@@ -22,6 +22,10 @@ build/
 .pnpm-store/
 tsconfig.tsbuildinfo
 
+# ---------- Updater signing keys (NEVER commit these) ----------
+.tauri-updater-key
+.tauri-updater-key.pub
+
 # ---------- Env & secrets ----------
 .env
 .env.*
