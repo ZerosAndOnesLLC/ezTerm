@@ -1,14 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Lock, Monitor, Moon, Sun } from 'lucide-react';
+import { Lock, Monitor, Moon, Sparkles, Sun } from 'lucide-react';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
 import type { XServerStatus } from '@/lib/types';
 
-type StatusBarProps = { onLock: () => void };
+type StatusBarProps = { onLock: () => void; onOpenUpdater: () => void };
 
-export function StatusBar({ onLock }: StatusBarProps) {
+export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
   const [theme, setTheme] = useState<Theme>(() =>
     typeof document !== 'undefined' && document.documentElement.classList.contains('light')
       ? 'light'
@@ -93,6 +93,15 @@ export function StatusBar({ onLock }: StatusBarProps) {
         className="icon-btn w-5 h-5"
       >
         {theme === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
+      </button>
+      <button
+        type="button"
+        onClick={onOpenUpdater}
+        aria-label="Check for updates"
+        title="Check for updates"
+        className="icon-btn w-5 h-5"
+      >
+        <Sparkles size={12} />
       </button>
       <button
         type="button"
