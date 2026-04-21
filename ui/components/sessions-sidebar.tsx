@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -220,6 +220,14 @@ export function SessionsSidebar() {
   // HTML5 DnD. The dragged row puts {kind,id} into dataTransfer so the drop
   // handler can route to api.sessionMove / folderMove. Sort is always 0 on
   // drop (new-top-of-folder); intra-folder reordering is a separate pass.
+  //
+  // React 19 batches setState more aggressively than 18, so the first few
+  // `dragover` events fire before the `drag` state update from `dragstart`
+  // has rendered — gating `preventDefault()` on the state value left the
+  // browser marking the target as a non-drop zone, and `drop` never fired.
+  // Mirror the drag source into a ref for synchronous access; state is
+  // still used for the opacity / highlight visuals.
+  const dragSourceRef = useRef<{ kind: 'session' | 'folder'; id: number } | null>(null);
 
   function handleDragStart(
     e: React.DragEvent,
@@ -229,18 +237,23 @@ export function SessionsSidebar() {
     e.stopPropagation();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/json', JSON.stringify({ kind, id }));
+    dragSourceRef.current = { kind, id };
     setDrag({ kind, id });
   }
 
   function handleDragEnd() {
+    dragSourceRef.current = null;
     setDrag(null);
     setDragTarget(null);
   }
 
   function handleDragOver(e: React.DragEvent, target: number | 'root') {
-    if (!drag) return;
-    // Never allow a folder to be dropped into itself — instant rejection.
-    if (drag.kind === 'folder' && target === drag.id) return;
+    // Self-drop (folder into itself) — don't accept. Read from the ref so
+    // we're synchronous with dragstart regardless of React's batching.
+    const src = dragSourceRef.current;
+    if (src && src.kind === 'folder' && target === src.id) return;
+    // Always preventDefault so the browser keeps treating us as a valid
+    // drop target. The full-payload validity check happens at drop time.
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
@@ -251,6 +264,7 @@ export function SessionsSidebar() {
     e.preventDefault();
     e.stopPropagation();
     const raw = e.dataTransfer.getData('application/json');
+    dragSourceRef.current = null;
     setDrag(null);
     setDragTarget(null);
     if (!raw) return;
