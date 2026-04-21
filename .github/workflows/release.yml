@@ -91,14 +91,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Workspace target dir lives at the repo root — cargo is
+          # workspace-aware, so building from src-tauri/ still writes
+          # here, NOT into src-tauri/target/.
           STAGE="stage/ezterm-${{ matrix.name }}"
           mkdir -p "$STAGE"
-          cp "src-tauri/target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
           cp README.md "$STAGE/"
-          # Include the top-level licence if present so the archive is
+          # Include the licence in each archive so the tarball is
           # self-describing for redistribution.
+          if [ -f LICENSE.md ]; then cp LICENSE.md "$STAGE/"; fi
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
-          if [ -f LICENSE-MIT ]; then cp LICENSE-MIT "$STAGE/"; fi
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
 
