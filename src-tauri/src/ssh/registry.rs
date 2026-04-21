@@ -27,6 +27,13 @@ pub struct Connection {
     /// lifetime of the session so the Close branch can `disconnect(..)`; the
     /// SFTP commands clone this Arc to open a second session channel.
     pub ssh_handle: Arc<Mutex<RusshHandle<ClientHandler>>>,
+    /// When `Some(display)`, this session acquired the X server on that
+    /// display and must release it on disconnect. The driver task reads
+    /// this at teardown. Tagged `allow(dead_code)` because the only
+    /// current reader is the closure captured by the driver — Rust's
+    /// dead-code lint can't see through that.
+    #[allow(dead_code)]
+    pub x11_display: Option<u8>,
 }
 
 pub enum ConnectionInput {

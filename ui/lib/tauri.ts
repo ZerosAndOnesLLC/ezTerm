@@ -3,6 +3,7 @@ import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
+  XServerStatus,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -95,6 +96,9 @@ export const api = {
     invoke<void>('local_disconnect', { connectionId }),
   wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
   wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
+
+  // X11 forwarding
+  xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
 
   // Import
   mobaxtermPreview: (path: string) =>

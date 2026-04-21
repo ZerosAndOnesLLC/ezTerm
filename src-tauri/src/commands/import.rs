@@ -374,8 +374,9 @@ async fn insert_imported_session(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \
          initial_command, scrollback_lines, font_size, cursor_style, \
-         compression, keepalive_secs, connect_timeout_secs, session_kind) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 5000, 13, 'block', 0, 0, 15, ?)",
+         compression, keepalive_secs, connect_timeout_secs, session_kind, \
+         forward_x11) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 5000, 13, 'block', 0, 0, 15, ?, 0)",
     )
     .bind(folder_id)
     .bind(name)

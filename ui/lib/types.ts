@@ -43,6 +43,8 @@ export interface Session {
   keepalive_secs: number;
   connect_timeout_secs: number;
   session_kind: SessionKind;
+  /** 0/1 — SSH-only. Enables X11 forwarding against the bundled VcXsrv. */
+  forward_x11: number;
 }
 
 export interface SessionInput {
@@ -64,6 +66,13 @@ export interface SessionInput {
   connect_timeout_secs: number;
   env: EnvPair[];
   session_kind: SessionKind;
+  forward_x11: number;
+}
+
+export interface XServerStatus {
+  installed:        boolean;
+  install_path:     string | null;
+  running_displays: number[];
 }
 
 export interface CredentialMeta {

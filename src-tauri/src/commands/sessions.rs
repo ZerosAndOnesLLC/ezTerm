@@ -90,6 +90,14 @@ fn validate(input: &SessionInput) -> Result<()> {
     if input.compression != 0 && input.compression != 1 {
         return Err(AppError::Validation("compression must be 0 or 1".into()));
     }
+    if input.forward_x11 != 0 && input.forward_x11 != 1 {
+        return Err(AppError::Validation("forward_x11 must be 0 or 1".into()));
+    }
+    if input.forward_x11 == 1 && input.session_kind != "ssh" {
+        return Err(AppError::Validation(
+            "forward_x11 is only supported on ssh sessions".into(),
+        ));
+    }
     if input.scrollback_lines < SCROLLBACK_MIN || input.scrollback_lines > SCROLLBACK_MAX {
         return Err(AppError::Validation("scrollback_lines out of range".into()));
     }

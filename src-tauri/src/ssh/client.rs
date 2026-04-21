@@ -18,6 +18,7 @@ use crate::ssh::known_hosts::{fingerprint_sha256, KeyCheck};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
+use crate::xserver::{self, XServerManager};
 
 pub struct ConnectRequest {
     pub session_id: i64,
@@ -38,6 +39,10 @@ pub struct ClientHandler {
     /// russh-keys 0.45's `PublicKey::name()` returns the SSH wire name
     /// (e.g. "ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256").
     server_key: Arc<Mutex<Option<(String, String)>>>,
+    /// Display number to pipe forwarded X11 channels to (always the same
+    /// display the connect flow acquired on — default :0). `None` disables
+    /// X11 forwarding handling; `server_channel_open_x11` drops the channel.
+    x11_display: Option<u8>,
 }
 
 #[async_trait]
@@ -59,6 +64,42 @@ impl client::Handler for ClientHandler {
         // the handshake completes. Rejecting here would give the user no
         // TOFU prompt path.
         Ok(true)
+    }
+
+    /// Server is asking to open an X11 channel back to us (a GUI app on
+    /// the remote called out via `$DISPLAY`). Pipe the channel bidirectionally
+    /// to our local VcXsrv on `127.0.0.1:6000+display`. Dropping the
+    /// channel when X11 wasn't negotiated on this connection is the safe
+    /// default — russh will close it on the server's side.
+    async fn server_channel_open_x11(
+        &mut self,
+        channel: russh::Channel<Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut russh::client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        let Some(display) = self.x11_display else { return Ok(()); };
+        let target = format!("127.0.0.1:{}", 6000 + display as u16);
+        tokio::spawn(async move {
+            let tcp = match tokio::net::TcpStream::connect(&target).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("x11 forward: connect {target} failed: {e}");
+                    return;
+                }
+            };
+            let (mut ch_r, mut ch_w) = {
+                let stream = channel.into_stream();
+                tokio::io::split(stream)
+            };
+            let (mut tcp_r, mut tcp_w) = tokio::io::split(tcp);
+            // Bi-directional pump. On either side closing, end both halves
+            // so the X11 channel tears down cleanly.
+            let a = tokio::io::copy(&mut ch_r, &mut tcp_w);
+            let b = tokio::io::copy(&mut tcp_r, &mut ch_w);
+            let _ = tokio::join!(a, b);
+        });
+        Ok(())
     }
 }
 
@@ -111,8 +152,17 @@ pub async fn connect(
     }
     let config = Arc::new(config);
     let server_key = Arc::new(Mutex::new(None));
+    // Handler's x11_display is set when the session's forward_x11 flag is
+    // on — the async `channel_open_x11` callback reads it to route incoming
+    // X11 channels to the correct VcXsrv display.
+    let x11_display: Option<u8> = if session.forward_x11 != 0 {
+        Some(xserver::DEFAULT_DISPLAY)
+    } else {
+        None
+    };
     let handler = ClientHandler {
         server_key: server_key.clone(),
+        x11_display,
     };
     // russh's `client::connect` has no built-in deadline, so we bound the
     // whole handshake (TCP + KEX + host-key) with the user-configured
@@ -235,6 +285,22 @@ pub async fn connect(
         )
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // X11 forwarding negotiation happens *after* the PTY request and before
+    // request_shell, per OpenSSH's behaviour. If VcXsrv isn't installed we
+    // surface the install error now rather than letting the channel race
+    // into the shell with DISPLAY set but no local server listening.
+    if let Some(display) = x11_display {
+        state.xserver.acquire(display).await?;
+        let cookie = xserver::generate_cookie();
+        if let Err(e) = channel
+            .request_x11(false, false, "MIT-MAGIC-COOKIE-1", cookie, 0)
+            .await
+        {
+            // Already acquired — release so we don't leak a ref.
+            state.xserver.release(display).await;
+            return Err(AppError::Ssh(format!("request_x11: {e}")));
+        }
+    }
     channel
         .request_shell(true)
         .await
@@ -270,6 +336,7 @@ pub async fn connect(
             user: session.username.clone(),
             stdin: tx,
             ssh_handle: handle_mutex.clone(),
+            x11_display,
         })
         .await;
 
@@ -280,6 +347,7 @@ pub async fn connect(
     // `SftpHandle`s would leak until app shutdown (audit I-1).
     let ssh_reg = state.ssh.clone();
     let sftp_reg = state.sftp.clone();
+    let xserver_reg = state.xserver.clone();
     tokio::spawn(drive_channel(
         app,
         id,
@@ -288,6 +356,8 @@ pub async fn connect(
         rx,
         ssh_reg,
         sftp_reg,
+        xserver_reg,
+        x11_display,
     ));
 
     Ok(ConnectOutcome {
@@ -450,6 +520,8 @@ async fn drive_channel(
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
     ssh_reg: Arc<ConnectionRegistry>,
     sftp_reg: Arc<SftpRegistry>,
+    xserver_reg: Arc<XServerManager>,
+    x11_display: Option<u8>,
 ) {
     let ev_data = format!("ssh:data:{id}");
     let ev_close = format!("ssh:close:{id}");
@@ -511,4 +583,9 @@ async fn drive_channel(
     // via `AppState::close_connection`) is a harmless no-op. (audit I-1)
     sftp_reg.remove(id).await;
     ssh_reg.close(id).await;
+    // Release the X server ref so the VcXsrv process exits when no other
+    // sessions are using it.
+    if let Some(display) = x11_display {
+        xserver_reg.release(display).await;
+    }
 }

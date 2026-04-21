@@ -58,6 +58,7 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   connect_timeout_secs: 15,
   env: [],
   session_kind: 'ssh',
+  forward_x11: 0,
 };
 
 // Palette for the tab-color dot. Slate stores null = "no accent".
@@ -96,6 +97,7 @@ export function SessionDialog(props: Props) {
         connect_timeout_secs: s.connect_timeout_secs,
         env: [], // populated async below
         session_kind: s.session_kind,
+        forward_x11: s.forward_x11,
       };
     }
     return {
@@ -680,6 +682,33 @@ function AdvancedPane({ v, setV }: PaneProps) {
         Helps on slow links. Negligible or negative effect on LANs; leave off unless
         you know the link is constrained.
       </p>
+
+      {v.session_kind === 'ssh' && (
+        <>
+          <SectionHeading>X11 forwarding</SectionHeading>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={v.forward_x11 === 1}
+              onChange={(e) => setV({ ...v, forward_x11: e.target.checked ? 1 : 0 })}
+              className="w-4 h-4 accent-accent"
+            />
+            <span>Forward X11 (display remote GUI apps locally)</span>
+          </label>
+          <p className="text-muted text-xs -mt-2">
+            On connect, ezTerm starts a local VcXsrv display on
+            <span className="font-mono mx-1">:0</span>
+            and asks the SSH server for X11 forwarding. Requires
+            <a
+              href="https://sourceforge.net/projects/vcxsrv/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:underline mx-1"
+            >VcXsrv</a>
+            installed at <span className="font-mono">%ProgramFiles%\VcXsrv\</span>.
+          </p>
+        </>
+      )}
     </>
   );
 }

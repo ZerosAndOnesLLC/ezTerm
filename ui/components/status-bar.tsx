@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Lock, Moon, Sun } from 'lucide-react';
+import { Lock, Monitor, Moon, Sun } from 'lucide-react';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/theme';
+import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
+import type { XServerStatus } from '@/lib/types';
 
 type StatusBarProps = { onLock: () => void };
 
@@ -17,6 +19,24 @@ export function StatusBar({ onLock }: StatusBarProps) {
   const active   = tabs.find((t) => t.tabId === activeId) ?? null;
 
   useEffect(() => { loadTheme().then(setTheme); }, []);
+
+  // X server state — polled lightly so the pill reflects VcXsrv coming up
+  // or going away as sessions toggle X11 forwarding. Hidden entirely when
+  // VcXsrv isn't installed AND no display is running, so users who don't
+  // use X11 forwarding never see the pill.
+  const [xstatus, setXstatus] = useState<XServerStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const s = await api.xserverStatus();
+        if (!cancelled) setXstatus(s);
+      } catch { /* vault locked / not ready */ }
+    }
+    refresh();
+    const h = setInterval(refresh, 5000);
+    return () => { cancelled = true; clearInterval(h); };
+  }, []);
 
   async function toggleTheme() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
@@ -57,7 +77,13 @@ export function StatusBar({ onLock }: StatusBarProps) {
         </>
       )}
       <span className="flex-1" />
-      <span className="opacity-60 tabular-nums">ezTerm v0.6</span>
+      {xstatus && (xstatus.running_displays.length > 0 || xstatus.installed) && (
+        <>
+          <XServerPill status={xstatus} />
+          <span className="opacity-40" aria-hidden>·</span>
+        </>
+      )}
+      <span className="opacity-60 tabular-nums">ezTerm v0.11</span>
       <span className="opacity-40" aria-hidden>·</span>
       <button
         type="button"
@@ -78,5 +104,33 @@ export function StatusBar({ onLock }: StatusBarProps) {
         <Lock size={12} />
       </button>
     </footer>
+  );
+}
+
+function XServerPill({ status }: { status: XServerStatus }) {
+  const running = status.running_displays.length > 0;
+  const tone = running
+    ? 'text-success'
+    : status.installed
+      ? 'text-muted'
+      : 'text-warning';
+  const title = running
+    ? `VcXsrv running on :${status.running_displays.join(', :')}`
+    : status.installed
+      ? `VcXsrv installed at ${status.install_path} — starts when an SSH session forwards X11`
+      : 'VcXsrv not installed — required for X11 forwarding';
+  const label = running
+    ? `X:${status.running_displays[0]}`
+    : status.installed
+      ? 'X idle'
+      : 'X off';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 ${tone}`}
+      title={title}
+    >
+      <Monitor size={11} />
+      <span className="tabular-nums">{label}</span>
+    </span>
   );
 }

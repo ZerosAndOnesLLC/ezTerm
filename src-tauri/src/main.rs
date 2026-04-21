@@ -11,6 +11,7 @@ mod sftp;
 mod ssh;
 mod state;
 mod vault;
+mod xserver;
 
 use state::AppState;
 
@@ -83,6 +84,7 @@ async fn main() {
             commands::local::local_disconnect,
             commands::local::wsl_list_distros,
             commands::local::wsl_autodetect_seed,
+            commands::xserver::xserver_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

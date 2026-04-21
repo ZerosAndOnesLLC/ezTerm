@@ -8,6 +8,7 @@ use crate::local::LocalRegistry;
 use crate::sftp::SftpRegistry;
 use crate::ssh::ConnectionRegistry;
 use crate::vault::VaultState;
+use crate::xserver::XServerManager;
 
 pub struct AppState {
     pub db: SqlitePool,
@@ -28,6 +29,10 @@ pub struct AppState {
     /// Local PTY connection registry — WSL distros and local shells. Uses
     /// its own id space (offset ≥ 2⁴⁸) so ids never collide with SSH.
     pub local: Arc<LocalRegistry>,
+    /// VcXsrv lifecycle manager. Ref-counted per X11 display; the first
+    /// SSH session with forward_x11 enabled starts it, the last one
+    /// closing stops it.
+    pub xserver: Arc<XServerManager>,
 }
 
 impl AppState {
@@ -40,6 +45,7 @@ impl AppState {
             ssh: Arc::new(ConnectionRegistry::new()),
             sftp: Arc::new(SftpRegistry::new()),
             local: Arc::new(LocalRegistry::new()),
+            xserver: Arc::new(XServerManager::new()),
         }
     }
 
@@ -48,6 +54,11 @@ impl AppState {
     /// then the SSH connection itself (which also signals the driver task to
     /// disconnect). Idempotent: safe to call from both the user-initiated
     /// `ssh_disconnect` command and the driver task's own exit branches.
+    ///
+    /// X11 display ref counts are NOT touched here — the driver task that
+    /// owns the connection handles `xserver.release(display)` in its
+    /// cleanup branch (so a remote-initiated EOF releases the ref the same
+    /// way a user disconnect does, no matter which path runs first).
     pub async fn close_connection(&self, id: u64) {
         self.sftp.remove(id).await;
         self.ssh.close(id).await;

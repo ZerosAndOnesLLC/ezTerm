@@ -8,6 +8,7 @@ pub mod settings;
 pub mod sftp;
 pub mod ssh;
 pub mod vault;
+pub mod xserver;
 
 /// Returns `Ok(())` only when the vault is currently unlocked.
 ///

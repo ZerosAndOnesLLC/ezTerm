@@ -146,6 +146,7 @@ pub async fn wsl_autodetect_seed(state: State<'_, AppState>) -> Result<usize> {
             connect_timeout_secs: 15,
             env: Vec::new(),
             session_kind: "wsl".into(),
+            forward_x11: 0,
         };
         crate::db::sessions::create(&state.db, &input).await?;
         created += 1;
