@@ -83,7 +83,7 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
           <span className="opacity-40" aria-hidden>·</span>
         </>
       )}
-      <span className="opacity-60 tabular-nums">ezTerm v0.17</span>
+      <span className="opacity-60 tabular-nums">ezTerm v0.18</span>
       <span className="opacity-40" aria-hidden>·</span>
       <button
         type="button"

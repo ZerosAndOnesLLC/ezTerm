@@ -103,6 +103,7 @@ async fn main() {
             commands::sync::sync_disable,
             commands::sync::sync_push_now,
             commands::sync::sync_pull_to_temp,
+            commands::splash::ui_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

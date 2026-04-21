@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicI64, AtomicU32};
 use std::sync::Arc;
+use std::time::Instant;
 
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
@@ -37,6 +38,11 @@ pub struct AppState {
     /// Cloud sync manager. Call `.trigger()` after any user-data mutation
     /// to enqueue a debounced write to the configured destination.
     pub sync: Arc<SyncManager>,
+    /// Monotonic timestamp captured when `AppState::new` runs — roughly
+    /// process start. The splash-dismiss command (`ui_ready`) uses this
+    /// to floor the splash's visible duration so it doesn't flicker on
+    /// a cold machine with fast cache.
+    pub started_at: Instant,
 }
 
 impl AppState {
@@ -53,6 +59,7 @@ impl AppState {
             local: Arc::new(LocalRegistry::new()),
             xserver: Arc::new(XServerManager::new()),
             sync,
+            started_at: Instant::now(),
         }
     }
 

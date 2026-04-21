@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { api } from '@/lib/tauri';
 import type { VaultStatus } from '@/lib/types';
 import { applyTheme, loadTheme } from '@/lib/theme';
@@ -14,6 +15,18 @@ export default function Page() {
       applyTheme(await loadTheme());
       setStatus(await api.vaultStatus());
     })();
+  }, []);
+
+  // Once the app has rendered its first frame, ask Rust to close the
+  // splash window and reveal the main window. rAF guarantees a paint
+  // has happened, so the user sees either the unlock screen or
+  // "Loading…" the instant the splash disappears (no blank flash).
+  // Rust enforces a ~600 ms minimum visible duration on its side.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      void invoke('ui_ready').catch(() => {});
+    });
+    return () => cancelAnimationFrame(id);
   }, []);
 
   if (status === null)    return <main className="h-full flex items-center justify-center text-muted">Loading…</main>;

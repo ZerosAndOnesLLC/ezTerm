@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ezTerm</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      /* Disable native drag-select + text cursor — splash is image-only. */
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: default;
+    }
+    .wrap {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    img {
+      width: 92%;
+      max-width: 460px;
+      height: auto;
+      opacity: 0;
+      animation: fade 220ms ease-out 30ms forwards;
+      -webkit-user-drag: none;
+      user-drag: none;
+      pointer-events: none;
+    }
+    @keyframes fade {
+      from { opacity: 0; transform: scale(0.98); }
+      to   { opacity: 1; transform: scale(1);    }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img src="./ezterm.png" alt="ezTerm" />
+  </div>
+</body>
+</html>

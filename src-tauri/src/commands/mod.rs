@@ -7,6 +7,7 @@ pub mod scp;
 pub mod sessions;
 pub mod settings;
 pub mod sftp;
+pub mod splash;
 pub mod ssh;
 pub mod sync;
 pub mod vault;
