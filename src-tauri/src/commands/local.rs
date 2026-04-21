@@ -155,6 +155,24 @@ pub async fn wsl_autodetect_seed(state: State<'_, AppState>) -> Result<usize> {
     Ok(created)
 }
 
+/// Distro names WSL registers for internal use (Docker Desktop,
+/// Rancher, Podman Desktop, etc.). Users don't want these showing up
+/// as shell tabs — they're not meant to be interacted with directly
+/// and `wsl.exe -d docker-desktop` typically errors or drops into a
+/// stripped-down busybox environment.
+const WSL_INTERNAL_DISTROS: &[&str] = &[
+    "docker-desktop",
+    "docker-desktop-data",
+    "rancher-desktop",
+    "rancher-desktop-data",
+    "podman-machine-default",
+];
+
+fn is_internal_distro(name: &str) -> bool {
+    let n = name.trim().to_ascii_lowercase();
+    WSL_INTERNAL_DISTROS.iter().any(|skip| n == *skip)
+}
+
 fn detect_wsl_distros_blocking() -> Vec<String> {
     // `wsl.exe -l --quiet` prints one distro per line; on Windows it emits
     // the output as UTF-16LE. We decode defensively so a rogue byte doesn't
@@ -183,9 +201,27 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
         .lines()
         .map(|l| l.trim().trim_matches('\0').to_string())
         .filter(|l| !l.is_empty())
+        .filter(|l| !is_internal_distro(l))
         .collect();
     eprintln!("[wsl-autodetect] detected {} distros: {:?}", distros.len(), distros);
     distros
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn internal_distros_are_filtered() {
+        assert!(is_internal_distro("docker-desktop"));
+        assert!(is_internal_distro("Docker-Desktop")); // case-insensitive
+        assert!(is_internal_distro("docker-desktop-data"));
+        assert!(is_internal_distro("rancher-desktop"));
+        assert!(is_internal_distro("podman-machine-default"));
+        assert!(!is_internal_distro("Ubuntu-24.04"));
+        assert!(!is_internal_distro("Debian"));
+        assert!(!is_internal_distro("my-custom-docker-distro"));
+    }
 }
 
 fn decode_wsl_output(bytes: &[u8]) -> String {
