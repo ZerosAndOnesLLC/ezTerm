@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
-  AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket,
+  AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
+  MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -30,6 +31,7 @@ export const api = {
   // Sessions
   sessionList:      () => invoke<Session[]>('session_list'),
   sessionGet:       (id: number) => invoke<Session>('session_get', { id }),
+  sessionEnvGet:    (id: number) => invoke<EnvPair[]>('session_env_get', { id }),
   sessionCreate:    (input: SessionInput) => invoke<Session>('session_create', { input }),
   sessionUpdate:    (id: number, input: SessionInput) => invoke<Session>('session_update', { id, input }),
   sessionDelete:    (id: number) => invoke<void>('session_delete', { id }),
@@ -79,4 +81,10 @@ export const api = {
     invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
+
+  // Import
+  mobaxtermPreview: (path: string) =>
+    invoke<MobaImportPreview>('mobaxterm_preview', { path }),
+  mobaxtermCommit:  (sessions: ParsedMobaSession[], duplicateStrategy: MobaDuplicateStrategy) =>
+    invoke<MobaImportResult>('mobaxterm_commit', { sessions, duplicateStrategy }),
 };

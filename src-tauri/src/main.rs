@@ -3,6 +3,7 @@
 mod commands;
 mod db;
 mod error;
+mod import;
 mod log_redacted;
 mod scp;
 mod sftp;
@@ -43,10 +44,13 @@ async fn main() {
             commands::credentials::credential_delete,
             commands::sessions::session_list,
             commands::sessions::session_get,
+            commands::sessions::session_env_get,
             commands::sessions::session_create,
             commands::sessions::session_update,
             commands::sessions::session_delete,
             commands::sessions::session_duplicate,
+            commands::import::mobaxterm_preview,
+            commands::import::mobaxterm_commit,
             commands::settings::settings_get,
             commands::settings::settings_set,
             commands::vault::vault_status,

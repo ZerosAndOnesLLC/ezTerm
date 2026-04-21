@@ -1,4 +1,5 @@
 'use client';
+import { File, FileSymlink, Folder } from 'lucide-react';
 import type { SftpEntry } from '@/lib/types';
 
 interface Props {
@@ -28,18 +29,27 @@ function formatMode(mode: number): string {
 }
 
 export function SftpFileRow({ entry, onOpen, onContext }: Props) {
+  // Icon + color vary by entry type. Dirs use the accent so the eye catches
+  // the only thing the user can navigate into.
+  let Icon = File;
+  let iconCls = 'text-muted';
+  if (entry.is_dir) { Icon = Folder; iconCls = 'text-accent'; }
+  else if (entry.is_symlink) { Icon = FileSymlink; iconCls = 'text-warning'; }
+
   return (
     <div
       role="row"
       onDoubleClick={() => onOpen(entry)}
       onContextMenu={(e) => { e.preventDefault(); onContext(entry, e.clientX, e.clientY); }}
-      className="grid grid-cols-[1fr_70px_72px] gap-2 px-2 py-1 text-xs hover:bg-surface2 cursor-default select-none"
+      className="grid grid-cols-[1fr_70px_72px] gap-2 px-2 h-6 items-center text-xs hover:bg-surface2/60 cursor-default select-none"
     >
-      <span className="truncate flex items-center gap-2">
-        <span aria-hidden>{entry.is_dir ? '▸' : entry.is_symlink ? '↪' : '·'}</span>
+      <span className="truncate flex items-center gap-1.5 min-w-0">
+        <Icon size={13} className={`${iconCls} shrink-0`} />
         <span className="truncate">{entry.name}</span>
       </span>
-      <span className="text-muted text-right tabular-nums">{entry.is_dir ? '' : formatSize(entry.size)}</span>
+      <span className="text-muted text-right tabular-nums">
+        {entry.is_dir ? '' : formatSize(entry.size)}
+      </span>
       <span className="text-muted font-mono">{formatMode(entry.mode)}</span>
     </div>
   );

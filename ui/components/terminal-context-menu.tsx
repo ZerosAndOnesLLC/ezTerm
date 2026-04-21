@@ -14,11 +14,11 @@ export interface TerminalMenuProps {
 
 export function TerminalContextMenu(p: TerminalMenuProps) {
   const items: MenuItem[] = [
-    { label: 'Copy',            disabled: !p.hasSelection, onClick: p.onCopy },
-    { label: 'Paste',           onClick: p.onPaste },
-    { label: 'Select All',      onClick: p.onSelectAll },
-    { label: 'Find…',           onClick: p.onFind },
-    { label: 'Clear Scrollback',onClick: p.onClear },
+    { label: 'Copy',             shortcut: 'Ctrl+Shift+C', disabled: !p.hasSelection, onClick: p.onCopy },
+    { label: 'Paste',            shortcut: 'Shift+Insert', onClick: p.onPaste },
+    { label: 'Select All',       onClick: p.onSelectAll },
+    { label: 'Find…',            shortcut: 'Ctrl+Shift+F', onClick: p.onFind },
+    { label: 'Clear scrollback', onClick: p.onClear },
   ];
   return <ContextMenu x={p.x} y={p.y} items={items} onClose={p.onClose} />;
 }

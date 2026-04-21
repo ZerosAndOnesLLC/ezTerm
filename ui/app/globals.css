@@ -77,7 +77,41 @@ body {
     @apply inline-flex items-center gap-1.5 border border-border text-fg rounded-sm px-3 py-1.5 text-xs;
     @apply hover:bg-surface2;
   }
+  /* Icon-only toolbar / header button. Fixed hit-target, ghost default,
+     2px accent ring on focus-visible per design-system §6.6. */
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded-sm text-muted;
+    @apply hover:text-fg hover:bg-surface2 transition-colors;
+  }
+  .icon-btn:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 1px;
+  }
+  .icon-btn[aria-pressed='true'],
+  .icon-btn[data-active='true'] {
+    @apply text-accent bg-accent/15;
+  }
+  /* Canonical focus ring — one utility, applied consistently across every
+     interactive element. Replaces ad-hoc `focus-visible:ring-*` variants. */
+  .focus-ring:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+  }
 }
+
+/* Dialog entry animation. Respects prefers-reduced-motion via the block
+   below which zeros all animation durations globally. */
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.dialog-in { animation: dialog-in 140ms ease-out; }
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.overlay-in { animation: overlay-in 120ms ease-out; }
 
 /* Honor reduced-motion: drop non-essential transitions. */
 @media (prefers-reduced-motion: reduce) {

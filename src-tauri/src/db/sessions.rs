@@ -13,8 +13,17 @@ pub struct Session {
     pub username: String,
     pub auth_type: String, // 'password' | 'key' | 'agent'
     pub credential_id: Option<i64>,
+    pub key_passphrase_credential_id: Option<i64>,
     pub color: Option<String>,
     pub sort: i64,
+    // Terminal + advanced session settings (v0.5).
+    pub initial_command: Option<String>,
+    pub scrollback_lines: i64,
+    pub font_size: i64,
+    pub cursor_style: String, // 'block' | 'bar' | 'underline'
+    pub compression: i64,     // 0 | 1 (SQLite has no bool)
+    pub keepalive_secs: i64,
+    pub connect_timeout_secs: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,33 +35,89 @@ pub struct SessionInput {
     pub username: String,
     pub auth_type: String,
     pub credential_id: Option<i64>,
+    pub key_passphrase_credential_id: Option<i64>,
     pub color: Option<String>,
+    pub initial_command: Option<String>,
+    pub scrollback_lines: i64,
+    pub font_size: i64,
+    pub cursor_style: String,
+    pub compression: i64,
+    pub keepalive_secs: i64,
+    pub connect_timeout_secs: i64,
+    /// Environment variables sent via `channel.set_env` at connect time.
+    /// Sent separately from the sessions row; see `session_env` table.
+    pub env: Vec<EnvPair>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EnvPair {
+    pub key: String,
+    pub value: String,
+}
+
+const SELECT_COLS: &str = "id, folder_id, name, host, port, username, auth_type, \
+credential_id, key_passphrase_credential_id, color, sort, \
+initial_command, scrollback_lines, font_size, cursor_style, compression, \
+keepalive_secs, connect_timeout_secs";
+
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
-    Ok(sqlx::query_as::<_, Session>(
-        "SELECT id, folder_id, name, host, port, username, auth_type, credential_id, color, sort \
-         FROM sessions ORDER BY folder_id, sort, id",
-    )
-    .fetch_all(pool)
-    .await?)
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id"
+    );
+    Ok(sqlx::query_as::<_, Session>(&sql).fetch_all(pool).await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Session> {
-    sqlx::query_as::<_, Session>(
-        "SELECT id, folder_id, name, host, port, username, auth_type, credential_id, color, sort \
-         FROM sessions WHERE id = ?",
+    let sql = format!("SELECT {SELECT_COLS} FROM sessions WHERE id = ?");
+    sqlx::query_as::<_, Session>(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(crate::error::AppError::NotFound)
+}
+
+pub async fn env_get(pool: &SqlitePool, session_id: i64) -> Result<Vec<EnvPair>> {
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, value FROM session_env WHERE session_id = ? ORDER BY key",
     )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or(crate::error::AppError::NotFound)
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(key, value)| EnvPair { key, value }).collect())
+}
+
+async fn env_replace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    session_id: i64,
+    env: &[EnvPair],
+) -> Result<()> {
+    // Takes an explicit transaction so callers control atomicity alongside
+    // the `sessions` row write. Uses `&mut *tx` dereference so each `execute`
+    // borrows the transaction for only the duration of that query, letting
+    // the loop reuse it on the next iteration.
+    sqlx::query("DELETE FROM session_env WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut **tx)
+        .await?;
+    for p in env {
+        sqlx::query("INSERT INTO session_env (session_id, key, value) VALUES (?, ?, ?)")
+            .bind(session_id)
+            .bind(&p.key)
+            .bind(&p.value)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }
 
 pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> {
+    let mut tx = pool.begin().await?;
     let id = sqlx::query(
-        "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, credential_id, color) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
+         credential_id, key_passphrase_credential_id, color, \
+         initial_command, scrollback_lines, font_size, cursor_style, \
+         compression, keepalive_secs, connect_timeout_secs) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -61,17 +126,31 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .bind(&input.username)
     .bind(&input.auth_type)
     .bind(input.credential_id)
+    .bind(input.key_passphrase_credential_id)
     .bind(&input.color)
-    .execute(pool)
+    .bind(&input.initial_command)
+    .bind(input.scrollback_lines)
+    .bind(input.font_size)
+    .bind(&input.cursor_style)
+    .bind(input.compression)
+    .bind(input.keepalive_secs)
+    .bind(input.connect_timeout_secs)
+    .execute(&mut *tx)
     .await?
     .last_insert_rowid();
+    env_replace(&mut tx, id, &input.env).await?;
+    tx.commit().await?;
     get(pool, id).await
 }
 
 pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<Session> {
+    let mut tx = pool.begin().await?;
     sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
-         auth_type = ?, credential_id = ?, color = ? WHERE id = ?",
+         auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
+         initial_command = ?, scrollback_lines = ?, font_size = ?, cursor_style = ?, \
+         compression = ?, keepalive_secs = ?, connect_timeout_secs = ? \
+         WHERE id = ?",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -80,10 +159,20 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(&input.username)
     .bind(&input.auth_type)
     .bind(input.credential_id)
+    .bind(input.key_passphrase_credential_id)
     .bind(&input.color)
+    .bind(&input.initial_command)
+    .bind(input.scrollback_lines)
+    .bind(input.font_size)
+    .bind(&input.cursor_style)
+    .bind(input.compression)
+    .bind(input.keepalive_secs)
+    .bind(input.connect_timeout_secs)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    env_replace(&mut tx, id, &input.env).await?;
+    tx.commit().await?;
     get(pool, id).await
 }
 
@@ -97,6 +186,7 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
 
 pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
     let src = get(pool, id).await?;
+    let env = env_get(pool, id).await?;
     let input = SessionInput {
         folder_id: src.folder_id,
         name: format!("{} (copy)", src.name),
@@ -105,7 +195,16 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
         username: src.username,
         auth_type: src.auth_type,
         credential_id: src.credential_id,
+        key_passphrase_credential_id: src.key_passphrase_credential_id,
         color: src.color,
+        initial_command: src.initial_command,
+        scrollback_lines: src.scrollback_lines,
+        font_size: src.font_size,
+        cursor_style: src.cursor_style,
+        compression: src.compression,
+        keepalive_secs: src.keepalive_secs,
+        connect_timeout_secs: src.connect_timeout_secs,
+        env,
     };
     create(pool, &input).await
 }
@@ -134,7 +233,16 @@ mod tests {
             username: "root".into(),
             auth_type: "agent".into(),
             credential_id: None,
+            key_passphrase_credential_id: None,
             color: None,
+            initial_command: None,
+            scrollback_lines: 5000,
+            font_size: 13,
+            cursor_style: "block".into(),
+            compression: 0,
+            keepalive_secs: 0,
+            connect_timeout_secs: 15,
+            env: Vec::new(),
         }
     }
 
@@ -147,10 +255,20 @@ mod tests {
         assert_eq!(dupe.name, "alpha (copy)");
         let mut upd = input("alpha2");
         upd.port = 2222;
+        upd.keepalive_secs = 60;
+        upd.env = vec![EnvPair { key: "LANG".into(), value: "C.UTF-8".into() }];
         update(&p, s.id, &upd).await.unwrap();
         let got = get(&p, s.id).await.unwrap();
         assert_eq!(got.port, 2222);
+        assert_eq!(got.keepalive_secs, 60);
+        let env = env_get(&p, s.id).await.unwrap();
+        assert_eq!(env.len(), 1);
+        assert_eq!(env[0].key, "LANG");
         delete(&p, s.id).await.unwrap();
         assert_eq!(list(&p).await.unwrap().len(), 1); // duplicate remains
+        // env cascade: deleting the source session clears its env rows, the
+        // duplicate's env row count is validated via env_get above.
+        let env_after = env_get(&p, s.id).await.unwrap();
+        assert!(env_after.is_empty());
     }
 }

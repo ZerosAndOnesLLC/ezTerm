@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, Loader2, PlugZap } from 'lucide-react';
 import { api, errMessage } from '@/lib/tauri';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { subscribeSshEvents } from '@/lib/ssh';
@@ -30,6 +31,10 @@ export function TerminalView({ tab, visible }: Props) {
   const runConnect = useCallback(async (trustAny: boolean) => {
     const bundle = bundleRef.current;
     if (!bundle) return;
+    // Error surface is the overlay + tab-bar status dot + status bar. No
+    // ANSI fallback — it used to clutter scrollback on reconnect without
+    // adding information the overlay doesn't already show.
+    const fail = (msg: string) => setStatus(tab.tabId, 'error', msg);
     try {
       const cols = bundle.terminal.cols;
       const rows = bundle.terminal.rows;
@@ -53,7 +58,7 @@ export function TerminalView({ tab, visible }: Props) {
           });
           return;
         }
-        setStatus(tab.tabId, 'error', errMessage(e));
+        fail(errMessage(e));
         return;
       }
       if (cancelledRef.current) {
@@ -63,15 +68,14 @@ export function TerminalView({ tab, visible }: Props) {
       connectionIdRef.current = result.connection_id;
       setConn(tab.tabId, result.connection_id);
       setStatus(tab.tabId, 'connected');
-      // Auto-open the SFTP pane on successful SSH connect (spec §4.4). Reads
-      // the current store via `getState()` because this handler runs async
-      // and wouldn't re-render on hook-returned action changes.
-      useTabs.getState().setSftpOpen(tab.tabId, true);
+      // SFTP pane starts collapsed — user toggles it per tab via the ⫶
+      // button on the tab header. (Prior versions auto-opened it on connect,
+      // but users found the split distracting when they only wanted a shell.)
 
       const unlisten = await subscribeSshEvents(result.connection_id, {
         onData:  (bytes) => bundle.terminal.write(bytes),
         onClose: () => setStatus(tab.tabId, 'closed'),
-        onError: (msg) => setStatus(tab.tabId, 'error', msg),
+        onError: (msg) => fail(msg),
       });
       // Re-check the cancelled flag: subscribeSshEvents awaits Tauri IPC, and
       // the tab may have been unmounted in that window. Without this check
@@ -98,14 +102,18 @@ export function TerminalView({ tab, visible }: Props) {
       if (containerRef.current) ro.observe(containerRef.current);
       resizeObsRef.current = ro;
     } catch (e) {
-      setStatus(tab.tabId, 'error', errMessage(e));
+      fail(errMessage(e));
     }
   }, [tab.tabId, tab.session.id, setStatus, setConn]);
 
   // Mount xterm and start the first connect attempt
   useEffect(() => {
     if (!containerRef.current) return;
-    const bundle = createTerminal();
+    const bundle = createTerminal({
+      fontSize: tab.session.font_size,
+      scrollback: tab.session.scrollback_lines,
+      cursorStyle: tab.session.cursor_style,
+    });
     bundleRef.current = bundle;
     bundle.terminal.open(containerRef.current);
     bundle.fit.fit();
@@ -132,6 +140,33 @@ export function TerminalView({ tab, visible }: Props) {
   useEffect(() => {
     if (visible) setTimeout(() => bundleRef.current?.fit.fit(), 0);
   }, [visible]);
+
+  // Ctrl + mouse wheel → zoom font size (MobaXterm convention).
+  // Attached with passive:false so preventDefault actually suppresses xterm's
+  // native scroll; bound once per tab and cleaned up on unmount.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const bundle = bundleRef.current;
+      if (!bundle) return;
+      e.preventDefault();
+      const current = bundle.terminal.options.fontSize ?? 14;
+      const delta = e.deltaY < 0 ? 1 : -1;
+      // Matches the session-dialog clamp so keyboard and wheel stay in sync.
+      const next = Math.max(8, Math.min(48, current + delta));
+      if (next === current) return;
+      bundle.terminal.options.fontSize = next;
+      bundle.fit.fit();
+      const cid = connectionIdRef.current;
+      if (cid !== null) {
+        api.sshResize(cid, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
@@ -175,15 +210,64 @@ export function TerminalView({ tab, visible }: Props) {
     await api.sshWrite(tab.connectionId, Array.from(bytes)).catch(() => {});
   }
 
+  const showOverlay = tab.status !== 'connected' && !prompt;
+  const summary = `${tab.session.username}@${tab.session.host}${
+    tab.session.port !== 22 ? `:${tab.session.port}` : ''
+  }`;
+
   return (
     <div
       className="relative h-full w-full bg-bg"
-      style={{ display: visible ? 'block' : 'none' }}
       onContextMenu={handleContextMenu}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       <div ref={containerRef} className="h-full w-full p-1" />
+      {showOverlay && (
+        <div className="absolute inset-0 bg-bg/70 backdrop-blur-sm flex items-center justify-center overlay-in pointer-events-none">
+          <div className="bg-surface border border-border rounded-md shadow-dialog px-5 py-4 w-[360px] max-w-[90%] text-center pointer-events-auto dialog-in">
+            {tab.status === 'connecting' && (
+              <>
+                <Loader2 size={28} className="text-accent animate-spin mx-auto mb-2" />
+                <div className="text-sm font-medium">Connecting…</div>
+                <div className="text-muted text-xs mt-1 font-mono">{summary}</div>
+              </>
+            )}
+            {tab.status === 'error' && (
+              <>
+                <AlertCircle size={28} className="text-danger mx-auto mb-2" />
+                <div className="text-sm font-medium">Connection failed</div>
+                <div className="text-muted text-xs mt-1 break-words">
+                  {tab.errorMessage ?? 'Unknown error'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setStatus(tab.tabId, 'connecting'); runConnect(false); }}
+                  className="btn-primary mt-3 mx-auto focus-ring"
+                >
+                  <PlugZap size={12} />
+                  Reconnect
+                </button>
+              </>
+            )}
+            {tab.status === 'closed' && (
+              <>
+                <PlugZap size={28} className="text-muted mx-auto mb-2" />
+                <div className="text-sm font-medium">Disconnected</div>
+                <div className="text-muted text-xs mt-1 font-mono">{summary}</div>
+                <button
+                  type="button"
+                  onClick={() => { setStatus(tab.tabId, 'connecting'); runConnect(false); }}
+                  className="btn-primary mt-3 mx-auto focus-ring"
+                >
+                  <PlugZap size={12} />
+                  Reconnect
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {menu && (
         <TerminalContextMenu
           x={menu.x} y={menu.y}

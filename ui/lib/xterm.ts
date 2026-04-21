@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
+import type { CursorStyle } from './types';
 
 export interface TerminalBundle {
   terminal: Terminal;
@@ -12,15 +13,24 @@ export interface TerminalBundle {
   dispose:  () => void;
 }
 
+export interface TerminalOptionsOverride {
+  fontSize?: number;
+  scrollback?: number;
+  cursorStyle?: CursorStyle;
+}
+
 /** Build an xterm.js Terminal with our fixed palette (dark, MobaXterm-like).
- *  Theme does NOT change with the chrome theme toggle per spec §4.3. */
-export function createTerminal(): TerminalBundle {
+ *  Theme does NOT change with the chrome theme toggle per spec §4.3.
+ *  Per-session overrides (font size, scrollback, cursor style) come from
+ *  the sessions row; omitted fields fall back to the MobaXterm-aligned
+ *  defaults below. */
+export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBundle {
   const terminal = new Terminal({
     cursorBlink: true,
-    cursorStyle: 'block',
+    cursorStyle: opts.cursorStyle ?? 'block',
     fontFamily: '"Cascadia Mono", Consolas, ui-monospace, monospace',
-    fontSize: 14,
-    scrollback: 5000,
+    fontSize: opts.fontSize ?? 14,
+    scrollback: opts.scrollback ?? 5000,
     allowProposedApi: true,
     theme: {
       background:         '#121214',

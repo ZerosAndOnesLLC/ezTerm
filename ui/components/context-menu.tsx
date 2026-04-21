@@ -6,6 +6,7 @@ export interface MenuItem {
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  shortcut?: string; // e.g. "Ctrl+Shift+C"
 }
 
 export function ContextMenu({
@@ -39,7 +40,7 @@ export function ContextMenu({
     <div
       ref={ref}
       style={{ top: y, left: x }}
-      className="fixed z-50 min-w-[180px] rounded border border-border bg-surface2 shadow-menu py-1 text-sm"
+      className="fixed z-50 min-w-[200px] rounded-md border border-border bg-surface shadow-menu py-1 text-xs dialog-in"
       role="menu"
     >
       {items.map((it, i) => (
@@ -48,15 +49,17 @@ export function ContextMenu({
           type="button"
           role="menuitem"
           disabled={it.disabled}
-          onClick={() => {
-            it.onClick();
-            onClose();
-          }}
-          className={`block w-full text-left px-3 py-1 hover:bg-surface focus-visible:outline-none focus-visible:bg-surface disabled:opacity-40 disabled:hover:bg-transparent ${
-            it.danger ? 'text-danger' : ''
+          onClick={() => { it.onClick(); onClose(); }}
+          className={`flex items-center w-full text-left px-3 py-1.5 hover:bg-surface2 focus-visible:outline-none focus-visible:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent ${
+            it.danger ? 'text-danger' : 'text-fg'
           }`}
         >
-          {it.label}
+          <span className="flex-1 truncate">{it.label}</span>
+          {it.shortcut && (
+            <span className="ml-6 text-muted font-mono text-[10px] tracking-tight">
+              {it.shortcut}
+            </span>
+          )}
         </button>
       ))}
     </div>

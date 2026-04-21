@@ -36,14 +36,22 @@ export function TransferStatus({ tracked }: { tracked: TrackedTransfer[] }) {
   if (active.length === 0) return null;
 
   return (
-    <div className="border-t border-border bg-surface text-xs p-2 space-y-1">
+    <div className="border-t border-border bg-surface2/40 text-xs p-2 space-y-1.5">
       {active.map((t) => {
         const p = states[t.transferId];
         const pct = p && p.total_bytes > 0 ? Math.floor((p.bytes_sent / p.total_bytes) * 100) : 0;
         return (
-          <div key={t.transferId} className="flex items-center gap-2">
-            <span className="flex-1 truncate">{t.label}</span>
-            <span className="w-12 text-right text-muted tabular-nums">{p ? `${pct}%` : '…'}</span>
+          <div key={t.transferId} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-fg/90">{t.label}</span>
+              <span className="text-muted tabular-nums">{p ? `${pct}%` : '…'}</span>
+            </div>
+            <div className="h-1 bg-surface2 rounded-sm overflow-hidden">
+              <div
+                className="h-full bg-accent transition-[width] duration-fast"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
           </div>
         );
       })}

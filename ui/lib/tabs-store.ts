@@ -16,6 +16,10 @@ export interface Tab {
 interface TabsState {
   tabs:       Tab[];
   activeId:   string | null;
+  // Persistent UI chrome state. Starts collapsed so the terminal gets the
+  // full window on launch; user expands via the rail button. Opening a
+  // session also collapses it (mirrors MobaXterm's "focus the work" flow).
+  sidebarCollapsed: boolean;
   open:       (session: Session) => string;
   setStatus:  (tabId: string, status: TabStatus, errorMessage?: string | null) => void;
   setConnection: (tabId: string, connectionId: number) => void;
@@ -24,6 +28,8 @@ interface TabsState {
   clear:      () => void;
   setSftpOpen: (tabId: string, open: boolean) => void;
   setCwd:      (tabId: string, cwd: string) => void;
+  setSidebarCollapsed: (v: boolean) => void;
+  toggleSidebar:       () => void;
 }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -31,6 +37,7 @@ function uid() { return Math.random().toString(36).slice(2, 10); }
 export const useTabs = create<TabsState>((set) => ({
   tabs: [],
   activeId: null,
+  sidebarCollapsed: false,
   open: (session) => {
     const tabId = uid();
     set((s) => ({
@@ -47,6 +54,10 @@ export const useTabs = create<TabsState>((set) => ({
         },
       ],
       activeId: tabId,
+      // Auto-collapse the sidebar on every connect. Once at least one tab
+      // exists the user's attention belongs on the terminal; they can
+      // re-expand from the rail button to launch another session.
+      sidebarCollapsed: true,
     }));
     return tabId;
   },
@@ -74,4 +85,6 @@ export const useTabs = create<TabsState>((set) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, cwd } : t)),
     })),
+  setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+  toggleSidebar:       () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 }));

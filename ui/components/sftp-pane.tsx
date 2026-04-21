@@ -1,13 +1,18 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { FolderPlus, Inbox, Loader2, RefreshCw, Upload, UploadCloud } from 'lucide-react';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
 import type { SftpEntry } from '@/lib/types';
 import { useTabs, type Tab } from '@/lib/tabs-store';
+import { toast } from '@/lib/toast';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { SftpBreadcrumb } from './sftp-breadcrumb';
 import { SftpFileRow } from './sftp-file-row';
 import { TransferStatus, type TrackedTransfer } from './transfer-status';
+import { ConfirmDialog } from './confirm-dialog';
+import { PromptDialog } from './prompt-dialog';
+import { EmptyState } from './empty-state';
 
 /// Join a parent dir and a filename while keeping root (`/`) tidy.
 function joinRemote(dir: string, name: string): string {
@@ -15,12 +20,22 @@ function joinRemote(dir: string, name: string): string {
   return `${dir.replace(/\/+$/, '')}/${name}`;
 }
 
+type PendingPrompt =
+  | { kind: 'mkdir' }
+  | { kind: 'rename'; entry: SftpEntry };
+
+type PendingConfirm =
+  | { kind: 'delete'; entry: SftpEntry };
+
 export function SftpPane({ tab }: { tab: Tab }) {
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<TrackedTransfer[]>([]);
   const [opened, setOpened] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
+  const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const setCwd = useTabs((s) => s.setCwd);
 
   const refresh = useCallback(async () => {
@@ -77,41 +92,13 @@ export function SftpPane({ tab }: { tab: Tab }) {
               setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `download ${e.name}` }]);
             }
           } catch (er) {
-            setError(errMessage(er));
+            toast.danger('Download failed', errMessage(er));
           }
         },
       });
     }
-    items.push({
-      label: 'Rename…',
-      onClick: async () => {
-        const n = window.prompt('Rename', e.name);
-        if (n && n.trim()) {
-          const parent = e.full_path.replace(/\/[^/]+$/, '') || '/';
-          const to = joinRemote(parent, n.trim());
-          try {
-            await api.sftpRename(cid, e.full_path, to);
-            refresh();
-          } catch (er) {
-            setError(errMessage(er));
-          }
-        }
-      },
-    });
-    items.push({
-      label: 'Delete',
-      danger: true,
-      onClick: async () => {
-        if (!window.confirm(`Delete ${e.name}?`)) return;
-        try {
-          if (e.is_dir) await api.sftpRmdir(cid, e.full_path);
-          else          await api.sftpRemove(cid, e.full_path);
-          refresh();
-        } catch (er) {
-          setError(errMessage(er));
-        }
-      },
-    });
+    items.push({ label: 'Rename…', onClick: () => setPrompt({ kind: 'rename', entry: e }) });
+    items.push({ label: 'Delete', danger: true, onClick: () => setConfirm({ kind: 'delete', entry: e }) });
     setMenu({ x, y, items });
   }
 
@@ -120,6 +107,7 @@ export function SftpPane({ tab }: { tab: Tab }) {
   /// as a fallback — this keeps the UX one-click instead of silently failing.
   async function handleDrop(ev: React.DragEvent) {
     ev.preventDefault();
+    setDragOver(false);
     const cid = tab.connectionId;
     if (cid == null) return;
     const files = Array.from(ev.dataTransfer?.files ?? []) as File[];
@@ -129,7 +117,10 @@ export function SftpPane({ tab }: { tab: Tab }) {
         const localFromDrop = (f as unknown as { path?: string }).path ?? '';
         let local = localFromDrop;
         if (!local) {
-          const picked = await openDialog({ multiple: false, title: `Select file to upload (drag-drop path not available)` });
+          const picked = await openDialog({
+            multiple: false,
+            title: 'Select file to upload (drag-drop path not available)',
+          });
           if (typeof picked !== 'string') continue;
           local = picked;
         }
@@ -138,10 +129,9 @@ export function SftpPane({ tab }: { tab: Tab }) {
         const labelName = f.name || remote.split('/').pop() || 'file';
         setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${labelName}` }]);
       }
-      // Transfers are async — the refresh a moment later lets the list catch up.
       setTimeout(refresh, 500);
     } catch (er) {
-      setError(errMessage(er));
+      toast.danger('Upload failed', errMessage(er));
     }
   }
 
@@ -157,59 +147,57 @@ export function SftpPane({ tab }: { tab: Tab }) {
       setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${name}` }]);
       setTimeout(refresh, 500);
     } catch (er) {
-      setError(errMessage(er));
-    }
-  }
-
-  async function handleMkdir() {
-    const cid = tab.connectionId;
-    if (cid == null) return;
-    const n = window.prompt('New directory name');
-    if (!n || !n.trim()) return;
-    try {
-      await api.sftpMkdir(cid, joinRemote(tab.cwd, n.trim()));
-      refresh();
-    } catch (er) {
-      setError(errMessage(er));
+      toast.danger('Upload failed', errMessage(er));
     }
   }
 
   return (
     <div
-      className="h-full w-64 border-r border-border bg-surface flex flex-col min-h-0 shrink-0"
-      onDragOver={(ev) => { ev.preventDefault(); }}
+      className="h-full w-72 border-r border-border bg-surface flex flex-col min-h-0 shrink-0 relative"
+      onDragOver={(ev) => { ev.preventDefault(); if (!dragOver) setDragOver(true); }}
+      onDragLeave={(ev) => {
+        // Ignore leaves into child elements — only clear when leaving the
+        // pane bounds entirely.
+        const r = (ev.currentTarget as HTMLDivElement).getBoundingClientRect();
+        if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) {
+          setDragOver(false);
+        }
+      }}
       onDrop={handleDrop}
     >
-      <div className="px-2 py-1.5 border-b border-border flex items-center gap-1">
-        <SftpBreadcrumb path={tab.cwd} onNavigate={(p) => setCwd(tab.tabId, p)} />
+      <div className="h-8 px-1.5 border-b border-border flex items-center gap-1 shrink-0">
+        <div className="flex-1 min-w-0">
+          <SftpBreadcrumb path={tab.cwd} onNavigate={(p) => setCwd(tab.tabId, p)} />
+        </div>
         <button
           type="button"
-          onClick={handleMkdir}
+          onClick={() => setPrompt({ kind: 'mkdir' })}
           title="New directory"
           aria-label="New directory"
-          className="shrink-0 text-muted hover:text-fg px-1 text-xs"
+          className="icon-btn"
         >
-          +dir
+          <FolderPlus size={13} />
         </button>
         <button
           type="button"
           onClick={handleUploadClick}
           title="Upload file"
           aria-label="Upload file"
-          className="shrink-0 text-muted hover:text-fg px-1 text-xs"
+          className="icon-btn"
         >
-          ↑
+          <Upload size={13} />
         </button>
         <button
           type="button"
           onClick={refresh}
           title="Refresh"
           aria-label="Refresh"
-          className="shrink-0 text-muted hover:text-fg px-1 text-xs"
+          className="icon-btn"
         >
-          ↻
+          <RefreshCw size={13} />
         </button>
       </div>
+
       {error && (
         <div
           role="alert"
@@ -226,27 +214,102 @@ export function SftpPane({ tab }: { tab: Tab }) {
           </button>
         </div>
       )}
+
       <div role="table" aria-label="Remote files" className="flex-1 overflow-auto">
         <div
           role="row"
-          className="grid grid-cols-[1fr_70px_72px] gap-2 px-2 py-1 text-xs text-muted sticky top-0 bg-surface border-b border-border"
+          className="grid grid-cols-[1fr_70px_72px] gap-2 px-2 py-1 text-[11px] text-muted sticky top-0 bg-surface border-b border-border uppercase tracking-wider font-medium"
         >
           <span>Name</span>
           <span className="text-right">Size</span>
           <span>Mode</span>
         </div>
-        {entries.length === 0 && opened && (
-          <div className="px-2 py-2 text-xs text-muted">Empty directory.</div>
-        )}
         {!opened && tab.sftpOpen && (
-          <div className="px-2 py-2 text-xs text-muted">Opening SFTP subsystem…</div>
+          <div className="h-full flex items-center justify-center text-muted text-xs gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            <span>Opening SFTP…</span>
+          </div>
+        )}
+        {opened && entries.length === 0 && (
+          <EmptyState icon={Inbox} title="Empty directory" compact />
         )}
         {entries.map((e) => (
           <SftpFileRow key={e.full_path} entry={e} onOpen={navigateInto} onContext={openContext} />
         ))}
       </div>
       <TransferStatus tracked={transfers} />
+
+      {dragOver && (
+        <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-accent bg-accent/10 flex flex-col items-center justify-center overlay-in">
+          <UploadCloud size={32} className="text-accent mb-2" strokeWidth={1.5} />
+          <div className="text-sm font-medium text-fg">Drop to upload</div>
+          <div className="text-xs text-muted mt-0.5 font-mono">{tab.cwd}</div>
+        </div>
+      )}
+
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+
+      {prompt?.kind === 'mkdir' && (
+        <PromptDialog
+          title="New directory"
+          label="Directory name"
+          confirmText="Create"
+          onCancel={() => setPrompt(null)}
+          onConfirm={async (name) => {
+            const cid = tab.connectionId;
+            if (cid == null) { setPrompt(null); return; }
+            await api.sftpMkdir(cid, joinRemote(tab.cwd, name));
+            setPrompt(null);
+            refresh();
+            toast.success('Directory created', name);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'rename' && (
+        <PromptDialog
+          title={`Rename "${prompt.entry.name}"`}
+          label="New name"
+          initialValue={prompt.entry.name}
+          confirmText="Rename"
+          onCancel={() => setPrompt(null)}
+          onConfirm={async (name) => {
+            const cid = tab.connectionId;
+            if (cid == null) { setPrompt(null); return; }
+            const parent = prompt.entry.full_path.replace(/\/[^/]+$/, '') || '/';
+            const to = joinRemote(parent, name);
+            await api.sftpRename(cid, prompt.entry.full_path, to);
+            setPrompt(null);
+            refresh();
+            toast.success('Renamed', `${prompt.entry.name} → ${name}`);
+          }}
+        />
+      )}
+
+      {confirm?.kind === 'delete' && (
+        <ConfirmDialog
+          kind="danger"
+          title={`Delete "${confirm.entry.name}"?`}
+          body={confirm.entry.is_dir
+            ? 'The directory must be empty on the remote server.'
+            : 'This cannot be undone.'}
+          confirmText="Delete"
+          onCancel={() => setConfirm(null)}
+          onConfirm={async () => {
+            const cid = tab.connectionId;
+            if (cid == null) { setConfirm(null); return; }
+            try {
+              if (confirm.entry.is_dir) await api.sftpRmdir(cid, confirm.entry.full_path);
+              else                      await api.sftpRemove(cid, confirm.entry.full_path);
+              refresh();
+              toast.success('Deleted', confirm.entry.name);
+            } catch (e) {
+              toast.danger('Delete failed', errMessage(e));
+            }
+            setConfirm(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -85,19 +85,50 @@ pub async fn connect(
             user = %user);
     }
     let (auth_material, _cred_kind) = load_auth_material(state, &session).await?;
+    let env_pairs = db::sessions::env_get(&state.db, req.session_id).await?;
 
     // 2. Configure russh client.
-    let config = Arc::new(Config::default());
+    // Per-session tunables (keepalive, compression) come from the sessions
+    // row. A keepalive of 0 means "disabled" (russh reads the absence of a
+    // Duration as "no keepalives"), matching our `keepalive_secs` semantics.
+    let mut config = Config::default();
+    if session.keepalive_secs > 0 {
+        config.keepalive_interval =
+            Some(std::time::Duration::from_secs(session.keepalive_secs as u64));
+    }
+    if session.compression == 1 {
+        // Prefer zlib variants when the server offers them, but keep "none"
+        // as a last resort so connect doesn't fail against strict servers.
+        // Order matters: russh negotiates the first mutually-acceptable name.
+        // The list is static because russh holds it via `Cow::Borrowed` for
+        // the connection lifetime.
+        static COMPRESSION_ON: &[russh::compression::Name] = &[
+            russh::compression::ZLIB_LEGACY,
+            russh::compression::ZLIB,
+            russh::compression::NONE,
+        ];
+        config.preferred.compression = std::borrow::Cow::Borrowed(COMPRESSION_ON);
+    }
+    let config = Arc::new(config);
     let server_key = Arc::new(Mutex::new(None));
     let handler = ClientHandler {
         server_key: server_key.clone(),
     };
-    let mut handle = client::connect(
+    // russh's `client::connect` has no built-in deadline, so we bound the
+    // whole handshake (TCP + KEX + host-key) with the user-configured
+    // connect_timeout_secs. Exceeding it maps to AppError::Ssh("connect
+    // timeout") — distinct from AuthFailed so the UI can surface it plainly.
+    let connect_fut = client::connect(
         config,
         (session.host.as_str(), session.port as u16),
         handler,
+    );
+    let mut handle = tokio::time::timeout(
+        std::time::Duration::from_secs(session.connect_timeout_secs as u64),
+        connect_fut,
     )
     .await
+    .map_err(|_| AppError::Ssh("connect timeout".into()))?
     .map_err(|e| AppError::Ssh(format!("connect: {e}")))?;
 
     // 3. Host-key TOFU check.
@@ -171,6 +202,27 @@ pub async fn connect(
         .channel_open_session()
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // Env vars must be sent AFTER channel open and BEFORE shell/exec per
+    // RFC 4254 §6.4. `want_reply: false` so we don't block on a per-var
+    // round-trip; most sshd configs reject unlisted vars via AcceptEnv
+    // silently anyway, and a false positive here isn't worth the latency.
+    for pair in &env_pairs {
+        if let Err(e) = channel
+            .set_env(false, pair.key.as_str(), pair.value.as_str())
+            .await
+        {
+            // Don't fail the connect just because the server rejected an env
+            // var — log and continue. The UI will surface this as info via
+            // the tab status once observability grows beyond tracing.
+            // Locals so the `_forbid_names` lint (which only accepts bare
+            // idents after `%`) compiles — see log_redacted macro rules.
+            let key = &pair.key;
+            let err = e;
+            log_redacted!(warn, "ssh.env.set_failed",
+                key = %key,
+                error = %err);
+        }
+    }
     channel
         .request_pty(
             false,
@@ -187,6 +239,20 @@ pub async fn connect(
         .request_shell(true)
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // Optional initial command — written as keystrokes into the shell's
+    // stdin the same way the user would have typed them. We intentionally
+    // avoid `channel_exec` here so the interactive shell stays alive after
+    // the command runs (exec would close the channel on exit).
+    if let Some(cmd) = session.initial_command.as_ref() {
+        let trimmed = cmd.trim();
+        if !trimmed.is_empty() {
+            let line = format!("{trimmed}\n");
+            if let Err(e) = channel.data(line.as_bytes()).await {
+                let err = e;
+                log_redacted!(warn, "ssh.initial_command.failed", error = %err);
+            }
+        }
+    }
 
     // 6. Allocate connection id + mpsc + registry insert.
     let id = state.ssh.alloc_id();
@@ -245,7 +311,6 @@ enum AuthMaterial {
     Password(Zeroizing<Vec<u8>>),
     PrivateKey {
         pem: Zeroizing<Vec<u8>>,
-        #[allow(dead_code)]
         passphrase: Option<Zeroizing<Vec<u8>>>,
     },
 }
@@ -274,13 +339,21 @@ async fn load_auth_material(
                 .ok_or_else(|| AppError::Validation("missing credential".into()))?;
             let row = db::credentials::get(&state.db, cred_id).await?;
             let vs = state.vault.read().await;
-            let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
-            // We don't implement per-key passphrase lookup here in v0.1; if the
-            // key is passphrase-protected, the user must decrypt it beforehand.
+            let pem = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
+            // Optional passphrase credential — stored as a separate row with
+            // kind='key_passphrase' so a single stored passphrase can be reused
+            // across multiple sessions that share the same private key.
+            let passphrase = if let Some(pp_id) = session.key_passphrase_credential_id {
+                let pp_row = db::credentials::get(&state.db, pp_id).await?;
+                let pp = vault::decrypt_with(&vs, &pp_row.nonce, &pp_row.ciphertext)?;
+                Some(Zeroizing::new(pp))
+            } else {
+                None
+            };
             Ok((
                 AuthMaterial::PrivateKey {
-                    pem: Zeroizing::new(pt),
-                    passphrase: None,
+                    pem: Zeroizing::new(pem),
+                    passphrase,
                 },
                 Some(row.kind),
             ))
@@ -332,13 +405,18 @@ async fn authenticate(
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))
         }
-        AuthMaterial::PrivateKey { pem, passphrase: _ } => {
-            let keypair = russh_keys::decode_secret_key(
-                std::str::from_utf8(&pem)
-                    .map_err(|_| AppError::Validation("non-utf8 key".into()))?,
-                None,
-            )
-            .map_err(|e| AppError::Ssh(format!("key parse: {e}")))?;
+        AuthMaterial::PrivateKey { pem, passphrase } => {
+            let pem_str = std::str::from_utf8(&pem)
+                .map_err(|_| AppError::Validation("non-utf8 key".into()))?;
+            let pp_str = passphrase
+                .as_deref()
+                .map(|b| {
+                    std::str::from_utf8(b)
+                        .map_err(|_| AppError::Validation("non-utf8 key passphrase".into()))
+                })
+                .transpose()?;
+            let keypair = russh_keys::decode_secret_key(pem_str, pp_str)
+                .map_err(|e| AppError::Ssh(format!("key parse: {e}")))?;
             handle
                 .authenticate_publickey(&session.username, Arc::new(keypair))
                 .await
