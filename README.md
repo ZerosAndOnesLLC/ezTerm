@@ -1,8 +1,91 @@
 # ezTerm
 
-Free, open-source Windows SSH client with a MobaXterm-style session manager, encrypted credential vault, and xterm-compatible terminal.
+A free, open-source Windows SSH client with a MobaXterm-style session manager,
+encrypted credential vault, xterm-compatible terminal, SFTP side-pane, WSL and
+local-shell tabs, and X11 forwarding.
 
-**Status:** Pre-alpha. Plan 1 tagged at `v0.1.0-foundation` (scaffold + vault + session manager). Plan 2 (SSH + terminal) is next; SFTP follows in Plan 3.
+**Status:** pre-release. v0.11.0 is the first tagged build with the full SSH +
+WSL + X11 feature set. Windows-first; Linux and macOS binaries are produced by
+the release pipeline but only the SSH / SFTP / terminal features are meaningful
+on those platforms.
+
+**Licence:** GNU General Public License, version 3 — see [LICENSE.md](LICENSE.md).
+
+## Features
+
+### Connections
+- **SSH** over [russh](https://crates.io/crates/russh) with password, private
+  key, or SSH-agent auth. Host-key TOFU on first connect; hard-fail on mismatch.
+- **WSL** tabs — `wsl.exe -d <distro> [-u <user>]` under a ConPTY. `code .`,
+  `explorer.exe`, and the rest of WSL interop Just Works.
+- **Local shells** — `cmd`, `powershell`, `pwsh`, or any absolute path, with an
+  optional starting directory.
+- **X11 forwarding** against [VcXsrv](https://sourceforge.net/projects/vcxsrv/) —
+  tick "Forward X11" on an SSH session and remote GUI apps (`xeyes`, `gedit`,
+  JetBrains tools, …) pop as native Windows windows.
+- **MobaXterm import** — point at a `.mxtsessions` export or `MobaXterm.ini` and
+  import SSH + WSL rows with their folder structure. Private-key files are read
+  off disk and stored as encrypted vault credentials, auto-attached to the
+  matching sessions.
+
+### Terminal
+- xterm.js with **full 16-colour + 256-colour + 24-bit truecolor** support
+  (remote sees `TERM=xterm-256color`).
+- Copy / Paste (`Ctrl+Shift+C` / `Ctrl+Shift+V` / `Shift+Insert`), Select All,
+  Clear Scrollback, Find (`Ctrl+Shift+F`) with case-sensitive / regex toggles.
+- **Ctrl + mouse wheel** zoom (8–48 pt, SSH channel resized on every step).
+- Per-session font size, scrollback depth, cursor style, env vars, keepalive,
+  connect timeout, initial command, compression.
+
+### Workspace
+- **Sessions sidebar** — folders + drag-and-drop (sessions into folders, folders
+  into folders, drop on the tree background to root). Folder session-count
+  badges, coloured icons per folder, green-glow rail for the currently connected
+  row. Resizable with a grab-strip on the right edge (180 – 520 px, persisted).
+- **Tab bar** with coloured status dots (pulse on connecting, green on
+  connected, red on error), middle-click to close, per-tab SFTP toggle.
+- **SFTP side-pane** docked on the active SSH tab — breadcrumb navigation,
+  right-click context menu (Download, Rename, Delete), drag-drop upload from
+  Explorer with streaming 32 KiB chunks and live progress.
+- **Inline auth-fix overlay** — when a connect fails with bad auth / missing
+  credential, a dedicated overlay lets the user fix username, auth method, or
+  vault credential without leaving the tab. No "close tab and start over" ritual.
+- **Status bar** — active-session `user@host`, SFTP cwd, X-server pill,
+  theme + lock buttons.
+- **Toasts** for create / rename / delete / import events.
+- Dark by default with a light theme toggle; theme persists per user.
+
+### Security
+- **Vault** — Argon2id KDF → ChaCha20-Poly1305 AEAD for every stored secret.
+  Master password unlocks the app; secrets live encrypted at rest in SQLite and
+  are zeroised in memory after use.
+- **Credentials** — passwords, private keys, and key passphrases are three
+  distinct kinds so a single stored passphrase can back multiple sessions.
+- **Known hosts** — stored in SQLite, not `~/.ssh/known_hosts`. Mismatch is a
+  hard fail unless the user explicitly trusts the new fingerprint.
+- **Redacted logging** — host / user / fingerprint are the only identifiers
+  that appear in traces; secrets never touch logs.
+
+## Install
+
+Pre-built binaries live on the
+[Releases](https://github.com/ZerosAndOnesLLC/ezTerm/releases) page — one
+`tar.xz` per platform:
+
+| Platform | Archive |
+|---|---|
+| Windows x86_64 | `ezterm-windows-x86_64.tar.xz` |
+| Linux x86_64 | `ezterm-linux-x86_64.tar.xz` |
+| Linux aarch64 | `ezterm-linux-aarch64.tar.xz` |
+| macOS aarch64 | `ezterm-macos-aarch64.tar.xz` |
+
+Extract, run the `ezterm` / `ezterm.exe` binary. No install step required — the
+UI is embedded in the executable.
+
+**Optional dependencies:**
+- Windows — X11 forwarding needs [VcXsrv](https://sourceforge.net/projects/vcxsrv/)
+  installed at `%ProgramFiles%\VcXsrv\`.
+- Linux — runtime requires `webkit2gtk-4.1` and `libssl` (matches the build host).
 
 ## Dev quickstart
 
@@ -11,21 +94,18 @@ Free, open-source Windows SSH client with a MobaXterm-style session manager, enc
 cargo install tauri-cli --version '^2.0' --locked
 cargo install sqlx-cli --no-default-features --features sqlite --locked
 cp .env.example .env
-
-# frontend install
 npm --prefix ui install
 
-# run — IMPORTANT: use cargo tauri dev, not cargo run
+# run (uses cargo tauri dev, which runs the Next.js dev server + Rust)
 cargo tauri dev
 ```
 
-> **Heads up:** `cargo run` will fail with `frontendDist "../ui/out" doesn't exist`
-> because `ui/out/` is a build artifact (gitignored). Use `cargo tauri dev` — it
-> runs the frontend dev server automatically via `beforeDevCommand`. If you
-> really want to use `cargo run`, build the UI first:
-> `npm --prefix ui run build && cargo run` (Windows `cmd`: same commands).
+Use `cargo tauri dev`, not `cargo run` — the latter fails with
+`frontendDist "../ui/out" doesn't exist` because `ui/out/` is a build artifact.
+If you must use `cargo run`, build the UI first:
+`npm --prefix ui run build && cargo run`.
 
-Tests:
+### Tests + linters
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -33,106 +113,58 @@ npm --prefix ui run typecheck
 npm --prefix ui run lint
 ```
 
-Ship build (Windows):
+### Local release build
 
 ```bash
-cargo tauri build
+cargo tauri build        # full MSI + NSIS installers on Windows
+cargo build --release    # raw self-contained binary in target/release/
 ```
 
-## v0.2 — SSH + Terminal
+## Architecture
 
-Plan 2 adds the core SSH experience:
-- russh-backed connections to any saved session (password / private key / SSH agent)
-- xterm.js terminal with Copy (Ctrl+Shift+C), Paste (Ctrl+Shift+V), Shift+Insert, Select All, Clear Scrollback, Find (Ctrl+Shift+F)
-- Right-click terminal context menu
-- Host-key TOFU prompt on first connect; hard-fail on mismatch unless the user explicitly replaces
-- Real tab bar (middle-click to close)
+```
+ezTerm/
+├── src-tauri/       Rust: Tauri commands, SSH/SFTP, vault, local PTY, X server mgmt
+├── ui/              Next.js app (static export embedded into the Rust binary)
+├── migrations/      sqlx migrations (SQLite)
+└── .github/         release workflow
+```
 
-## v0.4 — Passphrase-protected keys + inline connect errors
+- **Command boundary** — all SSH / SFTP / vault / local-PTY / X-server ops live
+  in Rust behind Tauri commands. The UI is a renderer + keyboard capture; no
+  protocol logic in TypeScript.
+- **Events** — bytes flow from Rust to the UI via `ssh:data:<id>` /
+  `ssh:close:<id>` events (reused by both SSH and local PTY drivers).
+  Keystrokes flow the other way through `ssh_write` / `local_write` commands.
+- **Session kinds** — a single `sessions` table with a `session_kind` column
+  (`ssh` / `wsl` / `local`) re-purposes `host` + `username` per kind. The
+  connect flow dispatches to either the russh client (SSH) or the
+  `portable-pty` backend (WSL / local).
+- **X11 forwarding** — russh's `server_channel_open_x11` handler pipes each
+  incoming X11 channel bidirectionally into a loopback TCP connection to
+  VcXsrv. VcXsrv lifecycle is ref-counted per display.
 
-- Session dialog gained a **Key passphrase (optional)** credential picker when
-  **Auth = Private key**. The passphrase is stored as its own encrypted
-  credential (kind `key_passphrase`) so one saved passphrase can be reused
-  across multiple sessions that share the same private key.
-- SSH connect errors (auth failure, key parse, host-key issues, etc.) are now
-  rendered directly into the terminal tab as `[Error] …` instead of only a
-  silent red `!` indicator.
+## Releases
 
-## v0.7 — MobaXterm import + font-size wheel zoom
+See [docs/RELEASING.md](docs/RELEASING.md) for the tag-push workflow. tl;dr:
+bump the version in `Cargo.toml`, push a `v*` tag, GitHub Actions produces the
+four `tar.xz` archives and opens a draft release for you to review.
 
-- **Import from MobaXterm** — sidebar toolbar gains an import button and the
-  root right-click menu gets an "Import from MobaXterm…" entry. Point at a
-  `.mxtsessions` export or `MobaXterm.ini`; the preview dialog shows session
-  counts, the folder hierarchy that will be recreated, and a per-duplicate
-  strategy picker (**skip** / **overwrite** host-port-user / **rename** with
-  an `(imported)` suffix). Non-SSH rows (RDP, VNC, Telnet, …) are counted and
-  left behind — v0.7 is SSH-only by design. Imported sessions land with
-  `auth=agent`; attach vault credentials after import.
-- **Ctrl + mouse wheel** inside a terminal tab zooms the font size in/out,
-  clamped to the same 8–48 range the session dialog enforces. The SSH channel
-  is resized on every change so the remote program sees the new grid
-  immediately.
+## Licence
 
-## v0.6 — Visual polish pass
+ezTerm is licensed under the **GNU General Public License, version 3** (GPLv3
+only — not "or later"). See [LICENSE.md](LICENSE.md) for the full text.
 
-- **Lucide icons** everywhere — sidebar, tab bar, SFTP header, find overlay,
-  status bar, dialog close. Replaces the Unicode-glyph placeholders.
-- **Status bar** now shows active-session `user@host`, SFTP cwd, icon-only
-  theme + lock buttons at 24px.
-- **Sidebar** rows are 24px with folder/session icons, selection state,
-  collapsible folders (`▸`/`▾`), and a 2px success rail on currently
-  connected sessions. New sessions / folders use icon-only toolbar buttons;
-  native `window.prompt` / `window.confirm` replaced with in-app dialogs
-  that match the app chrome.
-- **Tab bar** is 32px with underline-on-active, coloured status dots
-  (pulse on connecting), and always-visible close on the active tab.
-- **Terminal connection overlay** — centered card for `Connecting…`,
-  `Connection failed` with Reconnect, and `Disconnected` with Reconnect.
-  The old ANSI `[Error]` line is gone; the overlay + tab dot + status bar
-  carry the signal.
-- **Toast region** (bottom-right, 4s auto-dismiss) for all create /
-  rename / delete confirmations.
-- **SFTP pane** widened to 288px, real icons per row (folder/file/
-  symlink with color), full-pane drop-zone overlay when dragging files in.
-- **Find overlay** upgraded to proper icon-buttons, match count
-  (`3 / 12`), case-sensitive / regex toggles.
-- **Host-key dialog** uses semantic danger / warning tokens instead of raw
-  Tailwind reds, plus a shield icon reflecting threat level.
-- **Unlock screen** — strength meter (4-bar heuristic), show/hide toggle,
-  card-style layout with an app glyph.
-- **Focus rings** unified under a single `.focus-ring` utility for
-  consistency across every interactive element.
-- New dependency: `lucide-react` (MIT).
+Third-party components retain their own licences:
+- `russh`, `russh-keys`, `russh-sftp` — Apache 2.0
+- `sqlx`, `tokio` — MIT / Apache 2.0
+- `portable-pty` — MIT
+- `xterm.js` — MIT
+- `lucide-react` — ISC
+- VcXsrv (not bundled; user-installed) — GPL v2
 
-## v0.5 — Redesigned session dialog + per-session settings
+## Contributing
 
-MobaXterm-style edit dialog with three tabs (General / Terminal / Advanced)
-and a live `user@host:port` summary strip. Dialog is wider, keyboard-friendly
-(`Esc` closes, `Ctrl+Enter` saves), and credential-picker buttons are now real
-buttons instead of tiny text links.
-
-New per-session settings (all persisted in `sessions`):
-
-- **Initial command** — written into the shell as keystrokes after connect.
-- **Scrollback lines** / **Font size** / **Cursor style** (block / bar /
-  underline) — applied to xterm when the tab opens.
-- **Environment variables** — list of `KEY=VALUE` pairs sent via SSH
-  `env` requests at channel-open time (subject to the server's `AcceptEnv`).
-- **Connect timeout** — bounds the whole SSH handshake, mapped to a distinct
-  `connect timeout` error in the UI.
-- **Keepalive (seconds)** — drives russh's `keepalive_interval`; `0`
-  disables.
-- **SSH compression** — toggles zlib/zlib@openssh.com in the russh preferred
-  algorithm list.
-
-## v0.3 — SFTP side-pane + SCP
-
-Plan 3 completes the v0.1 feature set:
-- Left-docked SFTP file browser in each tab — auto-opens on successful SSH connect
-- Breadcrumb navigation, double-click into directories
-- Context menu: Download…, Rename, Delete
-- Drag-drop upload from the OS file explorer (with native-dialog fallback when the webview doesn't expose the dropped path)
-- 32 KiB streaming chunks with per-transfer progress events
-- `scp_upload` / `scp_download` command surface present as stubs — routes through SFTP for now; real SCP-protocol support is a follow-up
-
-ezTerm v0.1 milestone is now feature-complete. See GH issues for backlog (X11 forwarding, port forwarding, jump hosts, true SCP, transfer cancel).
+Issues and PRs welcome at <https://github.com/ZerosAndOnesLLC/ezTerm>. Please
+run `cargo test`, `npm --prefix ui run typecheck`, and `npm --prefix ui run lint`
+before opening a PR.
