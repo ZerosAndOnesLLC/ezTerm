@@ -414,6 +414,7 @@ async fn backup_restore_inner(
             initial_command: entry.session.initial_command.clone(),
             scrollback_lines: entry.session.scrollback_lines,
             font_size: entry.session.font_size,
+            font_family: entry.session.font_family.clone(),
             cursor_style: entry.session.cursor_style.clone(),
             compression: entry.session.compression,
             keepalive_secs: entry.session.keepalive_secs,

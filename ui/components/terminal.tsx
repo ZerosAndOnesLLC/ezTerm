@@ -7,8 +7,12 @@ import { subscribeSshEvents } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { TerminalContextMenu } from './terminal-context-menu';
 import { FindOverlay } from './find-overlay';
+import { FontPickerPopover } from './font-picker-popover';
 import { HostKeyDialog } from './host-key-dialog';
 import { AuthFixOverlay } from './auth-fix-overlay';
+import { XServerMissingDialog } from './xserver-missing-dialog';
+import { resolveFontFamily } from '@/lib/xterm';
+import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
 
 /** True when the error looks like bad auth (wrong user, bad password,
  *  unreadable key, rejected key, missing credential) — anything the
@@ -61,6 +65,17 @@ export function TerminalView({ tab, visible }: Props) {
   const [find, setFind] = useState(false);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [authFix, setAuthFix] = useState(false);
+  const [xserverMissing, setXserverMissing] = useState(false);
+  const [fontPicker, setFontPicker] = useState(false);
+  // Live font state for this tab. Starts from the session row; the
+  // context-menu picker and Ctrl+wheel mutate these without rewriting
+  // the DB (unless the user explicitly saves via the picker). A ref
+  // mirrors the font size for the wheel handler so accumulated deltas
+  // always read the current value without a stale closure.
+  const [liveFontSize,   setLiveFontSize]   = useState(tab.session.font_size);
+  const [liveFontFamily, setLiveFontFamily] = useState(tab.session.font_family ?? '');
+  const liveFontSizeRef = useRef(liveFontSize);
+  useEffect(() => { liveFontSizeRef.current = liveFontSize; }, [liveFontSize]);
   // Pick the command family by session kind. Ref so event listeners set up
   // in empty-deps effects (wheel, paste) always see the latest dispatch.
   const isLocal = tab.session.session_kind === 'wsl' || tab.session.session_kind === 'local';
@@ -81,7 +96,7 @@ export function TerminalView({ tab, visible }: Props) {
   const setSession  = useTabs((s) => s.setSession);
   const closeTab    = useTabs((s) => s.close);
 
-  const runConnect = useCallback(async (trustAny: boolean) => {
+  const runConnect = useCallback(async (trustAny: boolean, disableX11 = false) => {
     const bundle = bundleRef.current;
     if (!bundle) return;
     // Error surface is the overlay + tab-bar status dot + status bar. No
@@ -104,7 +119,7 @@ export function TerminalView({ tab, visible }: Props) {
       try {
         result = isLocal
           ? await api.localConnect(tab.session.id, cols, rows)
-          : await api.sshConnect(tab.session.id, cols, rows, trustAny);
+          : await api.sshConnect(tab.session.id, cols, rows, trustAny, disableX11);
       } catch (e) {
         const code = (e as { code?: string })?.code;
         // Host-key prompts are SSH-specific; local kinds can't produce them.
@@ -121,6 +136,14 @@ export function TerminalView({ tab, visible }: Props) {
             fingerprint: (e as { actual?: string })?.actual ?? '',
             expectedFingerprint: (e as { expected?: string })?.expected,
           });
+          return;
+        }
+        // VcXsrv not installed — session has X11 forwarding on but the
+        // local X server can't be started. Show the install / opt-out
+        // dialog instead of the generic "Connection failed" card.
+        if (!isLocal && code === 'xserver_missing') {
+          fail(errMessage(e));
+          setXserverMissing(true);
           return;
         }
         fail(errMessage(e));
@@ -183,6 +206,7 @@ export function TerminalView({ tab, visible }: Props) {
     if (!containerRef.current) return;
     const bundle = createTerminal({
       fontSize: tab.session.font_size,
+      fontFamily: tab.session.font_family,
       scrollback: tab.session.scrollback_lines,
       cursorStyle: tab.session.cursor_style,
     });
@@ -227,30 +251,53 @@ export function TerminalView({ tab, visible }: Props) {
   }, [visible]);
 
   // Ctrl + mouse wheel → zoom font size (MobaXterm convention).
-  // Attached with passive:false so preventDefault actually suppresses xterm's
-  // native scroll; bound once per tab and cleaned up on unmount.
+  //
+  // Registered in the **capture** phase on the terminal container so the
+  // handler sees the event *before* xterm's internal viewport wheel
+  // handler inside the canvas. Without capture, xterm bubbles up first,
+  // scrolls the buffer, and `preventDefault` in a bubble-phase listener
+  // arrives too late — the mix of zoom + scroll is jarring.
+  //
+  // When Ctrl (or Cmd) is held we swallow the event fully:
+  //   - `preventDefault()` blocks the webview's own zoom
+  //   - `stopImmediatePropagation()` keeps xterm from scrolling
+  //
+  // Deltas accumulate so a trackpad's flood of ±4 px events doesn't
+  // jump the size per tick; one step per ~40 px of accumulated scroll
+  // makes mouse wheels (≈ 100 px per detent) step once per notch and
+  // trackpads feel smooth.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let accum = 0;
+    const STEP_THRESHOLD = 40;
     function onWheel(e: WheelEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
       const bundle = bundleRef.current;
       if (!bundle) return;
       e.preventDefault();
-      const current = bundle.terminal.options.fontSize ?? 14;
-      const delta = e.deltaY < 0 ? 1 : -1;
-      // Matches the session-dialog clamp so keyboard and wheel stay in sync.
-      const next = Math.max(8, Math.min(48, current + delta));
+      e.stopImmediatePropagation();
+      accum += e.deltaY;
+      if (Math.abs(accum) < STEP_THRESHOLD) return;
+      const steps = Math.trunc(accum / STEP_THRESHOLD);
+      accum -= steps * STEP_THRESHOLD;
+      const current = liveFontSizeRef.current;
+      // Wheel up (negative deltaY) grows the font; down shrinks.
+      const next = Math.max(
+        MIN_FONT_SIZE,
+        Math.min(MAX_FONT_SIZE, current - steps),
+      );
       if (next === current) return;
       bundle.terminal.options.fontSize = next;
+      setLiveFontSize(next);
       safeFit(bundle);
       const cid = connectionIdRef.current;
       if (cid !== null) {
         termApiRef.current.resize(cid, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
       }
     }
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => el.removeEventListener('wheel', onWheel, true);
   }, []);
 
   function handleContextMenu(e: React.MouseEvent) {
@@ -288,6 +335,56 @@ export function TerminalView({ tab, visible }: Props) {
     if (sel) await navigator.clipboard.writeText(sel);
   }
 
+  /** Apply a font change live to the xterm instance, the ref, and any
+   *  visible state. Called from the Font popover on every tweak. */
+  function applyFont(next: { fontSize: number; fontFamily: string }) {
+    const bundle = bundleRef.current;
+    if (!bundle) return;
+    if (next.fontSize !== liveFontSize) {
+      bundle.terminal.options.fontSize = next.fontSize;
+      setLiveFontSize(next.fontSize);
+    }
+    if (next.fontFamily !== liveFontFamily) {
+      bundle.terminal.options.fontFamily = resolveFontFamily(next.fontFamily);
+      setLiveFontFamily(next.fontFamily);
+    }
+    safeFit(bundle);
+    const cid = connectionIdRef.current;
+    if (cid !== null) {
+      termApiRef.current.resize(cid, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
+    }
+  }
+
+  /** Persist the current live font settings to the sessions row so the
+   *  choice sticks across reconnects. Only called when the user checks
+   *  "Save as session default" or clicks Save in the popover. */
+  async function saveFontToSession() {
+    const env = await api.sessionEnvGet(tab.session.id).catch(() => []);
+    const updated = await api.sessionUpdate(tab.session.id, {
+      folder_id: tab.session.folder_id,
+      name: tab.session.name,
+      host: tab.session.host,
+      port: tab.session.port,
+      username: tab.session.username,
+      auth_type: tab.session.auth_type,
+      credential_id: tab.session.credential_id,
+      key_passphrase_credential_id: tab.session.key_passphrase_credential_id,
+      color: tab.session.color,
+      initial_command: tab.session.initial_command,
+      scrollback_lines: tab.session.scrollback_lines,
+      font_size: liveFontSize,
+      font_family: liveFontFamily,
+      cursor_style: tab.session.cursor_style,
+      compression: tab.session.compression,
+      keepalive_secs: tab.session.keepalive_secs,
+      connect_timeout_secs: tab.session.connect_timeout_secs,
+      env,
+      session_kind: tab.session.session_kind,
+      forward_x11: tab.session.forward_x11,
+    });
+    setSession(tab.tabId, updated);
+  }
+
   async function doPaste() {
     const txt = await navigator.clipboard.readText();
     if (!txt || !tab.connectionId) return;
@@ -295,7 +392,7 @@ export function TerminalView({ tab, visible }: Props) {
     await termApiRef.current.write(tab.connectionId, Array.from(bytes)).catch(() => {});
   }
 
-  const showOverlay = tab.status !== 'connected' && !prompt && !authFix;
+  const showOverlay = tab.status !== 'connected' && !prompt && !authFix && !xserverMissing;
   const summary = `${tab.session.username}@${tab.session.host}${
     tab.session.port !== 22 ? `:${tab.session.port}` : ''
   }`;
@@ -362,11 +459,22 @@ export function TerminalView({ tab, visible }: Props) {
           onSelectAll={() => { bundleRef.current?.terminal.selectAll(); setMenu(null); }}
           onClear={() => { bundleRef.current?.terminal.clear(); setMenu(null); }}
           onFind={() => { setFind(true); setMenu(null); }}
+          onFont={() => { setFontPicker(true); setMenu(null); }}
           onClose={() => setMenu(null)}
         />
       )}
       {find && bundleRef.current && (
         <FindOverlay search={bundleRef.current.search} onClose={() => setFind(false)} />
+      )}
+      {fontPicker && (
+        <FontPickerPopover
+          fontSize={liveFontSize}
+          fontFamily={liveFontFamily}
+          canSave
+          onChange={applyFont}
+          onSave={saveFontToSession}
+          onClose={() => setFontPicker(false)}
+        />
       )}
       {prompt && (
         <HostKeyDialog
@@ -390,6 +498,21 @@ export function TerminalView({ tab, visible }: Props) {
             setStatus(tab.tabId, 'connecting');
             runConnect(false);
           }}
+        />
+      )}
+      {xserverMissing && (
+        <XServerMissingDialog
+          onInstalled={() => {
+            setXserverMissing(false);
+            setStatus(tab.tabId, 'connecting');
+            runConnect(false);
+          }}
+          onContinueWithoutX11={() => {
+            setXserverMissing(false);
+            setStatus(tab.tabId, 'connecting');
+            runConnect(false, /* disableX11 */ true);
+          }}
+          onCancel={() => { setXserverMissing(false); closeTab(tab.tabId); }}
         />
       )}
     </div>

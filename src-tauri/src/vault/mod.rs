@@ -3,7 +3,7 @@ pub mod kdf;
 #[cfg(test)]
 mod tests;
 
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use zeroize::Zeroizing;
@@ -47,7 +47,9 @@ pub async fn is_initialized(pool: &SqlitePool) -> Result<bool> {
 pub async fn init(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     if is_initialized(pool).await? { return Err(AppError::VaultAlreadyInitialized); }
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    SysRng
+        .try_fill_bytes(&mut salt)
+        .map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
     let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
     let aead = Aead256::new(&key);

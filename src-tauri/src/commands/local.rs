@@ -140,6 +140,7 @@ pub async fn wsl_autodetect_seed(state: State<'_, AppState>) -> Result<usize> {
             initial_command: None,
             scrollback_lines: 5000,
             font_size: 13,
+            font_family: String::new(),
             cursor_style: "block".into(),
             compression: 0,
             keepalive_secs: 0,

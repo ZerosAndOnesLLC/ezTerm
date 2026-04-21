@@ -9,6 +9,7 @@ export interface TerminalMenuProps {
   onSelectAll:  () => void;
   onClear:      () => void;
   onFind:       () => void;
+  onFont:       () => void;
   onClose:      () => void;
 }
 
@@ -18,6 +19,8 @@ export function TerminalContextMenu(p: TerminalMenuProps) {
     { label: 'Paste',            shortcut: 'Shift+Insert', onClick: p.onPaste },
     { label: 'Select All',       onClick: p.onSelectAll },
     { label: 'Find…',            shortcut: 'Ctrl+Shift+F', onClick: p.onFind },
+    { separator: true },
+    { label: 'Font…',            shortcut: 'Ctrl+Wheel',   onClick: p.onFont },
     { label: 'Clear scrollback', onClick: p.onClear },
   ];
   return <ContextMenu x={p.x} y={p.y} items={items} onClose={p.onClose} />;

@@ -57,3 +57,18 @@ pub async fn folder_move(
     state.sync.trigger();
     Ok(())
 }
+
+/// Renumber sibling folders under `parent_id` in the supplied order.
+/// Used by the intra-folder DnD reorder path when the dragged row is a
+/// folder landing among its siblings.
+#[tauri::command]
+pub async fn folder_reorder(
+    state: State<'_, AppState>,
+    parent_id: Option<i64>,
+    ids: Vec<i64>,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    folders::reorder(&state.db, parent_id, &ids).await?;
+    state.sync.trigger();
+    Ok(())
+}

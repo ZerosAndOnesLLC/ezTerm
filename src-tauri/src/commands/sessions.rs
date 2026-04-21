@@ -208,3 +208,19 @@ pub async fn session_move(
     state.sync.trigger();
     Ok(())
 }
+
+/// Renumber the sibling sessions in `folder_id` according to the order
+/// in `ids`. Used by the intra-folder drag-and-drop reorder flow: the
+/// frontend computes the final sibling order after a drop and sends
+/// the full ID list, backend renumbers atomically in one transaction.
+#[tauri::command]
+pub async fn session_reorder(
+    state: State<'_, AppState>,
+    folder_id: Option<i64>,
+    ids: Vec<i64>,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    sessions::reorder(&state.db, folder_id, &ids).await?;
+    state.sync.trigger();
+    Ok(())
+}

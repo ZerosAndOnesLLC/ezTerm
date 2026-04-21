@@ -1,5 +1,5 @@
 use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Key, Nonce};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use zeroize::Zeroizing;
 
 use crate::error::{AppError, Result};
@@ -14,7 +14,9 @@ impl Aead256 {
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
         let cipher = ChaCha20Poly1305::new(Key::from_slice(&*self.0));
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        SysRng
+            .try_fill_bytes(&mut nonce_bytes)
+            .map_err(|_| AppError::Crypto)?;
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ct = cipher.encrypt(nonce, plaintext).map_err(|_| AppError::Crypto)?;
         Ok((nonce_bytes.to_vec(), ct))

@@ -23,7 +23,7 @@
 //! compatibility; `BACKUP_VERSION` bumps on any breaking change.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -102,7 +102,9 @@ pub fn encrypt_bundle(bundle: &Bundle, passphrase: &str) -> Result<Vec<u8>> {
     }
 
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    SysRng
+        .try_fill_bytes(&mut salt)
+        .map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
     let key: Zeroizing<[u8; 32]> = kdf::derive_key(passphrase.as_bytes(), &salt, params)?;
     let aead = Aead256::new(&key);

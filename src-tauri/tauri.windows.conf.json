@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": ["vcxsrv/**/*"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["wix-remove-user-vcxsrv.wxs"]
+      }
+    }
+  }
+}

@@ -38,6 +38,9 @@ export interface Session {
   initial_command: string | null;
   scrollback_lines: number;
   font_size: number;
+  /** CSS font-family string. Empty string means "use the app default
+   *  stack" (Cascadia Mono + fallbacks, see lib/xterm.ts). */
+  font_family: string;
   cursor_style: CursorStyle;
   compression: number; // 0 | 1
   keepalive_secs: number;
@@ -60,6 +63,7 @@ export interface SessionInput {
   initial_command: string | null;
   scrollback_lines: number;
   font_size: number;
+  font_family: string;
   cursor_style: CursorStyle;
   compression: number;
   keepalive_secs: number;

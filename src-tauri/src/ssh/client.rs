@@ -27,6 +27,11 @@ pub struct ConnectRequest {
     /// If true, bypass known_hosts mismatch/untrusted checks (set only after
     /// the user explicitly confirmed trust in the UI prompt).
     pub trust_any: bool,
+    /// If true, force X11 forwarding off for this connect even if the
+    /// session row has `forward_x11 = 1`. Used by the "Continue without
+    /// X11" button in the VcXsrv-missing dialog so the user can reach
+    /// the host right now without editing the session.
+    pub disable_x11: bool,
 }
 
 pub struct ConnectOutcome {
@@ -155,7 +160,7 @@ pub async fn connect(
     // Handler's x11_display is set when the session's forward_x11 flag is
     // on — the async `channel_open_x11` callback reads it to route incoming
     // X11 channels to the correct VcXsrv display.
-    let x11_display: Option<u8> = if session.forward_x11 != 0 {
+    let x11_display: Option<u8> = if session.forward_x11 != 0 && !req.disable_x11 {
         Some(xserver::DEFAULT_DISPLAY)
     } else {
         None

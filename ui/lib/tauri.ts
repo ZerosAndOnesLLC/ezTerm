@@ -32,6 +32,8 @@ export const api = {
   folderDelete: (id: number) => invoke<void>('folder_delete', { id }),
   folderMove:   (id: number, parentId: number | null, sort: number) =>
     invoke<void>('folder_move', { id, parentId, sort }),
+  folderReorder: (parentId: number | null, ids: number[]) =>
+    invoke<void>('folder_reorder', { parentId, ids }),
 
   // Sessions
   sessionList:      () => invoke<Session[]>('session_list'),
@@ -43,6 +45,8 @@ export const api = {
   sessionDuplicate: (id: number) => invoke<Session>('session_duplicate', { id }),
   sessionMove:      (id: number, folderId: number | null, sort: number) =>
     invoke<void>('session_move', { id, folderId, sort }),
+  sessionReorder:   (folderId: number | null, ids: number[]) =>
+    invoke<void>('session_reorder', { folderId, ids }),
 
   // Credentials
   credentialList:   () => invoke<CredentialMeta[]>('credential_list'),
@@ -55,8 +59,8 @@ export const api = {
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
 
   // SSH
-  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean) =>
-    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny }),
+  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean, disableX11?: boolean) =>
+    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11 }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('ssh_write', { connectionId, bytes }),
   sshResize:     (connectionId: number, cols: number, rows: number) =>
@@ -105,6 +109,7 @@ export const api = {
 
   // X11 forwarding
   xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
+  xserverInstall:  () => invoke<string>('xserver_install'),
 
   // Backup / restore
   backupCreate: (path: string, masterPassword: string, passphrase: string) =>

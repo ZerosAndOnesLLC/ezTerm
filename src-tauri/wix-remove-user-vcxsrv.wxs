@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX fragment loaded via `tauri.windows.conf.json`
+  (bundle.windows.wix.fragmentPaths). Adds a custom action that runs
+  during uninstall to remove the per-user VcXsrv install performed by
+  the "Install VcXsrv" in-app flow.
+
+  The bundled copy under `Program Files\ezTerm\resources\vcxsrv` is
+  removed by the standard uninstaller (WiX tracks every file the
+  installer placed). The per-user copy lives outside the install
+  tree at %APPDATA%\zerosandones\ezterm\data\vcxsrv, so MSI would
+  leave it behind without this custom action.
+
+  User data (sessions DB, vault, settings) is left untouched — that
+  should be an explicit user choice, not a silent uninstall side effect.
+
+  `Return="ignore"` so the uninstall still succeeds if the directory
+  doesn't exist (user never ran the in-app install).
+  `Execute="deferred"` + `Impersonate="yes"` so rmdir runs under the
+  user's AppData, not the SYSTEM context the installer runs in.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <CustomAction
+      Id="RemoveEzTermUserVcXsrv"
+      Directory="AppDataFolder"
+      ExeCommand='cmd.exe /c rmdir /s /q "%APPDATA%\zerosandones\ezterm\data\vcxsrv"'
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+    <InstallExecuteSequence>
+      <!--
+        REMOVE~="ALL" fires only on uninstall (not on upgrade/repair).
+        Sequence before RemoveFiles so the custom action owns a
+        deterministic slot in the uninstall pipeline.
+      -->
+      <Custom Action="RemoveEzTermUserVcXsrv" Before="RemoveFiles" Condition='REMOVE~="ALL"' />
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

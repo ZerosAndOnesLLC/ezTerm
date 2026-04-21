@@ -12,6 +12,14 @@ src-tauri/WixTools/
 src-tauri/*.msi
 src-tauri/*.exe
 
+# VcXsrv payload is pulled in during CI (Chocolatey install → copy into
+# src-tauri/vcxsrv/) so it gets bundled as a Windows resource. The tree
+# is large (~10 MB) and recreated every build, so keep it out of git —
+# but track `.gitkeep` so the directory itself exists and the bundler
+# glob (tauri.windows.conf.json: "vcxsrv/**/*") always matches.
+src-tauri/vcxsrv/*
+!src-tauri/vcxsrv/.gitkeep
+
 # ---------- Node / Next.js ----------
 node_modules/
 .next/

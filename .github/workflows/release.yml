@@ -45,7 +45,7 @@ jobs:
             bundles: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -68,9 +68,9 @@ jobs:
           tool: tauri-cli@2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -95,6 +95,29 @@ jobs:
           npm --prefix ui ci
           npm --prefix ui run build
 
+      # Windows: pull VcXsrv via Chocolatey (preinstalled on windows-latest)
+      # and stage it at `src-tauri/vcxsrv/` so:
+      # 1. The Tauri bundler picks it up as a resource (see
+      #    `tauri.windows.conf.json`) and ships it inside MSI / NSIS.
+      # 2. The portable tar.xz packaging step below copies the same tree
+      #    next to `ezterm.exe` — single source, two layouts.
+      #
+      # SourceForge mirrors have become unreliable for direct download
+      # from CI (redirect interstitials + rate-limited mirrors); Chocolatey
+      # pulls the signed installer from their own cache.
+      - name: Stage VcXsrv for bundling (Windows only)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          choco install vcxsrv -y --no-progress --limit-output
+          if (-not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) {
+            Write-Error 'VcXsrv install missing vcxsrv.exe'
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path 'src-tauri\vcxsrv' | Out-Null
+          Copy-Item 'C:\Program Files\VcXsrv\*' 'src-tauri\vcxsrv\' -Recurse -Force
+          Write-Host "Staged VcXsrv size: $((Get-ChildItem 'src-tauri\vcxsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
+
       # Two build modes. Platforms with bundles (Windows / Linux) go
       # through `cargo tauri build` so the installer bundler runs;
       # macOS currently stays on the lighter `cargo build` path since
@@ -112,28 +135,6 @@ jobs:
             cargo build --release --target ${{ matrix.target }}
           fi
 
-      # Windows: pull VcXsrv's installer, extract its payload alongside
-      # the binary in the portable tar.xz so X11 forwarding works out
-      # of the box. Installer bundles (MSI / NSIS) already include the
-      # app's own icon + metadata; VcXsrv bundling into MSI is a
-      # separate pass and lives outside this workflow for now.
-      - name: Bundle VcXsrv (Windows portable only)
-        if: matrix.name == 'windows-x86_64'
-        shell: pwsh
-        run: |
-          # SourceForge mirrors have become unreliable for direct download
-          # from CI (redirect interstitials + rate-limited mirrors). Use
-          # Chocolatey — preinstalled on windows-latest — which pulls the
-          # signed installer from their own cache and runs it locally.
-          # The installed files live at C:\Program Files\VcXsrv\; we copy
-          # that tree into the tarball staging dir in the next step.
-          choco install vcxsrv -y --no-progress --limit-output
-          if (-not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) {
-            Write-Error 'VcXsrv install missing vcxsrv.exe'
-            exit 1
-          }
-          Write-Host "VcXsrv tree size: $((Get-ChildItem 'C:\Program Files\VcXsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
-
       - name: Package portable tar.xz + collect installers
         shell: bash
         run: |
@@ -144,11 +145,12 @@ jobs:
           cp README.md "$STAGE/"
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
           if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
+            # VcXsrv is already staged at src-tauri/vcxsrv/ by the
+            # "Stage VcXsrv for bundling" step (so the Tauri bundler
+            # picks it up). Mirror that tree into the tarball so the
+            # portable build has it next to ezterm.exe too.
             mkdir -p "$STAGE/vcxsrv"
-            # Chocolatey installed VcXsrv to Program Files in the step
-            # above; copy the whole tree (vcxsrv.exe + required DLLs +
-            # font files + GPLv2 license) into the tarball.
-            cp -r "/c/Program Files/VcXsrv/." "$STAGE/vcxsrv/"
+            cp -r src-tauri/vcxsrv/. "$STAGE/vcxsrv/"
           fi
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
@@ -171,7 +173,7 @@ jobs:
           ls -la installers/ || true
 
       - name: Upload portable artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: portable-${{ matrix.name }}
           path: ezterm-${{ matrix.name }}.tar.xz
@@ -180,7 +182,7 @@ jobs:
 
       - name: Upload installer artifacts
         if: matrix.bundles != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: installers-${{ matrix.name }}
           path: installers/
@@ -193,10 +195,10 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
           merge-multiple: true

@@ -20,6 +20,7 @@ pub async fn ssh_connect(
     cols: u16,
     rows: u16,
     trust_any: bool,
+    disable_x11: Option<bool>,
 ) -> Result<ConnectResult> {
     super::require_unlocked(&state).await?;
     let out = ssh::connect(
@@ -30,6 +31,7 @@ pub async fn ssh_connect(
             cols,
             rows,
             trust_any,
+            disable_x11: disable_x11.unwrap_or(false),
         },
     )
     .await?;

@@ -83,6 +83,32 @@ pub async fn mv(pool: &SqlitePool, id: i64, parent_id: Option<i64>, sort: i64) -
     Ok(())
 }
 
+/// Renumber sibling folders under `parent_id` according to `ids_in_order`.
+/// Each position gets `sort = position * 10`. Folders under the same parent
+/// that aren't in the list are untouched — caller guarantees the complete
+/// sibling set is passed.
+pub async fn reorder(
+    pool: &SqlitePool,
+    parent_id: Option<i64>,
+    ids_in_order: &[i64],
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    for (idx, id) in ids_in_order.iter().enumerate() {
+        // Cycle-check isn't needed here: we're renumbering within a
+        // single parent, so every id already has `parent_id` as its
+        // parent (caller guarantees this).
+        let sort = (idx as i64) * 10;
+        sqlx::query("UPDATE folders SET parent_id = ?, sort = ? WHERE id = ?")
+            .bind(parent_id)
+            .bind(sort)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

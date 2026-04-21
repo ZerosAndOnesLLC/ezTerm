@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api } from '@/lib/tauri';
+import { fontChoicesForOS } from '@/lib/fonts';
 import type {
   AuthType,
   CursorStyle,
@@ -52,6 +53,7 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   initial_command: null,
   scrollback_lines: 5000,
   font_size: 13,
+  font_family: '',
   cursor_style: 'block',
   compression: 0,
   keepalive_secs: 0,
@@ -91,6 +93,7 @@ export function SessionDialog(props: Props) {
         initial_command: s.initial_command,
         scrollback_lines: s.scrollback_lines,
         font_size: s.font_size,
+        font_family: s.font_family ?? '',
         cursor_style: s.cursor_style,
         compression: s.compression,
         keepalive_secs: s.keepalive_secs,
@@ -610,6 +613,15 @@ function TerminalPane({ v, setV }: PaneProps) {
           />
         </Field>
       </div>
+      <Field
+        label="Font family"
+        hint="(default) uses the app's OS-aware mono stack. Presets list fonts that ship with your OS by default."
+      >
+        <FontFamilyPicker
+          value={v.font_family}
+          onChange={(next) => setV({ ...v, font_family: next })}
+        />
+      </Field>
       <Field label="Cursor style">
         <div className="inline-flex rounded border border-border overflow-hidden">
           {CURSOR_OPTIONS.map((o) => {
@@ -850,5 +862,53 @@ function Field({
       {children}
       {hint && <span className="block text-muted text-xs">{hint}</span>}
     </label>
+  );
+}
+
+/** Preset dropdown + free-text input. Picking "(custom…)" flips to a
+ *  text input so power users can type any CSS font stack. Values from
+ *  other OSes (e.g. "Menlo" on a Windows install) show as "(custom)"
+ *  in the dropdown so we don't misrepresent the current value. */
+function FontFamilyPicker({
+  value,
+  onChange,
+}: { value: string; onChange: (next: string) => void }) {
+  const choices = useMemo(() => fontChoicesForOS(), []);
+  const isPreset = choices.some((c) => c.value === value);
+  const [customOpen, setCustomOpen] = useState(() => !isPreset && value !== '');
+
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={customOpen ? '__custom__' : value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__custom__') {
+            setCustomOpen(true);
+            return;
+          }
+          setCustomOpen(false);
+          onChange(v);
+        }}
+        className="input"
+      >
+        {choices.map((c) => (
+          <option key={c.value || '__default__'} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+        <option value="__custom__">Custom…</option>
+      </select>
+      {customOpen && (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder='e.g. "Iosevka", "Fira Code"'
+          className="input"
+          aria-label="Custom font family"
+        />
+      )}
+    </div>
   );
 }

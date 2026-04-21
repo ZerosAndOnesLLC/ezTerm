@@ -20,6 +20,9 @@ pub struct Session {
     pub initial_command: Option<String>,
     pub scrollback_lines: i64,
     pub font_size: i64,
+    /// CSS font-family string. Empty string means "use the app default
+    /// stack" (Cascadia Mono + fallbacks, defined in lib/xterm.ts).
+    pub font_family: String,
     pub cursor_style: String, // 'block' | 'bar' | 'underline'
     pub compression: i64,     // 0 | 1 (SQLite has no bool)
     pub keepalive_secs: i64,
@@ -49,6 +52,8 @@ pub struct SessionInput {
     pub initial_command: Option<String>,
     pub scrollback_lines: i64,
     pub font_size: i64,
+    #[serde(default)]
+    pub font_family: String,
     pub cursor_style: String,
     pub compression: i64,
     pub keepalive_secs: i64,
@@ -74,7 +79,7 @@ pub struct EnvPair {
 
 const SELECT_COLS: &str = "id, folder_id, name, host, port, username, auth_type, \
 credential_id, key_passphrase_credential_id, color, sort, \
-initial_command, scrollback_lines, font_size, cursor_style, compression, \
+initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
 keepalive_secs, connect_timeout_secs, session_kind, forward_x11";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
@@ -132,10 +137,10 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     let id = sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \
-         initial_command, scrollback_lines, font_size, cursor_style, \
+         initial_command, scrollback_lines, font_size, font_family, cursor_style, \
          compression, keepalive_secs, connect_timeout_secs, session_kind, \
          forward_x11) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -149,6 +154,7 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .bind(&input.initial_command)
     .bind(input.scrollback_lines)
     .bind(input.font_size)
+    .bind(&input.font_family)
     .bind(&input.cursor_style)
     .bind(input.compression)
     .bind(input.keepalive_secs)
@@ -168,7 +174,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
          auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
-         initial_command = ?, scrollback_lines = ?, font_size = ?, cursor_style = ?, \
+         initial_command = ?, scrollback_lines = ?, font_size = ?, font_family = ?, cursor_style = ?, \
          compression = ?, keepalive_secs = ?, connect_timeout_secs = ?, \
          session_kind = ?, forward_x11 = ? \
          WHERE id = ?",
@@ -185,6 +191,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(&input.initial_command)
     .bind(input.scrollback_lines)
     .bind(input.font_size)
+    .bind(&input.font_family)
     .bind(&input.cursor_style)
     .bind(input.compression)
     .bind(input.keepalive_secs)
@@ -222,6 +229,31 @@ pub async fn mv(
     Ok(())
 }
 
+/// Renumber all sessions in `folder_id` according to the order in
+/// `ids_in_order`. Each position gets a `sort` value of `position * 10`
+/// so there's room to insert between items later if we ever switch
+/// back to gap-based ordering. Sessions in `folder_id` that aren't in
+/// `ids_in_order` are left untouched — the caller guarantees it passes
+/// the complete sibling set.
+pub async fn reorder(
+    pool: &SqlitePool,
+    folder_id: Option<i64>,
+    ids_in_order: &[i64],
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    for (idx, id) in ids_in_order.iter().enumerate() {
+        let sort = (idx as i64) * 10;
+        sqlx::query("UPDATE sessions SET folder_id = ?, sort = ? WHERE id = ?")
+            .bind(folder_id)
+            .bind(sort)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
     let src = get(pool, id).await?;
     let env = env_get(pool, id).await?;
@@ -238,6 +270,7 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
         initial_command: src.initial_command,
         scrollback_lines: src.scrollback_lines,
         font_size: src.font_size,
+        font_family: src.font_family,
         cursor_style: src.cursor_style,
         compression: src.compression,
         keepalive_secs: src.keepalive_secs,
@@ -278,6 +311,7 @@ mod tests {
             initial_command: None,
             scrollback_lines: 5000,
             font_size: 13,
+            font_family: String::new(),
             cursor_style: "block".into(),
             compression: 0,
             keepalive_secs: 0,
