@@ -5,6 +5,7 @@ import type {
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
   BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
+  SyncStatus,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -110,6 +111,13 @@ export const api = {
     invoke<BackupPreview>('backup_preview', { path, passphrase }),
   backupRestore: (path: string, passphrase: string, selection: BackupSelection) =>
     invoke<RestoreSummary>('backup_restore', { path, passphrase, selection }),
+
+  // Cloud sync (phase 1 = local folder)
+  syncStatus:          () => invoke<SyncStatus>('sync_status'),
+  syncConfigureLocal:  (path: string, passphrase: string) =>
+    invoke<void>('sync_configure_local', { path, passphrase }),
+  syncDisable:         () => invoke<void>('sync_disable'),
+  syncPushNow:         () => invoke<void>('sync_push_now'),
 
   // Import
   mobaxtermPreview: (path: string) =>

@@ -162,7 +162,9 @@ pub async fn session_env_get(state: State<'_, AppState>, id: i64) -> Result<Vec<
 pub async fn session_create(state: State<'_, AppState>, input: SessionInput) -> Result<Session> {
     require_unlocked(&state).await?;
     validate(&input)?;
-    sessions::create(&state.db, &input).await
+    let out = sessions::create(&state.db, &input).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
@@ -173,19 +175,25 @@ pub async fn session_update(
 ) -> Result<Session> {
     require_unlocked(&state).await?;
     validate(&input)?;
-    sessions::update(&state.db, id, &input).await
+    let out = sessions::update(&state.db, id, &input).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
 pub async fn session_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     require_unlocked(&state).await?;
-    sessions::delete(&state.db, id).await
+    sessions::delete(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn session_duplicate(state: State<'_, AppState>, id: i64) -> Result<Session> {
     require_unlocked(&state).await?;
-    sessions::duplicate(&state.db, id).await
+    let out = sessions::duplicate(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
@@ -196,5 +204,7 @@ pub async fn session_move(
     sort: i64,
 ) -> Result<()> {
     require_unlocked(&state).await?;
-    sessions::mv(&state.db, id, folder_id, sort).await
+    sessions::mv(&state.db, id, folder_id, sort).await?;
+    state.sync.trigger();
+    Ok(())
 }

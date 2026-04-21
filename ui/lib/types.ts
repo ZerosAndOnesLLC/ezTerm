@@ -137,6 +137,18 @@ export interface RestoreSummary {
   renamed:              string[];
 }
 
+// --- Cloud sync (phase 1 = local folder) ---------------------------------
+
+export type SyncKind = 'none' | 'local';
+
+export interface SyncStatus {
+  kind:            SyncKind;
+  local_path:      string | null;
+  last_success_at: string | null;
+  last_error:      string | null;
+  pending:         boolean;
+}
+
 export interface CredentialMeta {
   id: number;
   kind: CredentialKind;

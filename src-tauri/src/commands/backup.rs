@@ -452,6 +452,7 @@ async fn backup_restore_inner(
         }
     }
 
+    state.sync.trigger();
     Ok(result)
 }
 

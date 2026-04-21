@@ -236,6 +236,7 @@ pub async fn mobaxterm_commit(
     }
 
     tx.commit().await?;
+    state.sync.trigger();
     Ok(result)
 }
 

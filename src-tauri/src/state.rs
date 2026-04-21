@@ -7,12 +7,13 @@ use tokio::sync::RwLock;
 use crate::local::LocalRegistry;
 use crate::sftp::SftpRegistry;
 use crate::ssh::ConnectionRegistry;
+use crate::sync::SyncManager;
 use crate::vault::VaultState;
 use crate::xserver::XServerManager;
 
 pub struct AppState {
     pub db: SqlitePool,
-    pub vault: RwLock<VaultState>,
+    pub vault: Arc<RwLock<VaultState>>,
     /// Consecutive failed `vault_unlock` attempts. Reset on a successful unlock.
     pub unlock_failures: AtomicU32,
     /// Unix timestamp (seconds) until which new unlock attempts are refused.
@@ -33,19 +34,25 @@ pub struct AppState {
     /// SSH session with forward_x11 enabled starts it, the last one
     /// closing stops it.
     pub xserver: Arc<XServerManager>,
+    /// Cloud sync manager. Call `.trigger()` after any user-data mutation
+    /// to enqueue a debounced write to the configured destination.
+    pub sync: Arc<SyncManager>,
 }
 
 impl AppState {
     pub fn new(db: SqlitePool) -> Self {
+        let vault = Arc::new(RwLock::new(VaultState::Locked));
+        let sync = Arc::new(SyncManager::spawn(db.clone(), vault.clone()));
         Self {
             db,
-            vault: RwLock::new(VaultState::Locked),
+            vault,
             unlock_failures: AtomicU32::new(0),
             unlock_locked_until_unix: AtomicI64::new(0),
             ssh: Arc::new(ConnectionRegistry::new()),
             sftp: Arc::new(SftpRegistry::new()),
             local: Arc::new(LocalRegistry::new()),
             xserver: Arc::new(XServerManager::new()),
+            sync,
         }
     }
 

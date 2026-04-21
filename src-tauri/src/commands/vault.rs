@@ -81,6 +81,14 @@ async fn vault_unlock_inner(state: &State<'_, AppState>, password: &str) -> Resu
             *state.vault.write().await = new_state;
             state.unlock_failures.store(0, Ordering::Release);
             state.unlock_locked_until_unix.store(0, Ordering::Release);
+            // Hydrate sync config from settings now that we have the
+            // vault key to decrypt the stored passphrase blob. Failures
+            // are logged but don't block unlock — bad sync config
+            // shouldn't lock the user out.
+            let vs = state.vault.read().await;
+            if let Err(e) = state.sync.reload_from_db(&state.db, &vs).await {
+                tracing::warn!("sync reload_from_db failed: {e}");
+            }
             Ok(())
         }
         Err(AppError::BadPassword) => {

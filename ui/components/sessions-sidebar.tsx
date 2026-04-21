@@ -41,6 +41,7 @@ import { SessionDialog } from './session-dialog';
 import { ImportMobaxtermDialog } from './import-mobaxterm-dialog';
 import { BackupDialog } from './backup-dialog';
 import { RestoreDialog } from './restore-dialog';
+import { SyncDialog } from './sync-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -101,6 +102,7 @@ export function SessionsSidebar() {
   const [importPath, setImportPath] = useState<string | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
+  const [syncOpen, setSyncOpen] = useState(false);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
   // source); `dragTarget` is the hovered drop zone — a folder id, or 'root'
   // for the background drop zone. null when nothing is being dragged-over.
@@ -173,6 +175,8 @@ export function SessionsSidebar() {
         { separator: true },
         { label: 'Backup\u2026',  onClick: () => setBackupOpen(true) },
         { label: 'Restore\u2026', onClick: pickRestoreFile },
+        { separator: true },
+        { label: 'Cloud sync\u2026', onClick: () => setSyncOpen(true) },
       );
     }
     setMenu({ x: e.clientX, y: e.clientY, items });
@@ -582,6 +586,10 @@ export function SessionsSidebar() {
             toast.success('Folder deleted', confirm.folder.name);
           }}
         />
+      )}
+
+      {syncOpen && (
+        <SyncDialog onClose={() => setSyncOpen(false)} />
       )}
 
       {backupOpen && (

@@ -11,6 +11,7 @@ mod scp;
 mod sftp;
 mod ssh;
 mod state;
+mod sync;
 mod vault;
 mod xserver;
 
@@ -90,6 +91,10 @@ async fn main() {
             commands::local::wsl_list_distros,
             commands::local::wsl_autodetect_seed,
             commands::xserver::xserver_status,
+            commands::sync::sync_status,
+            commands::sync::sync_configure_local,
+            commands::sync::sync_disable,
+            commands::sync::sync_push_now,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

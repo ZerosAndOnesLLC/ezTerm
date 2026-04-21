@@ -48,6 +48,7 @@ pub async fn credential_create(
     plaintext.zeroize();
 
     let id = credentials::insert(&state.db, &kind, label.trim(), &nonce, &ct).await?;
+    state.sync.trigger();
     Ok(CredentialMeta {
         id,
         kind,
@@ -58,5 +59,7 @@ pub async fn credential_create(
 #[tauri::command]
 pub async fn credential_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     require_unlocked(&state).await?;
-    credentials::delete(&state.db, id).await
+    credentials::delete(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(())
 }

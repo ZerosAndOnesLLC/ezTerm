@@ -8,6 +8,7 @@ pub mod sessions;
 pub mod settings;
 pub mod sftp;
 pub mod ssh;
+pub mod sync;
 pub mod vault;
 pub mod xserver;
 
