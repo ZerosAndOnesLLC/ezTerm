@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod commands;
 mod db;
 mod error;
@@ -60,6 +61,10 @@ async fn main() {
             commands::vault::vault_init,
             commands::vault::vault_unlock,
             commands::vault::vault_lock,
+            commands::vault::vault_verify_password,
+            commands::backup::backup_create,
+            commands::backup::backup_preview,
+            commands::backup::backup_restore,
             commands::ssh::ssh_connect,
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,

@@ -75,6 +75,68 @@ export interface XServerStatus {
   running_displays: number[];
 }
 
+// --- Backup / restore -----------------------------------------------------
+
+export interface BackupSummary {
+  folders:      number;
+  sessions:     number;
+  credentials:  number;
+  known_hosts:  number;
+  settings:     number;
+}
+
+export interface BackupPreview {
+  created_at:    string;
+  app_version:   string;
+  folders:       Folder[];
+  sessions:      BackupSessionPreview[];
+  credentials:   BackupCredentialPreview[];
+  known_hosts:   BackupKnownHostPreview[];
+  setting_count: number;
+}
+
+export interface BackupSessionPreview {
+  id:            number;
+  folder_id:     number | null;
+  name:          string;
+  host:          string;
+  port:          number;
+  username:      string;
+  session_kind:  SessionKind;
+  auth_type:     AuthType;
+  credential_id: number | null;
+}
+
+export interface BackupCredentialPreview {
+  id:    number;
+  kind:  CredentialKind;
+  label: string;
+}
+
+export interface BackupKnownHostPreview {
+  host: string;
+  port: number;
+  fingerprint_sha256: string;
+}
+
+export interface BackupSelection {
+  folder_ids:       number[];
+  session_ids:      number[];
+  credential_ids:   number[];
+  /** [host, port] pairs. */
+  known_hosts:      [string, number][];
+  include_settings: boolean;
+}
+
+export interface RestoreSummary {
+  folders_created:      number;
+  sessions_created:     number;
+  credentials_created:  number;
+  known_hosts_upserted: number;
+  settings_applied:     number;
+  renamed:              string[];
+}
+
 export interface CredentialMeta {
   id: number;
   kind: CredentialKind;

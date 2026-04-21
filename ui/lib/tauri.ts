@@ -4,6 +4,7 @@ import type {
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
+  BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -19,6 +20,8 @@ export const api = {
   vaultInit:   (password: string) => invoke<void>('vault_init', { password }),
   vaultUnlock: (password: string) => invoke<void>('vault_unlock', { password }),
   vaultLock:   () => invoke<void>('vault_lock'),
+  vaultVerifyPassword: (password: string) =>
+    invoke<boolean>('vault_verify_password', { password }),
 
   // Folders
   folderList:   () => invoke<Folder[]>('folder_list'),
@@ -99,6 +102,14 @@ export const api = {
 
   // X11 forwarding
   xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
+
+  // Backup / restore
+  backupCreate: (path: string, masterPassword: string, passphrase: string) =>
+    invoke<BackupSummary>('backup_create', { path, masterPassword, passphrase }),
+  backupPreview: (path: string, passphrase: string) =>
+    invoke<BackupPreview>('backup_preview', { path, passphrase }),
+  backupRestore: (path: string, passphrase: string, selection: BackupSelection) =>
+    invoke<RestoreSummary>('backup_restore', { path, passphrase, selection }),
 
   // Import
   mobaxtermPreview: (path: string) =>

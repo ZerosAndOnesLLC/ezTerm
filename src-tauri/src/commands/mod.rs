@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod credentials;
 pub mod folders;
 pub mod import;

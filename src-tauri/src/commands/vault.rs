@@ -109,3 +109,23 @@ pub async fn vault_lock(state: State<'_, AppState>) -> Result<()> {
     *state.vault.write().await = vault::VaultState::Locked;
     Ok(())
 }
+
+/// Verify a master password without changing vault state. Used for
+/// re-authentication gates (e.g. "enter master password to export
+/// credentials") so that someone who walks up to an unlocked laptop
+/// can't exfiltrate vault contents without the password. Runs the same
+/// Argon2id derivation as `vault_unlock` so timing is consistent.
+#[tauri::command]
+pub async fn vault_verify_password(state: State<'_, AppState>, password: String) -> Result<bool> {
+    let mut password = password;
+    if password.len() > MAX_PASSWORD_LEN {
+        password.zeroize();
+        return Err(AppError::Validation("password too long".into()));
+    }
+    let result = vault::verify_password(&state.db, &password).await;
+    password.zeroize();
+    match result {
+        Ok(ok) => Ok(ok),
+        Err(e) => Err(e),
+    }
+}

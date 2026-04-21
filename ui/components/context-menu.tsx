@@ -2,11 +2,13 @@
 import { useEffect, useRef } from 'react';
 
 export interface MenuItem {
-  label: string;
-  onClick: () => void;
+  label?: string;
+  onClick?: () => void;
   disabled?: boolean;
   danger?: boolean;
   shortcut?: string; // e.g. "Ctrl+Shift+C"
+  /** When true, renders a 1px divider line instead of a clickable row. */
+  separator?: boolean;
 }
 
 export function ContextMenu({
@@ -43,13 +45,15 @@ export function ContextMenu({
       className="fixed z-50 min-w-[200px] rounded-md border border-border bg-surface shadow-menu py-1 text-xs dialog-in"
       role="menu"
     >
-      {items.map((it, i) => (
+      {items.map((it, i) => it.separator ? (
+        <div key={i} role="separator" className="my-1 border-t border-border/70" aria-hidden />
+      ) : (
         <button
           key={i}
           type="button"
           role="menuitem"
           disabled={it.disabled}
-          onClick={() => { it.onClick(); onClose(); }}
+          onClick={() => { it.onClick?.(); onClose(); }}
           className={`flex items-center w-full text-left px-3 py-1.5 hover:bg-surface2 focus-visible:outline-none focus-visible:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent ${
             it.danger ? 'text-danger' : 'text-fg'
           }`}

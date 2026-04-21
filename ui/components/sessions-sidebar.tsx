@@ -39,6 +39,8 @@ import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
 import { SessionDialog } from './session-dialog';
 import { ImportMobaxtermDialog } from './import-mobaxterm-dialog';
+import { BackupDialog } from './backup-dialog';
+import { RestoreDialog } from './restore-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -97,6 +99,8 @@ export function SessionsSidebar() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [importPath, setImportPath] = useState<string | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [restorePath, setRestorePath] = useState<string | null>(null);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
   // source); `dragTarget` is the hovered drop zone — a folder id, or 'root'
   // for the background drop zone. null when nothing is being dragged-over.
@@ -164,9 +168,28 @@ export function SessionsSidebar() {
         { label: 'Delete', danger: true, onClick: () => setConfirm({ kind: 'delete-folder', folder: f }) },
       );
     } else {
-      items.push({ label: 'Import from MobaXterm\u2026', onClick: pickMobaXtermFile });
+      items.push(
+        { label: 'Import from MobaXterm\u2026', onClick: pickMobaXtermFile },
+        { separator: true },
+        { label: 'Backup\u2026',  onClick: () => setBackupOpen(true) },
+        { label: 'Restore\u2026', onClick: pickRestoreFile },
+      );
     }
     setMenu({ x: e.clientX, y: e.clientY, items });
+  }
+
+  async function pickRestoreFile() {
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        title: 'Restore ezTerm backup',
+        filters: [{ name: 'ezTerm backup', extensions: ['json'] }],
+      });
+      if (typeof picked === 'string' && picked) setRestorePath(picked);
+    } catch (e) {
+      toast.danger('Restore failed', errMessage(e));
+    }
   }
 
   async function pickMobaXtermFile() {
@@ -557,6 +580,41 @@ export function SessionsSidebar() {
             setConfirm(null);
             reload();
             toast.success('Folder deleted', confirm.folder.name);
+          }}
+        />
+      )}
+
+      {backupOpen && (
+        <BackupDialog
+          onCancel={() => setBackupOpen(false)}
+          onDone={(summary) => {
+            setBackupOpen(false);
+            const parts = [
+              summary.sessions && `${summary.sessions} session${summary.sessions === 1 ? '' : 's'}`,
+              summary.credentials && `${summary.credentials} credential${summary.credentials === 1 ? '' : 's'}`,
+              summary.folders && `${summary.folders} folder${summary.folders === 1 ? '' : 's'}`,
+              summary.known_hosts && `${summary.known_hosts} known host${summary.known_hosts === 1 ? '' : 's'}`,
+            ].filter(Boolean).join(', ');
+            toast.success('Backup saved', parts || 'empty backup');
+          }}
+        />
+      )}
+
+      {restorePath && (
+        <RestoreDialog
+          filePath={restorePath}
+          onCancel={() => setRestorePath(null)}
+          onDone={(summary) => {
+            setRestorePath(null);
+            reload();
+            const parts = [
+              summary.sessions_created && `${summary.sessions_created} session${summary.sessions_created === 1 ? '' : 's'}`,
+              summary.credentials_created && `${summary.credentials_created} credential${summary.credentials_created === 1 ? '' : 's'}`,
+              summary.folders_created && `${summary.folders_created} folder${summary.folders_created === 1 ? '' : 's'}`,
+              summary.known_hosts_upserted && `${summary.known_hosts_upserted} host${summary.known_hosts_upserted === 1 ? '' : 's'}`,
+              summary.settings_applied && `${summary.settings_applied} setting${summary.settings_applied === 1 ? '' : 's'}`,
+            ].filter(Boolean).join(', ');
+            toast.success('Restore complete', parts || 'nothing imported');
           }}
         />
       )}

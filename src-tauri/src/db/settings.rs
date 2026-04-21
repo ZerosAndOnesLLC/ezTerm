@@ -10,6 +10,16 @@ pub async fn get(pool: &SqlitePool, key: &str) -> Result<Option<String>> {
     Ok(row.map(|(v,)| v))
 }
 
+pub async fn list_all(pool: &SqlitePool) -> Result<Vec<(String, String)>> {
+    Ok(
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT key, value FROM app_settings ORDER BY key",
+        )
+        .fetch_all(pool)
+        .await?,
+    )
+}
+
 pub async fn set(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO app_settings (key, value) VALUES (?, ?) \
