@@ -119,35 +119,20 @@ jobs:
       # separate pass and lives outside this workflow for now.
       - name: Bundle VcXsrv (Windows portable only)
         if: matrix.name == 'windows-x86_64'
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          # SourceForge's /files/.../download URL returns an HTML
-          # interstitial now (April 2026) so the ~5 KB page passes curl
-          # but 7z chokes on it. Use the direct mirror host, which still
-          # serves the actual binary, and fall back to a named mirror
-          # if the auto-picked one fails.
-          BASE="https://downloads.sourceforge.net/project/vcxsrv/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe"
-          FALLBACK="https://netix.dl.sourceforge.net/project/vcxsrv/vcxsrv/1.20.14.0/vcxsrv-64.1.20.14.0.installer.exe"
-          for url in "$BASE" "$FALLBACK"; do
-            echo "Fetching VcXsrv from $url"
-            curl -L --fail --retry 3 --retry-delay 5 \
-              -A "Mozilla/5.0" \
-              -o vcxsrv-installer.exe "$url" || continue
-            size=$(stat -c%s vcxsrv-installer.exe 2>/dev/null || wc -c < vcxsrv-installer.exe)
-            echo "Downloaded $size bytes"
-            # Real installer is ~40 MB; anything under 1 MB is an HTML
-            # redirect page or a partial download.
-            if [ "$size" -lt 1048576 ]; then
-              echo "Download too small — likely an HTML redirect; trying next mirror."
-              rm -f vcxsrv-installer.exe
-              continue
-            fi
-            break
-          done
-          test -s vcxsrv-installer.exe
-          7z x vcxsrv-installer.exe -ovcxsrv-extracted -y -aos > /dev/null
-          test -f vcxsrv-extracted/vcxsrv.exe
+          # SourceForge mirrors have become unreliable for direct download
+          # from CI (redirect interstitials + rate-limited mirrors). Use
+          # Chocolatey — preinstalled on windows-latest — which pulls the
+          # signed installer from their own cache and runs it locally.
+          # The installed files live at C:\Program Files\VcXsrv\; we copy
+          # that tree into the tarball staging dir in the next step.
+          choco install vcxsrv -y --no-progress --limit-output
+          if (-not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) {
+            Write-Error 'VcXsrv install missing vcxsrv.exe'
+            exit 1
+          }
+          Write-Host "VcXsrv tree size: $((Get-ChildItem 'C:\Program Files\VcXsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
 
       - name: Package portable tar.xz + collect installers
         shell: bash
@@ -160,7 +145,10 @@ jobs:
           if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
           if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
             mkdir -p "$STAGE/vcxsrv"
-            cp -r vcxsrv-extracted/. "$STAGE/vcxsrv/"
+            # Chocolatey installed VcXsrv to Program Files in the step
+            # above; copy the whole tree (vcxsrv.exe + required DLLs +
+            # font files + GPLv2 license) into the tarball.
+            cp -r "/c/Program Files/VcXsrv/." "$STAGE/vcxsrv/"
           fi
           tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
           ls -l "ezterm-${{ matrix.name }}.tar.xz"
