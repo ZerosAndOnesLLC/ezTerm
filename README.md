@@ -161,7 +161,7 @@ ezTerm is licensed under the **GNU General Public License, version 3** (GPLv3
 only — not "or later"). See [LICENSE](LICENSE) for the full text.
 
 Third-party components retain their own licences:
-- `russh`, `russh-keys`, `russh-sftp` — Apache 2.0
+- `russh`, `russh-sftp` — Apache 2.0
 - `sqlx`, `tokio` — MIT / Apache 2.0
 - `portable-pty` — MIT
 - `xterm.js` — MIT

@@ -23,8 +23,9 @@ pub async fn ssh_connect(
     disable_x11: Option<bool>,
 ) -> Result<ConnectResult> {
     super::require_unlocked(&state).await?;
+    let deps = ssh::ConnectDeps::from_state(&state);
     let out = ssh::connect(
-        &state,
+        deps,
         app,
         ConnectRequest {
             session_id,
