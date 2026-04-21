@@ -1,0 +1,139 @@
+name: release
+
+# Push a tag starting with `v` (e.g. `v0.11.0`) to kick off a release,
+# or trigger manually from the Actions tab. The workflow produces one
+# `tar.xz` archive per target platform and attaches them to a draft
+# GitHub Release that you review + publish by hand.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_name: ezterm.exe
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_name: ezterm
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin_name: ezterm
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bin_name: ezterm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # Tauri v2 needs webkit2gtk 4.1 + a handful of X / desktop libs on
+      # Linux. Native arm64 runner has the same apt repos as x86_64 so a
+      # single step covers both Ubuntu targets.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            build-essential \
+            curl wget file xz-utils patchelf
+
+      - name: Build UI (Next.js static export)
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      # Raw cargo build — NOT cargo tauri build. tauri-build embeds the
+      # static UI into the binary via an OUT_DIR include, so the produced
+      # executable is self-contained. Skipping the MSI/DMG/AppImage
+      # bundles keeps the archive small and honours the tar.xz request.
+      - name: Build release binary
+        working-directory: src-tauri
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package as tar.xz
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="stage/ezterm-${{ matrix.name }}"
+          mkdir -p "$STAGE"
+          cp "src-tauri/target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
+          cp README.md "$STAGE/"
+          # Include the top-level licence if present so the archive is
+          # self-describing for redistribution.
+          if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
+          if [ -f LICENSE-MIT ]; then cp LICENSE-MIT "$STAGE/"; fi
+          tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
+          ls -l "ezterm-${{ matrix.name }}.tar.xz"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezterm-${{ matrix.name }}
+          path: ezterm-${{ matrix.name }}.tar.xz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish draft release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only actually cut a release on tag pushes. workflow_dispatch runs
+    # still produce artifacts (attached to the workflow run) so you can
+    # iterate on the build without minting draft releases.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*.tar.xz
+          fail_on_unmatched_files: true
