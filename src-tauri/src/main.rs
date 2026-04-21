@@ -81,6 +81,7 @@ async fn main() {
             commands::sftp::sftp_chmod,
             commands::sftp::sftp_realpath,
             commands::sftp::sftp_upload,
+            commands::sftp::sftp_upload_bytes,
             commands::sftp::sftp_download,
             commands::scp::scp_upload,
             commands::scp::scp_download,

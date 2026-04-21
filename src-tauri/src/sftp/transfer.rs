@@ -120,6 +120,86 @@ pub async fn upload(
     result
 }
 
+/// Same as `upload` but reads from an in-memory buffer. Used for drag-drop
+/// uploads in the SFTP pane: Windows (and all Chromium-based webviews) don't
+/// expose a source file path on HTML5 drops for security reasons, so the
+/// frontend reads the dropped file via FileReader and ships the bytes.
+/// Caller is expected to have already bounded the byte count.
+pub async fn upload_bytes(
+    app: &AppHandle,
+    handle: &SftpHandle,
+    transfer_id: u64,
+    bytes: &[u8],
+    remote_path: &str,
+) -> Result<()> {
+    let total = bytes.len() as u64;
+    let remote_path = remote_path.to_owned();
+    let event = format!("sftp:transfer:{transfer_id}");
+    let app_cloned = app.clone();
+    let bytes = bytes.to_vec();
+
+    let result: Result<()> = handle
+        .with_session(
+            async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                let mut w = s
+                    .create(&remote_path)
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+                let mut sent: u64 = 0;
+                let mut last_emit = Instant::now();
+                for chunk in bytes.chunks(CHUNK) {
+                    w.write_all(chunk)
+                        .await
+                        .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+                    sent += chunk.len() as u64;
+                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
+                        let _ = app_cloned.emit(
+                            &event,
+                            TransferProgress {
+                                transfer_id,
+                                bytes_sent: sent,
+                                total_bytes: total,
+                                done: false,
+                                error: None,
+                            },
+                        );
+                        last_emit = Instant::now();
+                    }
+                }
+                w.shutdown()
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("close: {e}")))?;
+                let _ = app_cloned.emit(
+                    &event,
+                    TransferProgress {
+                        transfer_id,
+                        bytes_sent: sent,
+                        total_bytes: total,
+                        done: true,
+                        error: None,
+                    },
+                );
+                Ok(())
+            },
+        )
+        .await;
+
+    if let Err(e) = &result {
+        let _ = app.emit(
+            &format!("sftp:transfer:{transfer_id}"),
+            TransferProgress {
+                transfer_id,
+                bytes_sent: 0,
+                total_bytes: total,
+                done: true,
+                error: Some(e.to_string()),
+            },
+        );
+    }
+
+    result
+}
+
 /// Stream a remote file to a local path, emitting `TransferProgress` events.
 pub async fn download(
     app: &AppHandle,

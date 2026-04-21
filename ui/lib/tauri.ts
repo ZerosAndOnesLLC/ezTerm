@@ -86,6 +86,8 @@ export const api = {
     invoke<string>('sftp_realpath', { connectionId, path }),
   sftpUpload:   (connectionId: number, localPath: string, remotePath: string) =>
     invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
+  sftpUploadBytes: (connectionId: number, remotePath: string, bytes: number[]) =>
+    invoke<TransferTicket>('sftp_upload_bytes', { connectionId, remotePath, bytes }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
 

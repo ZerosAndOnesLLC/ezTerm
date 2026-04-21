@@ -102,9 +102,12 @@ export function SftpPane({ tab }: { tab: Tab }) {
     setMenu({ x, y, items });
   }
 
-  /// Drag-drop upload. Tauri v2's webview does not reliably populate
-  /// `File.path` on drop, so when it's missing we pop a native open dialog
-  /// as a fallback — this keeps the UX one-click instead of silently failing.
+  /// Drag-drop upload. Chromium webviews don't expose a source file path
+  /// on HTML5 drops (security), so we read each File's bytes via
+  /// FileReader and ship them to `sftp_upload_bytes`, which streams the
+  /// buffer into the remote SFTP session. This works regardless of the
+  /// host OS — path separators, drive letters, and POSIX roots are all
+  /// handled by the backend's `normalise_remote_path` on the target side.
   async function handleDrop(ev: React.DragEvent) {
     ev.preventDefault();
     setDragOver(false);
@@ -112,27 +115,26 @@ export function SftpPane({ tab }: { tab: Tab }) {
     if (cid == null) return;
     const files = Array.from(ev.dataTransfer?.files ?? []) as File[];
     if (files.length === 0) return;
-    try {
-      for (const f of files) {
-        const localFromDrop = (f as unknown as { path?: string }).path ?? '';
-        let local = localFromDrop;
-        if (!local) {
-          const picked = await openDialog({
-            multiple: false,
-            title: 'Select file to upload (drag-drop path not available)',
-          });
-          if (typeof picked !== 'string') continue;
-          local = picked;
+    for (const f of files) {
+      try {
+        if (f.size > 256 * 1024 * 1024) {
+          toast.danger(
+            'File too large',
+            `${f.name} is ${(f.size / (1024 * 1024)).toFixed(1)} MB — drag-drop cap is 256 MB. Use the Upload button.`,
+          );
+          continue;
         }
-        const remote = joinRemote(tab.cwd, f.name || local.split(/[\\/]/).pop() || 'upload');
-        const t = await api.sftpUpload(cid, local, remote);
-        const labelName = f.name || remote.split('/').pop() || 'file';
-        setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${labelName}` }]);
+        // `File.name` is just the base name in every browser — perfect
+        // for joining with the remote cwd; no need to strip separators.
+        const remote = joinRemote(tab.cwd, f.name || 'upload');
+        const bytes = Array.from(new Uint8Array(await f.arrayBuffer()));
+        const t = await api.sftpUploadBytes(cid, remote, bytes);
+        setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${f.name}` }]);
+      } catch (er) {
+        toast.danger(`Upload failed: ${f.name}`, errMessage(er));
       }
-      setTimeout(refresh, 500);
-    } catch (er) {
-      toast.danger('Upload failed', errMessage(er));
     }
+    setTimeout(refresh, 500);
   }
 
   async function handleUploadClick() {

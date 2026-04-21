@@ -281,6 +281,47 @@ pub async fn sftp_upload(
     Ok(TransferTicket { transfer_id })
 }
 
+/// Hard cap on drag-drop upload size. The Chromium webview holds the whole
+/// file in memory before shipping it to Rust, and ballooning past a few
+/// hundred MB OOM-risks the webview. Users with larger uploads should hit
+/// the Upload button (native file dialog → path-based streaming).
+const MAX_DRAG_DROP_BYTES: usize = 256 * 1024 * 1024;
+
+/// Drag-drop upload variant: file contents are passed inline (the webview
+/// can't expose a local path on Chromium for security reasons, so the
+/// frontend reads the File via FileReader and sends bytes here).
+#[tauri::command]
+pub async fn sftp_upload_bytes(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    connection_id: u64,
+    remote_path: String,
+    bytes: Vec<u8>,
+) -> Result<TransferTicket> {
+    super::require_unlocked(&state).await?;
+    if bytes.len() > MAX_DRAG_DROP_BYTES {
+        return Err(AppError::Validation(format!(
+            "drag-drop upload capped at {} MB; use the Upload button for larger files",
+            MAX_DRAG_DROP_BYTES / (1024 * 1024)
+        )));
+    }
+    let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
+    let handle = sftp_handle(&state, connection_id).await?;
+    let transfer_id = next_transfer_id();
+
+    tokio::spawn(async move {
+        let _ = crate::sftp::transfer::upload_bytes(
+            &app,
+            &handle,
+            transfer_id,
+            &bytes,
+            &remote_path,
+        )
+        .await;
+    });
+    Ok(TransferTicket { transfer_id })
+}
+
 /// Start a streaming download. See `sftp_upload` for the progress-event model.
 #[tauri::command]
 pub async fn sftp_download(
