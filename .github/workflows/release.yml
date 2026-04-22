@@ -47,6 +47,29 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Cargo.toml is the single source of truth for the version (Ron bumps
+      # it before each tag). Propagate that value into tauri.conf.json and
+      # ui/package.json so the bundler names installers correctly and the
+      # MSI / NSIS embed the right product version (otherwise Windows
+      # Installer refuses to upgrade across releases). On tag pushes, the
+      # tag wins in case of any mismatch.
+      - name: Sync bundle version from tag / Cargo.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME:-}" =~ ^v[0-9] ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER=$(grep -m1 -E '^version\s*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          echo "Bundle version → $VER"
+          tmp=$(mktemp)
+          jq --arg v "$VER" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+          tmp=$(mktemp)
+          jq --arg v "$VER" '.version = $v' ui/package.json > "$tmp" && mv "$tmp" ui/package.json
+          echo "--- tauri.conf.json ---"; jq -r '.version' src-tauri/tauri.conf.json
+          echo "--- ui/package.json  ---"; jq -r '.version' ui/package.json
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:

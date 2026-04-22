@@ -242,13 +242,24 @@ export function TerminalView({ tab, visible }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.tabId]);
 
-  // Fit when becoming visible
+  // Fit + focus when becoming visible (or when a blocking overlay closes on
+  // an already-visible tab). Without the explicit focus, xterm's hidden
+  // textarea keeps focus on whatever tab the user clicked away from, so
+  // keystrokes go nowhere until the user clicks into the terminal — which
+  // is exactly the "click tab, type, nothing happens" report from users.
+  // Skip focus while a dialog/overlay is up so we don't steal keyboard
+  // control from the host-key prompt, auth-fix flow, etc.
   useEffect(() => {
-    if (visible) setTimeout(() => {
+    if (!visible) return;
+    const id = window.setTimeout(() => {
       const b = bundleRef.current;
-      if (b) safeFit(b);
+      if (!b) return;
+      safeFit(b);
+      const blocked = prompt || authFix || xserverMissing || find || fontPicker;
+      if (!blocked && tab.status === 'connected') b.terminal.focus();
     }, 0);
-  }, [visible]);
+    return () => window.clearTimeout(id);
+  }, [visible, prompt, authFix, xserverMissing, find, fontPicker, tab.status]);
 
   // Ctrl + mouse wheel → zoom font size (MobaXterm convention).
   //
