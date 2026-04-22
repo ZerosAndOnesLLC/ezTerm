@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Lock, Monitor, Moon, Sparkles, Sun } from 'lucide-react';
+import { getVersion } from '@tauri-apps/api/app';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
@@ -19,6 +20,9 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
   const active   = tabs.find((t) => t.tabId === activeId) ?? null;
 
   useEffect(() => { loadTheme().then(setTheme); }, []);
+
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
   // X server state — polled lightly so the pill reflects VcXsrv coming up
   // or going away as sessions toggle X11 forwarding. Hidden entirely when
@@ -83,7 +87,9 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
           <span className="opacity-40" aria-hidden>·</span>
         </>
       )}
-      <span className="opacity-60 tabular-nums">ezTerm v0.18</span>
+      <span className="opacity-60 tabular-nums">
+        ezTerm{appVersion ? ` v${appVersion}` : ''}
+      </span>
       <span className="opacity-40" aria-hidden>·</span>
       <button
         type="button"
