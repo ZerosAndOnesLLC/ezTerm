@@ -1,0 +1,13 @@
+# Normalize every text file to LF in the repo *and* on checkout, regardless
+# of platform. Git would otherwise follow each developer's core.autocrlf —
+# on Windows that becomes CRLF, which bakes line-ending-sensitive data
+# (e.g. sqlx migration checksums via `sqlx::migrate!`) into build artefacts
+# and causes _sqlx_migrations VersionMismatch panics when a DB populated
+# under one build runs under a differently-line-ended build. See
+# db::heal_line_ending_checksums for the runtime complement.
+* text=auto eol=lf
+
+# Known-binary extensions — belt and braces so `text=auto` never misclassifies.
+*.png  binary
+*.ico  binary
+*.icns binary
