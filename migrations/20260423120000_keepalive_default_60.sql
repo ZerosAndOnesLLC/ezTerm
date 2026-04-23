@@ -1,0 +1,15 @@
+-- Keepalive default backfill.
+--
+-- Overnight SSH connections were dropping because the original default of
+-- keepalive_secs = 0 meant russh sent no keepalive packets, and NAT /
+-- firewall idle timers (commonly 30min - 2h) eventually reaped the TCP
+-- connection. New sessions now default to 60s in the UI (matching
+-- MobaXterm); this migration backfills existing rows that still hold the
+-- old "disabled" default so users don't have to re-edit every saved
+-- session.
+--
+-- Rows explicitly set to a non-zero value are left alone. A user who
+-- genuinely wants keepalives off can set the field back to 0 after this
+-- runs — we don't have a "user has customized" flag to distinguish, and
+-- fixing the common case beats preserving the uncommon one.
+UPDATE sessions SET keepalive_secs = 60 WHERE keepalive_secs = 0;

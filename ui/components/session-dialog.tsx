@@ -44,7 +44,13 @@ type Props = Mode & {
 type TabKey = 'general' | 'terminal' | 'advanced';
 
 // Defaults mirror the Rust-side DB defaults (see migration
-// 20260420130000_session_advanced_settings.sql).
+// 20260420130000_session_advanced_settings.sql), with one deliberate exception:
+// `keepalive_secs` defaults to 60 here even though the DB column default is 0.
+// The UI always passes an explicit value on insert, so this is the operational
+// default for new sessions; NAT/firewall idle timers otherwise drop overnight
+// connections. 60s matches MobaXterm's default. Users can still set 0 to
+// disable. Existing rows are backfilled by migration
+// 20260423120000_keepalive_default_60.sql.
 const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'username'> = {
   auth_type: 'agent',
   credential_id: null,
@@ -56,7 +62,7 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   font_family: '',
   cursor_style: 'block',
   compression: 0,
-  keepalive_secs: 0,
+  keepalive_secs: 60,
   connect_timeout_secs: 15,
   env: [],
   session_kind: 'ssh',
