@@ -67,6 +67,7 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   env: [],
   session_kind: 'ssh',
   forward_x11: 0,
+  starting_dir: null,
 };
 
 // Palette for the tab-color dot. Slate stores null = "no accent".
@@ -107,6 +108,7 @@ export function SessionDialog(props: Props) {
         env: [], // populated async below
         session_kind: s.session_kind,
         forward_x11: s.forward_x11,
+        starting_dir: s.starting_dir,
       };
     }
     return {
@@ -200,6 +202,7 @@ export function SessionDialog(props: Props) {
       const cleaned: SessionInput = {
         ...v,
         initial_command: v.initial_command?.trim() ? v.initial_command : null,
+        starting_dir: v.starting_dir?.trim() ? v.starting_dir.trim() : null,
         env: v.env.filter((p) => p.key.trim()),
       };
       if (props.mode === 'edit') {
@@ -591,6 +594,23 @@ function TerminalPane({ v, setV }: PaneProps) {
   return (
     <>
       <SectionHeading>On connect</SectionHeading>
+      <Field
+        label="Starting directory (optional)"
+        hint={
+          v.session_kind === 'wsl'
+            ? 'Linux path. Empty uses your Linux home (~).'
+            : v.session_kind === 'ssh'
+            ? 'cd to this after connect. Empty uses the remote $HOME.'
+            : 'Ignored for local shells — the Host field is used as cwd.'
+        }
+      >
+        <input
+          value={v.starting_dir ?? ''}
+          onChange={(e) => setV({ ...v, starting_dir: e.target.value })}
+          className="input font-mono"
+          placeholder={v.session_kind === 'wsl' ? '~/projects' : '/var/log'}
+        />
+      </Field>
       <Field label="Initial command (optional)" hint="Runs once after the shell opens, as if you typed it.">
         <input
           value={v.initial_command ?? ''}

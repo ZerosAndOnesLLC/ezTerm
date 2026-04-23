@@ -104,6 +104,8 @@ export const api = {
     invoke<void>('local_resize', { connectionId, cols, rows }),
   localDisconnect: (connectionId: number) =>
     invoke<void>('local_disconnect', { connectionId }),
+  localReady:      (connectionId: number) =>
+    invoke<void>('local_ready', { connectionId }),
   wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
   wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
 

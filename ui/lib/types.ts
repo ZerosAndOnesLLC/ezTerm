@@ -48,6 +48,11 @@ export interface Session {
   session_kind: SessionKind;
   /** 0/1 — SSH-only. Enables X11 forwarding against the bundled VcXsrv. */
   forward_x11: number;
+  /** Optional starting directory. WSL: passed as `wsl.exe --cd <value>`,
+   *  empty = `~` (Linux home). SSH: `cd <value>` is written to the shell
+   *  after connect, empty = remote default ($HOME). Ignored for local
+   *  (cmd/pwsh) rows. */
+  starting_dir: string | null;
 }
 
 export interface SessionInput {
@@ -71,6 +76,7 @@ export interface SessionInput {
   env: EnvPair[];
   session_kind: SessionKind;
   forward_x11: number;
+  starting_dir: string | null;
 }
 
 export interface XServerStatus {

@@ -422,6 +422,7 @@ async fn backup_restore_inner(
             env: entry.env.clone(),
             session_kind: entry.session.session_kind.clone(),
             forward_x11: entry.session.forward_x11,
+            starting_dir: entry.session.starting_dir.clone(),
         };
         db::sessions::create(&state.db, &input).await?;
         result.sessions_created += 1;

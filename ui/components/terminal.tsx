@@ -175,10 +175,29 @@ export function TerminalView({ tab, visible }: Props) {
       }
       unlistenRef.current = unlisten;
 
+      // Register the keystroke / terminal-reply handler BEFORE unblocking
+      // the reader. Bash on WSL emits an early DSR cursor-position query
+      // (`ESC [ 6 n`, 4 bytes) as part of prompt setup and waits for
+      // the terminal to reply with `ESC [ <row> ; <col> R`. xterm.js
+      // generates that reply synchronously inside its parser and fires
+      // `onData`; if no listener is subscribed at that instant the
+      // reply is discarded and bash hangs forever with just a blinking
+      // cursor. Registering here — before the backend reader can emit
+      // anything — closes that window.
       bundle.terminal.onData((data) => {
         const bytes = new TextEncoder().encode(data);
         term.write(result.connection_id, Array.from(bytes)).catch(() => {});
       });
+
+      // Now unblock the local reader thread. ConPTY writes the shell
+      // prompt microseconds after spawn; without this gate (backend-side)
+      // the first tab ever opened in a fresh app session would miss those
+      // bytes because `listen()` above hadn't finished its IPC round trip
+      // yet. SSH doesn't need this — network RTT is slower than listen
+      // registration — so we only signal for local kinds.
+      if (isLocal) {
+        await api.localReady(result.connection_id).catch(() => {});
+      }
 
       const onResize = () => {
         safeFit(bundle);
@@ -392,6 +411,7 @@ export function TerminalView({ tab, visible }: Props) {
       env,
       session_kind: tab.session.session_kind,
       forward_x11: tab.session.forward_x11,
+      starting_dir: tab.session.starting_dir,
     });
     setSession(tab.tabId, updated);
   }

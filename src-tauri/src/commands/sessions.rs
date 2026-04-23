@@ -26,6 +26,11 @@ const ENV_VALUE_MAX: usize = 4_096;
 // reasonable use case and keeps the per-connect handshake bounded.
 const ENV_MAX_COUNT: usize = 64;
 const INITIAL_COMMAND_MAX: usize = 4_096;
+// Starting directory: POSIX PATH_MAX is typically 4096; Linux ext4 allows
+// filenames up to 255 bytes and paths up to 4096. We cap below that so
+// deeply nested nonsense doesn't sneak past — real starting dirs are
+// short.
+const STARTING_DIR_MAX: usize = 1_024;
 
 fn validate(input: &SessionInput) -> Result<()> {
     if input.name.trim().is_empty() {
@@ -115,6 +120,16 @@ fn validate(input: &SessionInput) -> Result<()> {
     if let Some(cmd) = &input.initial_command {
         if cmd.len() > INITIAL_COMMAND_MAX {
             return Err(AppError::Validation("initial_command too long".into()));
+        }
+    }
+    if let Some(sd) = &input.starting_dir {
+        if sd.len() > STARTING_DIR_MAX {
+            return Err(AppError::Validation("starting_dir too long".into()));
+        }
+        if sd.contains('\0') || sd.contains('\n') || sd.contains('\r') {
+            return Err(AppError::Validation(
+                "starting_dir contains NUL or newline".into(),
+            ));
         }
     }
     if input.env.len() > ENV_MAX_COUNT {

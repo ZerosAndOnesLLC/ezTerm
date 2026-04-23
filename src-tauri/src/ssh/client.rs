@@ -357,6 +357,21 @@ async fn connect_impl(
         .request_shell(true)
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // Optional starting directory — written before `initial_command` so the
+    // command runs in the right place. Same rationale as initial_command for
+    // using the shell channel rather than `channel_exec`: we need the
+    // interactive shell to stay alive. Tilde-prefixed paths go through raw
+    // so bash expansion still works; everything else is double-quoted.
+    if let Some(raw) = session.starting_dir.as_ref() {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let line = format!("cd {}\n", format_cd_target(trimmed));
+            if let Err(e) = channel.data(line.as_bytes()).await {
+                let err = e;
+                log_redacted!(warn, "ssh.starting_dir.failed", error = %err);
+            }
+        }
+    }
     // Optional initial command — written as keystrokes into the shell's
     // stdin the same way the user would have typed them. We intentionally
     // avoid `channel_exec` here so the interactive shell stays alive after
@@ -685,5 +700,57 @@ async fn drive_channel(
     // sessions are using it.
     if let Some(display) = x11_display {
         xserver_reg.release(display).await;
+    }
+}
+
+/// Format a user-supplied path for use as the argument to `cd` in a POSIX
+/// shell. Tilde-prefixed paths (`~`, `~/foo`, `~user/foo`) are emitted raw
+/// so bash/zsh tilde expansion still kicks in; everything else is
+/// double-quoted with the metacharacters that have special meaning inside
+/// double quotes (`\`, `"`, `$`, `` ` ``) backslash-escaped. This makes a
+/// bare path with spaces work (`/var/log my dir` → `"/var/log my dir"`)
+/// without silently breaking on `$HOME` expansion inside user-typed values.
+fn format_cd_target(raw: &str) -> String {
+    if raw.starts_with('~') {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len() + 2);
+    out.push('"');
+    for ch in raw.chars() {
+        if matches!(ch, '\\' | '"' | '$' | '`') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(test)]
+mod cd_target_tests {
+    use super::format_cd_target;
+
+    #[test]
+    fn tilde_passes_through_raw() {
+        assert_eq!(format_cd_target("~"), "~");
+        assert_eq!(format_cd_target("~/projects"), "~/projects");
+        assert_eq!(format_cd_target("~root/logs"), "~root/logs");
+    }
+
+    #[test]
+    fn bare_path_is_quoted() {
+        assert_eq!(format_cd_target("/var/log"), "\"/var/log\"");
+        assert_eq!(
+            format_cd_target("/path with spaces"),
+            "\"/path with spaces\""
+        );
+    }
+
+    #[test]
+    fn metachars_are_escaped() {
+        assert_eq!(format_cd_target("/a$b"), "\"/a\\$b\"");
+        assert_eq!(format_cd_target("/a\"b"), "\"/a\\\"b\"");
+        assert_eq!(format_cd_target("/a\\b"), "\"/a\\\\b\"");
+        assert_eq!(format_cd_target("/a`b"), "\"/a\\`b\"");
     }
 }

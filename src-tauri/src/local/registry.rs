@@ -1,12 +1,19 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use tokio::sync::{mpsc, RwLock};
 
 pub struct Connection {
     pub id: u64,
     pub stdin: mpsc::UnboundedSender<LocalInput>,
+    /// Gates the reader thread on the frontend signalling that its
+    /// `ssh:data:<id>` listener is installed. Without this, ConPTY's
+    /// prompt bytes race the Tauri `listen()` round-trip on first
+    /// connect and the terminal shows blank until a reconnect. Once
+    /// `unlock_reader` takes the sender and sends `()`, the reader
+    /// thread enters its normal read loop. Subsequent calls are no-ops.
+    pub reader_gate: StdMutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 pub enum LocalInput {
@@ -62,6 +69,18 @@ impl LocalRegistry {
         let conn = self.inner.write().await.remove(&id);
         if let Some(c) = conn {
             let _ = c.stdin.send(LocalInput::Close);
+        }
+    }
+
+    /// Signals the reader thread to start emitting data. Called by the
+    /// `local_ready` command once the frontend has its `ssh:data:<id>`
+    /// listener installed. Idempotent — subsequent calls are no-ops.
+    pub async fn unlock_reader(&self, id: u64) {
+        if let Some(c) = self.get(id).await {
+            let tx = c.reader_gate.lock().expect("reader_gate poisoned").take();
+            if let Some(tx) = tx {
+                let _ = tx.send(());
+            }
         }
     }
 }

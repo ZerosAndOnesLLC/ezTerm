@@ -36,6 +36,13 @@ pub struct Session {
     /// forwarding and starts a local VcXsrv display to receive the
     /// forwarded GUI apps. Ignored for wsl/local rows.
     pub forward_x11: i64,
+    /// Optional starting directory. For WSL rows it's passed to
+    /// `wsl.exe --cd`; empty falls back to `~`. For SSH rows it's
+    /// written as `cd <value>\n` into the interactive shell right
+    /// after shell_request; empty leaves the shell at the remote
+    /// default ($HOME on most servers). Local (cmd/pwsh) rows ignore
+    /// this — they use `username` as the Windows cwd.
+    pub starting_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +72,8 @@ pub struct SessionInput {
     pub session_kind: String,
     #[serde(default)]
     pub forward_x11: i64,
+    #[serde(default)]
+    pub starting_dir: Option<String>,
 }
 
 fn default_session_kind() -> String {
@@ -80,7 +89,7 @@ pub struct EnvPair {
 const SELECT_COLS: &str = "id, folder_id, name, host, port, username, auth_type, \
 credential_id, key_passphrase_credential_id, color, sort, \
 initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
-keepalive_secs, connect_timeout_secs, session_kind, forward_x11";
+keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
     let sql = format!(
@@ -139,8 +148,8 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
          credential_id, key_passphrase_credential_id, color, \
          initial_command, scrollback_lines, font_size, font_family, cursor_style, \
          compression, keepalive_secs, connect_timeout_secs, session_kind, \
-         forward_x11) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         forward_x11, starting_dir) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -161,6 +170,7 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .bind(input.connect_timeout_secs)
     .bind(&input.session_kind)
     .bind(input.forward_x11)
+    .bind(&input.starting_dir)
     .execute(&mut *tx)
     .await?
     .last_insert_rowid();
@@ -176,7 +186,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
          auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
          initial_command = ?, scrollback_lines = ?, font_size = ?, font_family = ?, cursor_style = ?, \
          compression = ?, keepalive_secs = ?, connect_timeout_secs = ?, \
-         session_kind = ?, forward_x11 = ? \
+         session_kind = ?, forward_x11 = ?, starting_dir = ? \
          WHERE id = ?",
     )
     .bind(input.folder_id)
@@ -198,6 +208,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(input.connect_timeout_secs)
     .bind(&input.session_kind)
     .bind(input.forward_x11)
+    .bind(&input.starting_dir)
     .bind(id)
     .execute(&mut *tx)
     .await?;
@@ -278,6 +289,7 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
         env,
         session_kind: src.session_kind,
         forward_x11: src.forward_x11,
+        starting_dir: src.starting_dir,
     };
     create(pool, &input).await
 }
@@ -319,6 +331,7 @@ mod tests {
             env: Vec::new(),
             session_kind: "ssh".into(),
             forward_x11: 0,
+            starting_dir: None,
         }
     }
 
