@@ -21,6 +21,8 @@
 
 /* Dark theme (default). */
 :root {
+  color-scheme: dark;
+
   --bg:         24  26  30;
   --surface:    32  34  39;
   --surface-2:  42  45  52;
@@ -36,6 +38,8 @@
 }
 
 .light {
+  color-scheme: light;
+
   --bg:        243 244 247;
   --surface:   252 252 253;
   --surface-2: 234 236 241;
@@ -67,10 +71,19 @@ body {
   .input {
     @apply w-full bg-surface2 border border-border rounded-sm px-2 py-1.5 outline-none;
     @apply focus:border-accent;
+    color: rgb(var(--fg));
   }
   .input:focus-visible {
     outline: 2px solid rgb(var(--accent));
     outline-offset: 1px;
+  }
+  /* Force the dropdown popup list to track our theme tokens. Without this,
+     WebKitGTK (Linux) falls back to system GTK colors for <option> and the
+     dropdown can end up low-contrast against our --surface-2 background. */
+  .input option,
+  .input optgroup {
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
   }
   .btn-primary {
     @apply inline-flex items-center gap-1.5 bg-accent text-white rounded-sm px-3 py-1.5 text-xs font-medium;
