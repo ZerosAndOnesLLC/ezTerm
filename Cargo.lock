@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "ezterm"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "argon2",
  "async-channel",

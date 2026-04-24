@@ -16,18 +16,14 @@ import {
   Trash2,
 } from 'lucide-react';
 
-/** Colour palette for folder icons. Deterministic hash of the folder name
- *  picks one — gives the tree visual variety without a DB column. */
-const FOLDER_PALETTE = [
-  '#60a5fa', '#34d399', '#fbbf24', '#f87171',
-  '#a78bfa', '#22d3ee', '#f472b6', '#fb923c',
-] as const;
-
-function folderColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (Math.imul(h, 31) + name.charCodeAt(i)) | 0;
-  return FOLDER_PALETTE[Math.abs(h) % FOLDER_PALETTE.length];
-}
+/** Default tile backgrounds per session kind when the user hasn't set a
+ *  per-session colour. Routes through theme tokens so dark/light flips
+ *  are automatic — never hard-code hexes here. */
+const KIND_DEFAULT_TILE: Record<'ssh' | 'wsl' | 'local', string> = {
+  ssh:   'rgb(var(--accent))',
+  wsl:   'rgb(var(--warning))',
+  local: 'rgb(var(--success))',
+};
 
 /** 2px horizontal accent line at the top or bottom of a row — shown
  *  while dragging to signal "drop lands here". `pointer-events-none`
@@ -535,7 +531,6 @@ export function SessionsSidebar() {
       node.folder != null
       && dragTarget?.kind === 'after-folder'
       && dragTarget.folderId === node.folder.id;
-    const folderTint = node.folder ? folderColor(node.folder.name) : undefined;
     const sessionCount = countDescendantSessions(node);
     return (
       <div>
@@ -565,8 +560,7 @@ export function SessionsSidebar() {
             </span>
             <FolderIcon
               size={14}
-              className="shrink-0"
-              style={{ color: folderTint }}
+              className={`shrink-0 ${isOpen ? 'text-accent' : 'text-accent/70'}`}
               strokeWidth={2}
             />
             <span className="truncate text-xs font-medium flex-1">{node.folder.name}</span>
@@ -657,13 +651,24 @@ export function SessionsSidebar() {
                       s.session_kind === 'wsl' ? SquareTerminal :
                       s.session_kind === 'local' ? MonitorDot :
                       Server;
+                    // Tile priority: connected green > per-session colour >
+                    // kind default. Keeps user branding visible when idle,
+                    // flips to a clear "live" signal while connected.
+                    const tileBg = isConnected
+                      ? 'rgb(var(--success))'
+                      : (s.color ?? KIND_DEFAULT_TILE[s.session_kind]);
                     return (
-                      <KindIcon
-                        size={13}
-                        className="shrink-0"
-                        style={{ color: isConnected ? 'rgb(var(--success))' : (s.color ?? undefined) }}
-                        strokeWidth={2}
-                      />
+                      <span
+                        className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center"
+                        style={{ background: tileBg }}
+                        aria-hidden
+                      >
+                        <KindIcon
+                          size={11}
+                          className="text-white"
+                          strokeWidth={2.25}
+                        />
+                      </span>
                     );
                   })()}
                   <span className={`truncate text-xs flex-1 ${isSelected ? 'font-medium' : ''}`}>
