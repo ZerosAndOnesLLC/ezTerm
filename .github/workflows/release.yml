@@ -191,7 +191,16 @@ jobs:
           KEY_FILE=$(mktemp)
           trap 'rm -f "$KEY_FILE"' EXIT
           chmod 600 "$KEY_FILE"
-          printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
+          # TAURI_SIGNING_PRIVATE_KEY is conventionally stored base64-
+          # encoded in CI secrets (matches the encoding of the `pubkey`
+          # field in tauri.conf.json). Auto-detect: real minisign key
+          # files start with "untrusted comment:" — if that's what we
+          # see, write as-is; otherwise base64-decode before writing.
+          if [[ "${TAURI_SIGNING_PRIVATE_KEY}" == untrusted* ]]; then
+            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
+          else
+            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" | base64 -d > "$KEY_FILE"
+          fi
           for deb in "$DEB_DIR"/*.deb; do
             [ -f "$deb" ] || continue
             base=$(basename "$deb")
