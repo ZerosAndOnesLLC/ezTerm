@@ -12,13 +12,16 @@ on:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# No workflow-level permissions block. Each job declares the minimum
+# scope it needs (build = read; release / prune = write). Limits the
+# blast radius if the build job's secret-handling steps ever go sideways.
 
 jobs:
   build:
     name: build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -265,6 +268,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -426,6 +431,8 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     env:
       # Bump this to keep more (or fewer) releases. Counts every release
       # GitHub knows about, drafts and prereleases included.
