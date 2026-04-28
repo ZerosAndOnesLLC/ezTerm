@@ -94,7 +94,15 @@ interface TabsState {
   toggleMaximize: (tabId: string, areaW: number, areaH: number) => void;
 }
 
-function uid() { return Math.random().toString(36).slice(2, 10); }
+function uid() {
+  // Tab IDs are persisted in `ezterm.minimizedTabs` and used as object keys
+  // throughout the cascade map. Use crypto.randomUUID for unique IDs that
+  // don't collide and aren't predictable from the renderer.
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
 
 const STAIRCASE_STEP = 30;
 const DEFAULT_FRAME_W = 640;
