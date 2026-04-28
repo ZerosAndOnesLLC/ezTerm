@@ -2,6 +2,7 @@
 import { AlertCircle, FolderTree, Terminal, X } from 'lucide-react';
 import { useTabs, type TabStatus } from '@/lib/tabs-store';
 import { MdiArea } from './mdi-area';
+import { ViewModeToolbar } from './view-mode-toolbar';
 
 function StatusDot({ status }: { status: TabStatus }) {
   if (status === 'error') {
@@ -87,6 +88,7 @@ export function TabsShell() {
             </div>
           );
         })}
+        <ViewModeToolbar />
       </div>
       <div className="flex-1 min-h-0 relative">
         <MdiArea />
