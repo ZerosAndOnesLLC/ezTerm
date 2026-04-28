@@ -12,7 +12,9 @@ export function MdiArea() {
   const viewMode  = useTabs((s) => s.viewMode);
   const minimized = useTabs((s) => s.minimized);
   const tileGrid  = useTabs((s) => s.tileGrid);
-  const cascade   = useTabs((s) => s.cascade);
+  // Note: do NOT subscribe to s.cascade here. Each TabSlot reads its own
+  // slice via useTabs((s) => s.cascade[tab.tabId]) so a cascade-drag at
+  // 60Hz only re-renders the dragged slot, not every slot.
 
   // Cascade area metadata is hoisted here so it stays live across all view
   // modes. The MdiArea root div doubles as the cascade area for clamping.
@@ -111,7 +113,6 @@ export function MdiArea() {
             cascadeAreaRef={areaRef}
             cascadeAreaW={size.w}
             cascadeAreaH={size.h}
-            cascadeGeom={cascade[t.tabId]}
             dragging={dragging}
             setDragging={setDragging}
           />
