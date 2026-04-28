@@ -36,8 +36,10 @@ export function MdiArea() {
   if (viewMode === 'tile-h' || viewMode === 'tile-v') {
     return <TileFlexLayout tabs={visible} dir={viewMode === 'tile-h' ? 'col' : 'row'} />;
   }
+  if (viewMode === 'tile-grid' || viewMode === 'auto') {
+    return <TileGridLayout tabs={visible} mode={viewMode} />;
+  }
 
-  // tile-grid / cascade / auto handled in later tasks
   return <PlaceholderLayout mode={viewMode} />;
 }
 
@@ -77,6 +79,42 @@ function TileFlexLayout({ tabs, dir }: { tabs: Tab[]; dir: 'row' | 'col' }) {
         <div
           key={t.tabId}
           className="flex-1 min-w-0 min-h-0 bg-bg relative"
+          onMouseDown={() => setActive(t.tabId)}
+        >
+          <TerminalView tab={t} visible={true} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TileGridLayout({ tabs, mode }: { tabs: Tab[]; mode: 'tile-grid' | 'auto' }) {
+  const setActive = useTabs((s) => s.setActive);
+  const tileGrid  = useTabs((s) => s.tileGrid);
+
+  let rows: number;
+  let cols: number;
+  if (mode === 'auto') {
+    const n = Math.max(1, tabs.length);
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  } else {
+    ({ rows, cols } = tileGrid);
+  }
+
+  return (
+    <div
+      className="absolute inset-0 grid gap-px bg-border overflow-auto"
+      style={{
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows:    `repeat(${rows}, minmax(160px, 1fr))`,
+        gridAutoRows:        'minmax(160px, 1fr)',
+      }}
+    >
+      {tabs.map((t) => (
+        <div
+          key={t.tabId}
+          className="min-w-0 min-h-0 bg-bg relative"
           onMouseDown={() => setActive(t.tabId)}
         >
           <TerminalView tab={t} visible={true} />
