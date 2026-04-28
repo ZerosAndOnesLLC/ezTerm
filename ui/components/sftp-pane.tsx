@@ -27,7 +27,7 @@ type PendingPrompt =
 type PendingConfirm =
   | { kind: 'delete'; entry: SftpEntry };
 
-export function SftpPane({ tab }: { tab: Tab }) {
+export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: boolean }) {
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +40,11 @@ export function SftpPane({ tab }: { tab: Tab }) {
 
   const refresh = useCallback(async () => {
     if (tab.connectionId == null || !opened) return;
+    // Skip the listing IPC when the pane is hidden (display:none in
+    // non-tabs view modes). The pane stays mounted so its local state
+    // survives mode flips, but the user can't see results — and we
+    // shouldn't be hitting the remote with sftpList while invisible.
+    if (!isVisible) return;
     try {
       setError(null);
       const list = await api.sftpList(tab.connectionId, tab.cwd);
@@ -47,7 +52,7 @@ export function SftpPane({ tab }: { tab: Tab }) {
     } catch (e) {
       setError(errMessage(e));
     }
-  }, [tab.connectionId, tab.cwd, opened]);
+  }, [tab.connectionId, tab.cwd, opened, isVisible]);
 
   // Open SFTP subsystem once when this pane first becomes visible on a
   // connected tab. `opened` gates the subsequent list call so we don't fire
