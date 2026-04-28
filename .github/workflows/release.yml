@@ -330,3 +330,53 @@ jobs:
               --draft \
               $ASSETS
           fi
+
+  prune:
+    name: prune old releases
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      # Bump this to keep more (or fewer) releases. Counts every release
+      # GitHub knows about, drafts and prereleases included.
+      RELEASES_TO_KEEP: 20
+    steps:
+      - name: Delete releases + tags beyond the cap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO:  ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          KEEP="${RELEASES_TO_KEEP}"
+
+          # List every release the repo has (drafts + prereleases included),
+          # sort newest first by created_at, then take everything past index
+          # KEEP — those are the tags to delete. --limit is generous; we
+          # never expect to be near it but it costs nothing.
+          mapfile -t TO_DELETE < <(
+            gh release list --limit 1000 \
+              --json tagName,createdAt,isDraft,isPrerelease \
+              | jq -r --argjson keep "$KEEP" '
+                  sort_by(.createdAt) | reverse | .[$keep:] | .[].tagName
+                '
+          )
+
+          TOTAL=$(gh release list --limit 1000 --json tagName --jq 'length')
+          echo "Releases on repo: $TOTAL"
+          echo "Keeping newest:   $KEEP"
+          echo "To delete:        ${#TO_DELETE[@]}"
+
+          if [ "${#TO_DELETE[@]}" -eq 0 ]; then
+            echo "Nothing to prune."
+            exit 0
+          fi
+
+          for tag in "${TO_DELETE[@]}"; do
+            [ -z "$tag" ] && continue
+            # --cleanup-tag also deletes the underlying git tag so we don't
+            # accumulate orphan tags. --yes skips the confirmation prompt.
+            echo "Deleting release + tag: $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done
+
+          echo "Prune complete."
