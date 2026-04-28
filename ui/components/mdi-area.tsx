@@ -1,7 +1,7 @@
 'use client';
 import dynamic from 'next/dynamic';
 import { Terminal } from 'lucide-react';
-import { useTabs } from '@/lib/tabs-store';
+import { useTabs, type Tab, type ViewMode } from '@/lib/tabs-store';
 import { EmptyState } from './empty-state';
 import { SftpPane } from './sftp-pane';
 
@@ -11,9 +11,10 @@ const TerminalView = dynamic(
 );
 
 export function MdiArea() {
-  const tabs     = useTabs((s) => s.tabs);
-  const activeId = useTabs((s) => s.activeId);
-  const viewMode = useTabs((s) => s.viewMode);
+  const tabs      = useTabs((s) => s.tabs);
+  const activeId  = useTabs((s) => s.activeId);
+  const viewMode  = useTabs((s) => s.viewMode);
+  const minimized = useTabs((s) => s.minimized);
 
   if (tabs.length === 0) {
     return (
@@ -25,10 +26,22 @@ export function MdiArea() {
     );
   }
 
-  // For now, every mode renders the legacy "tabs" layout. Subsequent tasks
-  // add real strategies for tile-h/tile-v/tile-grid/cascade/auto.
-  void viewMode;
+  if (viewMode === 'tabs') {
+    return <TabsLayout tabs={tabs} activeId={activeId} />;
+  }
 
+  // In non-tabs modes, minimized tabs are hidden from the layout.
+  const visible = tabs.filter((t) => !minimized.has(t.tabId));
+
+  if (viewMode === 'tile-h' || viewMode === 'tile-v') {
+    return <TileFlexLayout tabs={visible} dir={viewMode === 'tile-h' ? 'col' : 'row'} />;
+  }
+
+  // tile-grid / cascade / auto handled in later tasks
+  return <PlaceholderLayout mode={viewMode} />;
+}
+
+function TabsLayout({ tabs, activeId }: { tabs: Tab[]; activeId: string | null }) {
   return (
     <div className="absolute inset-0">
       {tabs.map((t) => {
@@ -50,6 +63,33 @@ export function MdiArea() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function TileFlexLayout({ tabs, dir }: { tabs: Tab[]; dir: 'row' | 'col' }) {
+  const setActive = useTabs((s) => s.setActive);
+  return (
+    <div
+      className={`absolute inset-0 flex ${dir === 'col' ? 'flex-col' : 'flex-row'} gap-px bg-border`}
+    >
+      {tabs.map((t) => (
+        <div
+          key={t.tabId}
+          className="flex-1 min-w-0 min-h-0 bg-bg relative"
+          onMouseDown={() => setActive(t.tabId)}
+        >
+          <TerminalView tab={t} visible={true} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlaceholderLayout({ mode }: { mode: ViewMode }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">
+      Layout for <span className="mx-1 font-mono">{mode}</span> not yet wired.
     </div>
   );
 }
