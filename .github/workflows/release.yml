@@ -12,13 +12,16 @@ on:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# No workflow-level permissions block. Each job declares the minimum
+# scope it needs (build = read; release / prune = write). Limits the
+# blast radius if the build job's secret-handling steps ever go sideways.
 
 jobs:
   build:
     name: build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -111,7 +114,8 @@ jobs:
             librsvg2-dev \
             build-essential \
             curl wget file xz-utils patchelf \
-            fuse libfuse2 desktop-file-utils
+            fuse libfuse2 desktop-file-utils \
+            minisign
 
       - name: Build UI (Next.js static export)
         run: |
@@ -175,17 +179,17 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping .deb signing"
             exit 0
           fi
-          sudo apt-get install -y minisign
-          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
-          DEB_DIR="$BUNDLE_DIR/deb"
+          DEB_DIR="target/${{ matrix.target }}/release/bundle/deb"
           if [ ! -d "$DEB_DIR" ]; then
             echo "no deb bundle dir at $DEB_DIR — nothing to sign"
             exit 0
           fi
-          # Stage the secret to a real file so minisign can mmap it.
-          # Using a process substitution doesn't survive minisign's
-          # reopen-on-EOF behavior on the secret-key path.
+          # Stage the secret to a real file so minisign can mmap it
+          # (process substitution doesn't survive minisign's reopen-on-EOF
+          # behavior on the secret-key path). trap EXIT guarantees the
+          # tempfile is removed even if the job is cancelled mid-loop.
           KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
           chmod 600 "$KEY_FILE"
           printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
           for deb in "$DEB_DIR"/*.deb; do
@@ -203,7 +207,6 @@ jobs:
                   -x "${deb}.sig"
             echo "signed: ${deb}.sig"
           done
-          rm -f "$KEY_FILE"
 
       - name: Package portable tar.xz + collect installers
         shell: bash
@@ -265,6 +268,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -306,22 +311,23 @@ jobs:
           pub_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           base="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # Helper: emit a "platform -> { url, signature }" object for
-          # each installer file + matching .sig file present.
-          entries=""
-          # Per-installer entries (linux-{arch}-{installer}, darwin-aarch64)
-          # are what the plugin's get_urls() looks up first based on the
-          # binary's __TAURI_BUNDLE_TYPE constant. The bare linux-{arch}
-          # entries are kept as a fallback for binaries with an unknown
-          # bundle type (e.g., builds outside the Tauri bundler).
+          # Build the platforms object via jq with --arg for every value
+          # so signatures and URLs go through proper JSON escaping (no
+          # shell-level sed for quotes — defense in depth even though
+          # minisign output is base64). Per-installer entries (e.g.
+          # linux-x86_64-deb) are what the updater plugin's get_urls()
+          # looks up first based on the binary's __TAURI_BUNDLE_TYPE
+          # constant. The bare linux-{arch} fallbacks come first within
+          # each arch block, matching the spec's sample manifest order.
+          platforms='{}'
           for pair in \
             "windows-x86_64:*-setup.exe" \
+            "linux-x86_64:*_amd64.AppImage" \
             "linux-x86_64-appimage:*_amd64.AppImage" \
             "linux-x86_64-deb:*_amd64.deb" \
-            "linux-x86_64:*_amd64.AppImage" \
+            "linux-aarch64:*_aarch64.AppImage" \
             "linux-aarch64-appimage:*_aarch64.AppImage" \
             "linux-aarch64-deb:*_arm64.deb" \
-            "linux-aarch64:*_aarch64.AppImage" \
             "darwin-aarch64:*.app.tar.gz" \
           ; do
             plat="${pair%%:*}"
@@ -334,13 +340,13 @@ jobs:
               echo "skip $plat — no signature for $installer (signing secret missing?)"
               continue
             fi
-            sig=$(cat "$sig_file")
-            if [ -n "$entries" ]; then entries="$entries,"; fi
-            entries+=$(printf '"%s":{"url":"%s/%s","signature":"%s"}' \
-              "$plat" "$base" "$installer" "$(echo "$sig" | tr -d '\n' | sed 's/"/\\"/g')")
+            sig=$(tr -d '\n' < "$sig_file")
+            url="${base}/${installer}"
+            platforms=$(jq --arg p "$plat" --arg u "$url" --arg s "$sig" \
+              '. + {($p): {url: $u, signature: $s}}' <<< "$platforms")
           done
 
-          if [ -z "$entries" ]; then
+          if [ "$platforms" = '{}' ]; then
             echo "No signed installers found — skipping latest.json."
             exit 0
           fi
@@ -349,7 +355,7 @@ jobs:
             --arg v "$version" \
             --arg n "$notes" \
             --arg d "$pub_date" \
-            --argjson p "{$entries}" \
+            --argjson p "$platforms" \
             '{version:$v, notes:$n, pub_date:$d, platforms:$p}' \
             > latest.json
           echo "--- latest.json ---"
@@ -425,6 +431,8 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     env:
       # Bump this to keep more (or fewer) releases. Counts every release
       # GitHub knows about, drafts and prereleases included.
