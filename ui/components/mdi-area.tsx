@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'lucide-react';
-import { useTabs, type Tab, type ViewMode } from '@/lib/tabs-store';
+import { useTabs, type Tab } from '@/lib/tabs-store';
 import { EmptyState } from './empty-state';
 import { SftpPane } from './sftp-pane';
 import { MdiFrame } from './mdi-frame';
@@ -41,11 +41,8 @@ export function MdiArea() {
   if (viewMode === 'tile-grid' || viewMode === 'auto') {
     return <TileGridLayout tabs={visible} mode={viewMode} />;
   }
-  if (viewMode === 'cascade') {
-    return <CascadeLayout tabs={visible} />;
-  }
-
-  return <PlaceholderLayout mode={viewMode} />;
+  // 'cascade' is the last ViewMode; the union is exhausted above.
+  return <CascadeLayout tabs={visible} />;
 }
 
 function TabsLayout({ tabs, activeId }: { tabs: Tab[]; activeId: string | null }) {
@@ -131,14 +128,21 @@ function CascadeLayout({ tabs }: { tabs: Tab[] }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
-  const allTabs   = useTabs((s) => s.tabs);
-  const minimized = useTabs((s) => s.minimized);
-  const hasMinimized = allTabs.some((t) => minimized.has(t.tabId));
+  // Strip reservation only depends on whether ANY tab is minimized — pulling
+  // a boolean keeps this layout from re-rendering on every status tick.
+  const hasMinimized = useTabs((s) => s.minimized.size > 0);
 
   useEffect(() => {
     const el = areaRef.current;
     if (!el) return;
-    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      // Skip the state write when the dimensions haven't actually changed.
+      // ResizeObserver fires for sub-pixel changes too, which would otherwise
+      // re-render every MdiFrame and re-fit every xterm via prop change.
+      setSize((cur) => (cur.w === w && cur.h === h ? cur : { w, h }));
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -176,10 +180,3 @@ function CascadeLayout({ tabs }: { tabs: Tab[] }) {
   );
 }
 
-function PlaceholderLayout({ mode }: { mode: ViewMode }) {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">
-      Layout for <span className="mx-1 font-mono">{mode}</span> not yet wired.
-    </div>
-  );
-}

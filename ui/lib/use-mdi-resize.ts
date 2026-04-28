@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTabs } from './tabs-store';
 
 export type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -14,7 +14,16 @@ interface Args {
   onDragEnd?:   () => void;
 }
 
+interface ResizeHandle { onUp: () => void; }
+
 export function useMdiResize({ tabId, edge, areaRef, onDragStart, onDragEnd }: Args) {
+  // See useMdiDrag for the same unmount-during-drag rationale.
+  const handleRef = useRef<ResizeHandle | null>(null);
+
+  useEffect(() => {
+    return () => { handleRef.current?.onUp(); };
+  }, []);
+
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const area = areaRef.current;
@@ -31,9 +40,15 @@ export function useMdiResize({ tabId, edge, areaRef, onDragStart, onDragEnd }: A
     e.stopPropagation();   // don't trigger title-bar drag from a corner
     onDragStart?.();
 
-    function onMove(ev: MouseEvent) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+    let raf = 0;
+    let latest: { dx: number; dy: number } | null = null;
+
+    function flush() {
+      raf = 0;
+      if (!latest) return;
+      const { dx, dy } = latest;
+      latest = null;
+
       let { x, y, w, h } = start;
 
       if (edge.includes('e')) {
@@ -57,11 +72,20 @@ export function useMdiResize({ tabId, edge, areaRef, onDragStart, onDragEnd }: A
       if (!useTabs.getState().cascade[tabId]) return;
       useTabs.getState().setCascadeGeom(tabId, { x, y, w, h });
     }
+
+    function onMove(ev: MouseEvent) {
+      latest = { dx: ev.clientX - startX, dy: ev.clientY - startY };
+      if (raf) return;
+      raf = requestAnimationFrame(flush);
+    }
     function onUp() {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      handleRef.current = null;
       onDragEnd?.();
     }
+    handleRef.current = { onUp };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [tabId, edge, areaRef, onDragStart, onDragEnd]);

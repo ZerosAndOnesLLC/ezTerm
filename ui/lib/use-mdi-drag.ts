@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTabs } from './tabs-store';
 
 interface Args {
@@ -11,7 +11,18 @@ interface Args {
   onDragEnd?: () => void;
 }
 
+interface DragHandle { onUp: () => void; }
+
 export function useMdiDrag({ tabId, areaRef, onDragStart, onDragEnd }: Args) {
+  // Tracks an in-flight drag so the unmount cleanup can tear it down. Without
+  // this, closing the tab (or switching view modes) mid-drag would leave the
+  // window-level mousemove/mouseup listeners orphaned and holding stale closures.
+  const handleRef = useRef<DragHandle | null>(null);
+
+  useEffect(() => {
+    return () => { handleRef.current?.onUp(); };
+  }, []);
+
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const area = areaRef.current;
@@ -28,21 +39,34 @@ export function useMdiDrag({ tabId, areaRef, onDragStart, onDragEnd }: Args) {
     e.preventDefault();
     onDragStart?.();
 
-    function onMove(ev: MouseEvent) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+    let raf = 0;
+    let latest: { dx: number; dy: number } | null = null;
+
+    function flush() {
+      raf = 0;
+      if (!latest) return;
+      const { dx, dy } = latest;
+      latest = null;
       const x = Math.max(0, Math.min(areaW - startGeom.w, startGeom.x + dx));
       const y = Math.max(0, Math.min(areaH - startGeom.h, startGeom.y + dy));
       // Re-check tab still exists (could be closed mid-drag).
-      const live = useTabs.getState().cascade[tabId];
-      if (!live) return;
+      if (!useTabs.getState().cascade[tabId]) return;
       useTabs.getState().setCascadeGeom(tabId, { x, y });
     }
+
+    function onMove(ev: MouseEvent) {
+      latest = { dx: ev.clientX - startX, dy: ev.clientY - startY };
+      if (raf) return;
+      raf = requestAnimationFrame(flush);
+    }
     function onUp() {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      handleRef.current = null;
       onDragEnd?.();
     }
+    handleRef.current = { onUp };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [tabId, areaRef, onDragStart, onDragEnd]);
