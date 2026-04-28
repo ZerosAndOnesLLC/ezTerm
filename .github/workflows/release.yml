@@ -306,22 +306,23 @@ jobs:
           pub_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           base="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # Helper: emit a "platform -> { url, signature }" object for
-          # each installer file + matching .sig file present.
-          entries=""
-          # Per-installer entries (linux-{arch}-{installer}, darwin-aarch64)
-          # are what the plugin's get_urls() looks up first based on the
-          # binary's __TAURI_BUNDLE_TYPE constant. The bare linux-{arch}
-          # entries are kept as a fallback for binaries with an unknown
-          # bundle type (e.g., builds outside the Tauri bundler).
+          # Build the platforms object via jq with --arg for every value
+          # so signatures and URLs go through proper JSON escaping (no
+          # shell-level sed for quotes — defense in depth even though
+          # minisign output is base64). Per-installer entries (e.g.
+          # linux-x86_64-deb) are what the updater plugin's get_urls()
+          # looks up first based on the binary's __TAURI_BUNDLE_TYPE
+          # constant. The bare linux-{arch} fallbacks come first within
+          # each arch block, matching the spec's sample manifest order.
+          platforms='{}'
           for pair in \
             "windows-x86_64:*-setup.exe" \
+            "linux-x86_64:*_amd64.AppImage" \
             "linux-x86_64-appimage:*_amd64.AppImage" \
             "linux-x86_64-deb:*_amd64.deb" \
-            "linux-x86_64:*_amd64.AppImage" \
+            "linux-aarch64:*_aarch64.AppImage" \
             "linux-aarch64-appimage:*_aarch64.AppImage" \
             "linux-aarch64-deb:*_arm64.deb" \
-            "linux-aarch64:*_aarch64.AppImage" \
             "darwin-aarch64:*.app.tar.gz" \
           ; do
             plat="${pair%%:*}"
@@ -334,13 +335,13 @@ jobs:
               echo "skip $plat — no signature for $installer (signing secret missing?)"
               continue
             fi
-            sig=$(cat "$sig_file")
-            if [ -n "$entries" ]; then entries="$entries,"; fi
-            entries+=$(printf '"%s":{"url":"%s/%s","signature":"%s"}' \
-              "$plat" "$base" "$installer" "$(echo "$sig" | tr -d '\n' | sed 's/"/\\"/g')")
+            sig=$(tr -d '\n' < "$sig_file")
+            url="${base}/${installer}"
+            platforms=$(jq --arg p "$plat" --arg u "$url" --arg s "$sig" \
+              '. + {($p): {url: $u, signature: $s}}' <<< "$platforms")
           done
 
-          if [ -z "$entries" ]; then
+          if [ "$platforms" = '{}' ]; then
             echo "No signed installers found — skipping latest.json."
             exit 0
           fi
@@ -349,7 +350,7 @@ jobs:
             --arg v "$version" \
             --arg n "$notes" \
             --arg d "$pub_date" \
-            --argjson p "{$entries}" \
+            --argjson p "$platforms" \
             '{version:$v, notes:$n, pub_date:$d, platforms:$p}' \
             > latest.json
           echo "--- latest.json ---"
