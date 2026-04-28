@@ -42,7 +42,7 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             bin_name: ezterm
-            bundles: ""
+            bundles: "app"
 
     steps:
       - uses: actions/checkout@v5
@@ -141,10 +141,11 @@ jobs:
           Copy-Item 'C:\Program Files\VcXsrv\*' 'src-tauri\vcxsrv\' -Recurse -Force
           Write-Host "Staged VcXsrv size: $((Get-ChildItem 'src-tauri\vcxsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
 
-      # Two build modes. Platforms with bundles (Windows / Linux) go
-      # through `cargo tauri build` so the installer bundler runs;
-      # macOS currently stays on the lighter `cargo build` path since
-      # we don't ship DMG / notarised .app yet.
+      # Two build modes. Platforms with bundles (Windows / Linux / macOS)
+      # go through `cargo tauri build` so the installer bundler runs and
+      # produces the updater artifacts (.app.tar.gz on macOS, .AppImage
+      # on Linux, .msi/.exe on Windows). The .app is ad-hoc-signed; we
+      # don't notarise yet, so first launch needs right-click → Open.
       - name: Build release binary + installer bundles
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -157,6 +158,52 @@ jobs:
           else
             cargo build --release --target ${{ matrix.target }}
           fi
+
+      # Tauri's bundler signs the AppImage and macOS .app.tar.gz
+      # automatically when TAURI_SIGNING_PRIVATE_KEY is set, but it
+      # does NOT sign .deb files. Sign them here with the same key so
+      # the updater plugin can verify them on Linux deb installs.
+      - name: Sign .deb files (Linux only)
+        if: runner.os == 'Linux' && matrix.bundles != ''
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping .deb signing"
+            exit 0
+          fi
+          sudo apt-get install -y minisign
+          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
+          DEB_DIR="$BUNDLE_DIR/deb"
+          if [ ! -d "$DEB_DIR" ]; then
+            echo "no deb bundle dir at $DEB_DIR — nothing to sign"
+            exit 0
+          fi
+          # Stage the secret to a real file so minisign can mmap it.
+          # Using a process substitution doesn't survive minisign's
+          # reopen-on-EOF behavior on the secret-key path.
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
+          for deb in "$DEB_DIR"/*.deb; do
+            [ -f "$deb" ] || continue
+            base=$(basename "$deb")
+            ts=$(date +%s)
+            # Pipe the password to stdin so minisign doesn't try a tty
+            # prompt. Trusted-comment matches the convention Tauri uses
+            # on its sigs: timestamp + file basename, tab-separated.
+            printf '%s\n' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
+              | minisign -S \
+                  -s "$KEY_FILE" \
+                  -t "timestamp:${ts}	file:${base}" \
+                  -m "$deb" \
+                  -x "${deb}.sig"
+            echo "signed: ${deb}.sig"
+          done
+          rm -f "$KEY_FILE"
 
       - name: Package portable tar.xz + collect installers
         shell: bash
@@ -189,7 +236,8 @@ jobs:
               -name '*-setup.exe' -o -name '*-setup.exe.sig' -o \
               -name '*.nsis.zip' -o -name '*.nsis.zip.sig' -o \
               -name '*.AppImage' -o -name '*.AppImage.sig' -o \
-              -name '*.deb' \
+              -name '*.deb' -o -name '*.deb.sig' -o \
+              -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
               \) -print0 | xargs -0 -I {} cp -v {} installers/ || true
           fi
           echo "--- installers collected ---"
@@ -261,10 +309,20 @@ jobs:
           # Helper: emit a "platform -> { url, signature }" object for
           # each installer file + matching .sig file present.
           entries=""
+          # Per-installer entries (linux-{arch}-{installer}, darwin-aarch64)
+          # are what the plugin's get_urls() looks up first based on the
+          # binary's __TAURI_BUNDLE_TYPE constant. The bare linux-{arch}
+          # entries are kept as a fallback for binaries with an unknown
+          # bundle type (e.g., builds outside the Tauri bundler).
           for pair in \
             "windows-x86_64:*-setup.exe" \
+            "linux-x86_64-appimage:*_amd64.AppImage" \
+            "linux-x86_64-deb:*_amd64.deb" \
             "linux-x86_64:*_amd64.AppImage" \
+            "linux-aarch64-appimage:*_aarch64.AppImage" \
+            "linux-aarch64-deb:*_arm64.deb" \
             "linux-aarch64:*_aarch64.AppImage" \
+            "darwin-aarch64:*.app.tar.gz" \
           ; do
             plat="${pair%%:*}"
             glob="${pair#*:}"
@@ -297,6 +355,36 @@ jobs:
           echo "--- latest.json ---"
           cat latest.json
 
+      # Cross-check: every URL in latest.json must resolve to a file in
+      # artifacts/. Catches cases where the manifest builder, asset
+      # collector, and release-create asset list drift apart — exactly
+      # the failure mode that produced #36 (manifest pointed at
+      # AppImage, deb users tried to install_deb(AppImage_bytes)).
+      - name: Verify manifest URLs resolve to uploaded assets
+        working-directory: artifacts
+        run: |
+          set -euo pipefail
+          if [ ! -f latest.json ]; then
+            echo "no latest.json — nothing to verify"
+            exit 0
+          fi
+          missing=()
+          while IFS= read -r url; do
+            asset="${url##*/}"
+            if [ ! -f "$asset" ]; then
+              missing+=("$asset")
+            fi
+          done < <(jq -r '.platforms | to_entries[] | .value.url' latest.json)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::manifest references missing assets: ${missing[*]}"
+            echo "--- latest.json ---"
+            cat latest.json
+            echo "--- artifacts/ ---"
+            ls -la
+            exit 1
+          fi
+          echo "✓ all $(jq '.platforms | length' latest.json) manifest URLs resolve"
+
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -309,7 +397,8 @@ jobs:
           for f in artifacts/*.msi artifacts/*.msi.sig \
                    artifacts/*-setup.exe artifacts/*-setup.exe.sig \
                    artifacts/*.AppImage artifacts/*.AppImage.sig \
-                   artifacts/*.deb \
+                   artifacts/*.deb artifacts/*.deb.sig \
+                   artifacts/*.app.tar.gz artifacts/*.app.tar.gz.sig \
                    artifacts/latest.json; do
             [ -f "$f" ] && ASSETS="$ASSETS $f"
           done
