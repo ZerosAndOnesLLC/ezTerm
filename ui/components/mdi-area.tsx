@@ -1,9 +1,11 @@
 'use client';
 import dynamic from 'next/dynamic';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'lucide-react';
 import { useTabs, type Tab, type ViewMode } from '@/lib/tabs-store';
 import { EmptyState } from './empty-state';
 import { SftpPane } from './sftp-pane';
+import { MdiFrame } from './mdi-frame';
 
 const TerminalView = dynamic(
   () => import('./terminal').then((m) => m.TerminalView),
@@ -30,7 +32,6 @@ export function MdiArea() {
     return <TabsLayout tabs={tabs} activeId={activeId} />;
   }
 
-  // In non-tabs modes, minimized tabs are hidden from the layout.
   const visible = tabs.filter((t) => !minimized.has(t.tabId));
 
   if (viewMode === 'tile-h' || viewMode === 'tile-v') {
@@ -38,6 +39,9 @@ export function MdiArea() {
   }
   if (viewMode === 'tile-grid' || viewMode === 'auto') {
     return <TileGridLayout tabs={visible} mode={viewMode} />;
+  }
+  if (viewMode === 'cascade') {
+    return <CascadeLayout tabs={visible} />;
   }
 
   return <PlaceholderLayout mode={viewMode} />;
@@ -72,9 +76,7 @@ function TabsLayout({ tabs, activeId }: { tabs: Tab[]; activeId: string | null }
 function TileFlexLayout({ tabs, dir }: { tabs: Tab[]; dir: 'row' | 'col' }) {
   const setActive = useTabs((s) => s.setActive);
   return (
-    <div
-      className={`absolute inset-0 flex ${dir === 'col' ? 'flex-col' : 'flex-row'} gap-px bg-border`}
-    >
+    <div className={`absolute inset-0 flex ${dir === 'col' ? 'flex-col' : 'flex-row'} gap-px bg-border`}>
       {tabs.map((t) => (
         <div
           key={t.tabId}
@@ -120,6 +122,47 @@ function TileGridLayout({ tabs, mode }: { tabs: Tab[]; mode: 'tile-grid' | 'auto
           <TerminalView tab={t} visible={true} />
         </div>
       ))}
+    </div>
+  );
+}
+
+function CascadeLayout({ tabs }: { tabs: Tab[] }) {
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={areaRef}
+      className="absolute inset-0 bg-surface2/30"
+    >
+      {/* During drag/resize, suppress pointer events on terminal layers so
+          xterm doesn't capture the mouse. */}
+      <div
+        className="absolute inset-0"
+        style={{ pointerEvents: dragging ? 'none' : 'auto' }}
+      >
+        {size.w > 0 && size.h > 0 && tabs.map((t) => (
+          <MdiFrame
+            key={t.tabId}
+            tab={t}
+            areaRef={areaRef}
+            areaW={size.w}
+            areaH={size.h}
+            setDragging={setDragging}
+          />
+        ))}
+      </div>
     </div>
   );
 }
