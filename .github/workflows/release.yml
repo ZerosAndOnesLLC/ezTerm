@@ -111,7 +111,8 @@ jobs:
             librsvg2-dev \
             build-essential \
             curl wget file xz-utils patchelf \
-            fuse libfuse2 desktop-file-utils
+            fuse libfuse2 desktop-file-utils \
+            minisign
 
       - name: Build UI (Next.js static export)
         run: |
@@ -175,17 +176,17 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping .deb signing"
             exit 0
           fi
-          sudo apt-get install -y minisign
-          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
-          DEB_DIR="$BUNDLE_DIR/deb"
+          DEB_DIR="target/${{ matrix.target }}/release/bundle/deb"
           if [ ! -d "$DEB_DIR" ]; then
             echo "no deb bundle dir at $DEB_DIR — nothing to sign"
             exit 0
           fi
-          # Stage the secret to a real file so minisign can mmap it.
-          # Using a process substitution doesn't survive minisign's
-          # reopen-on-EOF behavior on the secret-key path.
+          # Stage the secret to a real file so minisign can mmap it
+          # (process substitution doesn't survive minisign's reopen-on-EOF
+          # behavior on the secret-key path). trap EXIT guarantees the
+          # tempfile is removed even if the job is cancelled mid-loop.
           KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
           chmod 600 "$KEY_FILE"
           printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
           for deb in "$DEB_DIR"/*.deb; do
@@ -203,7 +204,6 @@ jobs:
                   -x "${deb}.sig"
             echo "signed: ${deb}.sig"
           done
-          rm -f "$KEY_FILE"
 
       - name: Package portable tar.xz + collect installers
         shell: bash
