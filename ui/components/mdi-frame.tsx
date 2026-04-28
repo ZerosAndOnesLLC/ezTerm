@@ -1,10 +1,11 @@
 'use client';
 import dynamic from 'next/dynamic';
-import { AlertCircle, Maximize2, Minimize2, Minus, X } from 'lucide-react';
+import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import type { RefObject } from 'react';
-import { useTabs, type Tab, type TabStatus } from '@/lib/tabs-store';
+import { useTabs, type Tab } from '@/lib/tabs-store';
 import { useMdiDrag } from '@/lib/use-mdi-drag';
 import { useMdiResize, type ResizeEdge } from '@/lib/use-mdi-resize';
+import { StatusDot } from './status-dot';
 
 const TerminalView = dynamic(
   () => import('./terminal').then((m) => m.TerminalView),
@@ -29,17 +30,6 @@ const HANDLES: readonly { edge: ResizeEdge; cls: string; cursor: string }[] = [
   { edge: 'se', cls: 'bottom-0 right-0 w-2 h-2',                cursor: 'nwse-resize' },
   { edge: 'sw', cls: 'bottom-0 left-0 w-2 h-2',                 cursor: 'nesw-resize' },
 ];
-
-function StatusDot({ status }: { status: TabStatus }) {
-  if (status === 'error') {
-    return <AlertCircle size={11} className="text-danger shrink-0" aria-label="error" />;
-  }
-  let cls = 'bg-muted';
-  if (status === 'connected') cls = 'bg-success';
-  else if (status === 'connecting') cls = 'bg-warning animate-pulse';
-  else if (status === 'closed') cls = 'bg-muted/60';
-  return <span className={`w-1.5 h-1.5 rounded-full ${cls} shrink-0`} aria-label={status} />;
-}
 
 export function MdiFrame({ tab, areaRef, areaW, areaH, setDragging }: Props) {
   const cascade  = useTabs((s) => s.cascade[tab.tabId]);

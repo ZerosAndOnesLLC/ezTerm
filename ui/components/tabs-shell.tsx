@@ -1,24 +1,9 @@
 'use client';
-import { AlertCircle, FolderTree, Terminal, X } from 'lucide-react';
-import { useTabs, type TabStatus } from '@/lib/tabs-store';
+import { FolderTree, Terminal, X } from 'lucide-react';
+import { useTabs } from '@/lib/tabs-store';
 import { MdiArea } from './mdi-area';
 import { ViewModeToolbar } from './view-mode-toolbar';
-
-function StatusDot({ status }: { status: TabStatus }) {
-  if (status === 'error') {
-    return <AlertCircle size={11} className="text-danger shrink-0" aria-label="error" />;
-  }
-  let cls = 'bg-muted';
-  if (status === 'connected') cls = 'bg-success';
-  else if (status === 'connecting') cls = 'bg-warning animate-pulse';
-  else if (status === 'closed') cls = 'bg-muted/60';
-  return (
-    <span
-      className={`w-1.5 h-1.5 rounded-full ${cls} shrink-0`}
-      aria-label={status}
-    />
-  );
-}
+import { StatusDot } from './status-dot';
 
 export function TabsShell() {
   const { tabs, activeId, setActive, close } = useTabs();
