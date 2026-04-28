@@ -74,12 +74,16 @@ function slotKind(viewMode, isActive, isMinimized): SlotKind {
 | Kind | className | style |
 |------|-----------|-------|
 | `hidden` | `absolute inset-0` | `{ visibility: 'hidden', pointerEvents: 'none' }` |
-| `tabs` | `absolute inset-0 flex` | (none) |
+| `tabs` | `absolute inset-0 flex` | (none) — terminal-host is a real flex item below; SftpPane sits next to it in the same flex row |
 | `tile-flex` | `flex-1 min-w-0 min-h-0 bg-bg relative` | (none) — flex parent handles sizing |
 | `tile-grid` | `min-w-0 min-h-0 bg-bg relative` | (none) — grid parent handles sizing |
 | `cascade` | `absolute bg-bg border rounded-md shadow-lg overflow-hidden` (+ `border-accent` when active else `border-border`) | `{ left, top, width, height, zIndex }` from `cascade[tabId]` (display-only clamp same as today) |
 
-The terminal-host `<div>` is always positioned `absolute inset-0` inside the slot, except in `cascade` mode where its `top` is `24px` (to leave room for the title bar). In `tabs` mode the terminal-host shares space with `<SftpPane>` via `display: flex` on the slot.
+Terminal-host positioning is mode-dependent so it composes correctly with the SftpPane sibling and the cascade title bar:
+
+- **`tabs` mode**: the slot is `display: flex` and the terminal-host is a real flex item (`flex: 1 1 0%; min-width: 0; min-height: 0; position: relative`). When the SftpPane is open it occupies its `w-72` width and the terminal-host fills the rest of the row. **Not** absolutely positioned — that would overlay the pane.
+- **`tile-flex` / `tile-grid`**: terminal-host is `position: absolute; inset: 0` inside a slot whose own size is driven by its flex/grid parent.
+- **`cascade`**: terminal-host is `position: absolute; left: 0; right: 0; top: 24px; bottom: 0` so the title bar sibling has room at the top of the slot.
 
 ## 7. State that moves to `MdiArea`
 
