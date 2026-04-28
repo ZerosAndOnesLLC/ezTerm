@@ -6,6 +6,7 @@ import { useTabs, type Tab, type ViewMode } from '@/lib/tabs-store';
 import { EmptyState } from './empty-state';
 import { SftpPane } from './sftp-pane';
 import { MdiFrame } from './mdi-frame';
+import { MinimizedStrip } from './minimized-strip';
 
 const TerminalView = dynamic(
   () => import('./terminal').then((m) => m.TerminalView),
@@ -130,6 +131,9 @@ function CascadeLayout({ tabs }: { tabs: Tab[] }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
+  const allTabs   = useTabs((s) => s.tabs);
+  const minimized = useTabs((s) => s.minimized);
+  const hasMinimized = allTabs.some((t) => minimized.has(t.tabId));
 
   useEffect(() => {
     const el = areaRef.current;
@@ -141,28 +145,33 @@ function CascadeLayout({ tabs }: { tabs: Tab[] }) {
     return () => ro.disconnect();
   }, []);
 
+  // 28px reserve for the strip when at least one tab is minimized.
+  const stripH = hasMinimized ? 28 : 0;
+
   return (
-    <div
-      ref={areaRef}
-      className="absolute inset-0 bg-surface2/30"
-    >
-      {/* During drag/resize, suppress pointer events on terminal layers so
-          xterm doesn't capture the mouse. */}
+    <div className="absolute inset-0 bg-surface2/30">
       <div
-        className="absolute inset-0"
-        style={{ pointerEvents: dragging ? 'none' : 'auto' }}
+        ref={areaRef}
+        className="absolute left-0 right-0 top-0"
+        style={{ bottom: stripH }}
       >
-        {size.w > 0 && size.h > 0 && tabs.map((t) => (
-          <MdiFrame
-            key={t.tabId}
-            tab={t}
-            areaRef={areaRef}
-            areaW={size.w}
-            areaH={size.h}
-            setDragging={setDragging}
-          />
-        ))}
+        <div
+          className="absolute inset-0"
+          style={{ pointerEvents: dragging ? 'none' : 'auto' }}
+        >
+          {size.w > 0 && size.h > 0 && tabs.map((t) => (
+            <MdiFrame
+              key={t.tabId}
+              tab={t}
+              areaRef={areaRef}
+              areaW={size.w}
+              areaH={size.h}
+              setDragging={setDragging}
+            />
+          ))}
+        </div>
       </div>
+      <MinimizedStrip />
     </div>
   );
 }
