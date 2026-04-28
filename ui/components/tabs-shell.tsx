@@ -1,31 +1,10 @@
 'use client';
-import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { AlertCircle, FolderTree, Terminal, X } from 'lucide-react';
-import { useTabs, type TabStatus } from '@/lib/tabs-store';
-import { EmptyState } from './empty-state';
-import { SftpPane } from './sftp-pane';
-
-const TerminalView = dynamic(
-  () => import('./terminal').then((m) => m.TerminalView),
-  { ssr: false },
-);
-
-function StatusDot({ status }: { status: TabStatus }) {
-  if (status === 'error') {
-    return <AlertCircle size={11} className="text-danger shrink-0" aria-label="error" />;
-  }
-  let cls = 'bg-muted';
-  if (status === 'connected') cls = 'bg-success';
-  else if (status === 'connecting') cls = 'bg-warning animate-pulse';
-  else if (status === 'closed') cls = 'bg-muted/60';
-  return (
-    <span
-      className={`w-1.5 h-1.5 rounded-full ${cls} shrink-0`}
-      aria-label={status}
-    />
-  );
-}
+import { FolderTree, Terminal, X } from 'lucide-react';
+import { useTabs } from '@/lib/tabs-store';
+import { MdiArea } from './mdi-area';
+import { ViewModeToolbar } from './view-mode-toolbar';
+import { StatusDot } from './status-dot';
 
 export function TabsShell() {
   const { tabs, activeId, setActive, close, reorder } = useTabs();
@@ -114,7 +93,6 @@ export function TabsShell() {
               {showRightIndicator && (
                 <span className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent z-10" aria-hidden />
               )}
-              {/* Active tab accent underline (design-system §6.4). */}
               {on && <span className="absolute left-0 right-0 bottom-0 h-0.5 bg-accent" aria-hidden />}
               {t.session.color && (
                 <span
@@ -160,40 +138,10 @@ export function TabsShell() {
             </div>
           );
         })}
+        <ViewModeToolbar />
       </div>
       <div className="flex-1 min-h-0 relative">
-        {tabs.length === 0 ? (
-          <EmptyState
-            icon={Terminal}
-            title="Ready to connect"
-            body="Double-click a session in the sidebar, or create a new one to get started."
-          />
-        ) : (
-          tabs.map((t) => {
-            const active = t.tabId === activeId;
-            // Inactive tabs stay laid out (real non-zero dimensions) and are
-            // just hidden via visibility. Using display:none would give
-            // xterm.js a zero-sized container, leaving its render service
-            // half-initialised and later viewport syncs crash with
-            // "Cannot read properties of undefined (reading 'dimensions')".
-            return (
-              <div
-                key={t.tabId}
-                className="absolute inset-0 flex"
-                style={{
-                  visibility: active ? 'visible' : 'hidden',
-                  pointerEvents: active ? 'auto' : 'none',
-                }}
-                aria-hidden={!active}
-              >
-                {t.sftpOpen && t.session.session_kind === 'ssh' && <SftpPane tab={t} />}
-                <div className="flex-1 min-h-0 relative">
-                  <TerminalView tab={t} visible={active} />
-                </div>
-              </div>
-            );
-          })
-        )}
+        <MdiArea />
       </div>
     </div>
   );
