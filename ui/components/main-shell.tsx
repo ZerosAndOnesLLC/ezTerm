@@ -72,6 +72,18 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [toggle]);
 
+  // Global Ctrl+Shift+W cycles view modes.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        useTabs.getState().cycleViewMode();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Sidebar resize via a 4px grab-strip on the right edge. Mouse events are
   // captured on window while dragging so fast mouse movement outside the
   // strip doesn't lose focus. The `resizingRef` flag suppresses pointer
