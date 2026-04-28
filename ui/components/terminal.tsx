@@ -59,6 +59,7 @@ export function TerminalView({ tab, visible }: Props) {
   const bundleRef    = useRef<TerminalBundle | null>(null);
   const unlistenRef  = useRef<null | (() => void)>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
+  const resizeRafRef = useRef<null | (() => void)>(null);
   const connectionIdRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -199,13 +200,24 @@ export function TerminalView({ tab, visible }: Props) {
         await api.localReady(result.connection_id).catch(() => {});
       }
 
+      // rAF-coalesce ResizeObserver callbacks. A single layout pass (e.g.
+      // a view-mode switch in MdiArea) re-sizes every visible terminal in
+      // the same tick; without coalescing every frame we'd fire N
+      // synchronous Tauri term.resize IPCs. With this gate, each terminal
+      // fires at most one IPC per animation frame.
+      let resizeRaf = 0;
       const onResize = () => {
-        safeFit(bundle);
-        term.resize(result.connection_id, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
+        if (resizeRaf) return;
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = 0;
+          safeFit(bundle);
+          term.resize(result.connection_id, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
+        });
       };
       const ro = new ResizeObserver(onResize);
       if (containerRef.current) ro.observe(containerRef.current);
       resizeObsRef.current = ro;
+      resizeRafRef.current = () => { if (resizeRaf) cancelAnimationFrame(resizeRaf); };
     } catch (e) {
       fail(errMessage(e));
     }
@@ -248,6 +260,8 @@ export function TerminalView({ tab, visible }: Props) {
       unlistenRef.current = null;
       resizeObsRef.current?.disconnect();
       resizeObsRef.current = null;
+      resizeRafRef.current?.();
+      resizeRafRef.current = null;
       // Only dispose if we actually reached open(); disposing a never-opened
       // terminal is harmless but this avoids spurious console warnings.
       if (opened) {
