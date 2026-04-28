@@ -1,5 +1,6 @@
 'use client';
 import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { useMdiDrag } from '@/lib/use-mdi-drag';
@@ -31,10 +32,16 @@ export function CascadeChrome({ tab, areaRef, areaW, areaH, setDragging, maximiz
   const toggleMax = useTabs((s) => s.toggleMaximize);
   const close     = useTabs((s) => s.close);
 
+  // Latch setDragging into a ref so the drag/resize hooks always call the
+  // current setter even if the parent rebinds (e.g. a hot-reload swaps the
+  // closure mid-drag in StrictMode dev).
+  const setDraggingRef = useRef(setDragging);
+  useEffect(() => { setDraggingRef.current = setDragging; }, [setDragging]);
+
   const drag = useMdiDrag({
     tabId: tab.tabId, areaRef,
-    onDragStart: () => setDragging(true),
-    onDragEnd:   () => setDragging(false),
+    onDragStart: () => setDraggingRef.current(true),
+    onDragEnd:   () => setDraggingRef.current(false),
   });
 
   return (
@@ -86,7 +93,7 @@ export function CascadeChrome({ tab, areaRef, areaW, areaH, setDragging, maximiz
           edge={h.edge}
           cls={h.cls}
           cursor={h.cursor}
-          setDragging={setDragging}
+          setDraggingRef={setDraggingRef}
         />
       ))}
     </>
@@ -99,14 +106,14 @@ interface HandleProps {
   edge: ResizeEdge;
   cls: string;
   cursor: string;
-  setDragging: (v: boolean) => void;
+  setDraggingRef: React.MutableRefObject<(v: boolean) => void>;
 }
 
-function ResizeHandle({ tabId, areaRef, edge, cls, cursor, setDragging }: HandleProps) {
+function ResizeHandle({ tabId, areaRef, edge, cls, cursor, setDraggingRef }: HandleProps) {
   const r = useMdiResize({
     tabId, edge, areaRef,
-    onDragStart: () => setDragging(true),
-    onDragEnd:   () => setDragging(false),
+    onDragStart: () => setDraggingRef.current(true),
+    onDragEnd:   () => setDraggingRef.current(false),
   });
   return (
     <div
