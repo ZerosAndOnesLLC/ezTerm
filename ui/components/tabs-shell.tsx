@@ -1,14 +1,7 @@
 'use client';
-import dynamic from 'next/dynamic';
 import { AlertCircle, FolderTree, Terminal, X } from 'lucide-react';
 import { useTabs, type TabStatus } from '@/lib/tabs-store';
-import { EmptyState } from './empty-state';
-import { SftpPane } from './sftp-pane';
-
-const TerminalView = dynamic(
-  () => import('./terminal').then((m) => m.TerminalView),
-  { ssr: false },
-);
+import { MdiArea } from './mdi-area';
 
 function StatusDot({ status }: { status: TabStatus }) {
   if (status === 'error') {
@@ -51,7 +44,6 @@ export function TabsShell() {
               role="tab"
               aria-selected={on}
             >
-              {/* Active tab accent underline (design-system §6.4). */}
               {on && <span className="absolute left-0 right-0 bottom-0 h-0.5 bg-accent" aria-hidden />}
               {t.session.color && (
                 <span
@@ -97,38 +89,7 @@ export function TabsShell() {
         })}
       </div>
       <div className="flex-1 min-h-0 relative">
-        {tabs.length === 0 ? (
-          <EmptyState
-            icon={Terminal}
-            title="Ready to connect"
-            body="Double-click a session in the sidebar, or create a new one to get started."
-          />
-        ) : (
-          tabs.map((t) => {
-            const active = t.tabId === activeId;
-            // Inactive tabs stay laid out (real non-zero dimensions) and are
-            // just hidden via visibility. Using display:none would give
-            // xterm.js a zero-sized container, leaving its render service
-            // half-initialised and later viewport syncs crash with
-            // "Cannot read properties of undefined (reading 'dimensions')".
-            return (
-              <div
-                key={t.tabId}
-                className="absolute inset-0 flex"
-                style={{
-                  visibility: active ? 'visible' : 'hidden',
-                  pointerEvents: active ? 'auto' : 'none',
-                }}
-                aria-hidden={!active}
-              >
-                {t.sftpOpen && t.session.session_kind === 'ssh' && <SftpPane tab={t} />}
-                <div className="flex-1 min-h-0 relative">
-                  <TerminalView tab={t} visible={active} />
-                </div>
-              </div>
-            );
-          })
-        )}
+        <MdiArea />
       </div>
     </div>
   );
