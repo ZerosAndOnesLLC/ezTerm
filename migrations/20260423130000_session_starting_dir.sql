@@ -1,0 +1,15 @@
+-- Per-session starting directory.
+--
+-- Applies to both WSL and SSH sessions:
+--   * WSL: passed as `wsl.exe --cd <value>`; empty/null uses `~` so users
+--     land in their Linux home rather than the Windows cwd
+--     (/mnt/c/Users/<user>, which is what wsl.exe inherits by default).
+--   * SSH: written as keystrokes (`cd <value>\n`) into the interactive
+--     shell right after shell_request succeeds. Tilde-prefixed paths pass
+--     through raw so bash expansion still works; other paths are
+--     double-quoted for space safety by the Rust side.
+--
+-- Local (cmd/pwsh) rows continue to use `username` as the Windows cwd
+-- (unchanged by this migration) to avoid touching existing local sessions.
+-- Range / length limits are enforced in the Rust validator, not here.
+ALTER TABLE sessions ADD COLUMN starting_dir TEXT;

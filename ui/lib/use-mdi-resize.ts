@@ -9,7 +9,7 @@ const MIN_H = 120;
 interface Args {
   tabId:   string;
   edge:    ResizeEdge;
-  areaRef: React.RefObject<HTMLDivElement>;
+  areaRef: React.RefObject<HTMLDivElement | null>;
   onDragStart?: () => void;
   onDragEnd?:   () => void;
 }

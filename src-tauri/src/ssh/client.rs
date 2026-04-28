@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
-use async_trait::async_trait;
 use russh::client::{self, Config, Handle, Msg};
+use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::AgentIdentity;
+use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::Channel;
-use russh_keys::key;
-use russh_keys::PublicKeyBase64;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex};
@@ -27,6 +27,11 @@ pub struct ConnectRequest {
     /// If true, bypass known_hosts mismatch/untrusted checks (set only after
     /// the user explicitly confirmed trust in the UI prompt).
     pub trust_any: bool,
+    /// If true, force X11 forwarding off for this connect even if the
+    /// session row has `forward_x11 = 1`. Used by the "Continue without
+    /// X11" button in the VcXsrv-missing dialog so the user can reach
+    /// the host right now without editing the session.
+    pub disable_x11: bool,
 }
 
 pub struct ConnectOutcome {
@@ -36,30 +41,34 @@ pub struct ConnectOutcome {
 
 pub struct ClientHandler {
     /// (algorithm_name, sha256_fingerprint) captured from the server's host key.
-    /// russh-keys 0.45's `PublicKey::name()` returns the SSH wire name
+    /// `ssh_key::PublicKey::algorithm().as_str()` returns the SSH wire name
     /// (e.g. "ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256").
-    server_key: Arc<Mutex<Option<(String, String)>>>,
+    ///
+    /// Uses `std::sync::Mutex` (not tokio's) because the handler only ever
+    /// writes a tiny value and never holds the lock across an await —
+    /// tokio's async mutex would propagate a `&Mutex` borrow through the
+    /// returned future and trip russh 0.60's HRTB `Send` check.
+    server_key: Arc<StdMutex<Option<(String, String)>>>,
     /// Display number to pipe forwarded X11 channels to (always the same
     /// display the connect flow acquired on — default :0). `None` disables
     /// X11 forwarding handling; `server_channel_open_x11` drops the channel.
     x11_display: Option<u8>,
 }
 
-#[async_trait]
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        key: &key::PublicKey,
+        server_public_key: &ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        // russh-keys 0.45 exposes the SSH-wire public-key blob via the
-        // PublicKeyBase64 trait's public_key_bytes() method (the old
-        // `key_format::serialize_public_key` helper has been removed).
-        let blob = key.public_key_bytes();
+        // `to_bytes()` encodes the `KeyData` into the SSH-wire public-key
+        // blob — same bytes we fingerprint in `fingerprint_sha256`, so
+        // existing `known_hosts` rows stay valid.
+        let blob = server_public_key.to_bytes()?;
         let fp = fingerprint_sha256(&blob);
-        let alg = key.name().to_string();
-        *self.server_key.lock().await = Some((alg, fp));
+        let alg = server_public_key.algorithm().as_str().to_string();
+        *self.server_key.lock().expect("server_key poisoned") = Some((alg, fp));
         // We accept here and verify against known_hosts in connect() after
         // the handshake completes. Rejecting here would give the user no
         // TOFU prompt path.
@@ -103,17 +112,56 @@ impl client::Handler for ClientHandler {
     }
 }
 
+/// Owned handles extracted from `AppState` so `connect` doesn't have to
+/// carry `&AppState` across awaits — otherwise russh 0.60's native-async
+/// `Handler` trait composition produces an HRTB `Send` failure on
+/// `&Pool<Sqlite>` at the `#[tauri::command]` boundary. All fields are
+/// cheap to clone (Arcs or `Pool` which is Arc-based internally).
+pub struct ConnectDeps {
+    pub db: sqlx::SqlitePool,
+    pub vault: Arc<tokio::sync::RwLock<vault::VaultState>>,
+    pub ssh: Arc<ConnectionRegistry>,
+    pub sftp: Arc<SftpRegistry>,
+    pub xserver: Arc<XServerManager>,
+}
+
+impl ConnectDeps {
+    pub fn from_state(s: &AppState) -> Self {
+        Self {
+            db: s.db.clone(),
+            vault: s.vault.clone(),
+            ssh: s.ssh.clone(),
+            sftp: s.sftp.clone(),
+            xserver: s.xserver.clone(),
+        }
+    }
+}
+
 /// Perform a full connect: resolve session, decrypt credential if needed,
 /// open SSH, authenticate, open shell channel with PTY, register with
 /// ConnectionRegistry, and spawn reader/writer tasks that bridge russh ↔ Tauri
 /// events. Returns ConnectOutcome with the allocated connection_id on success.
-pub async fn connect(
-    state: &AppState,
+///
+/// The returned future is boxed as `Pin<Box<dyn Future + Send>>` to erase
+/// the concrete future type at the crate boundary. russh 0.60's
+/// native-async `Handler` trait composes inner futures in a way the
+/// compiler's trait solver can't prove `Send` under HRTB — boxing the
+/// outer future short-circuits that chain.
+pub fn connect(
+    deps: ConnectDeps,
+    app: AppHandle,
+    req: ConnectRequest,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ConnectOutcome>> + Send>> {
+    Box::pin(connect_impl(deps, app, req))
+}
+
+async fn connect_impl(
+    deps: ConnectDeps,
     app: AppHandle,
     req: ConnectRequest,
 ) -> Result<ConnectOutcome> {
     // 1. Resolve saved session + load (possibly) encrypted credential.
-    let session = db::sessions::get(&state.db, req.session_id).await?;
+    let session = db::sessions::get(&deps.db, req.session_id).await?;
     {
         let host = &session.host;
         let user = &session.username;
@@ -125,8 +173,8 @@ pub async fn connect(
             port = port,
             user = %user);
     }
-    let (auth_material, _cred_kind) = load_auth_material(state, &session).await?;
-    let env_pairs = db::sessions::env_get(&state.db, req.session_id).await?;
+    let (auth_material, _cred_kind) = load_auth_material(&deps, &session).await?;
+    let env_pairs = db::sessions::env_get(&deps.db, req.session_id).await?;
 
     // 2. Configure russh client.
     // Per-session tunables (keepalive, compression) come from the sessions
@@ -151,11 +199,11 @@ pub async fn connect(
         config.preferred.compression = std::borrow::Cow::Borrowed(COMPRESSION_ON);
     }
     let config = Arc::new(config);
-    let server_key = Arc::new(Mutex::new(None));
+    let server_key = Arc::new(StdMutex::new(None));
     // Handler's x11_display is set when the session's forward_x11 flag is
     // on — the async `channel_open_x11` callback reads it to route incoming
     // X11 channels to the correct VcXsrv display.
-    let x11_display: Option<u8> = if session.forward_x11 != 0 {
+    let x11_display: Option<u8> = if session.forward_x11 != 0 && !req.disable_x11 {
         Some(xserver::DEFAULT_DISPLAY)
     } else {
         None
@@ -168,9 +216,13 @@ pub async fn connect(
     // whole handshake (TCP + KEX + host-key) with the user-configured
     // connect_timeout_secs. Exceeding it maps to AppError::Ssh("connect
     // timeout") — distinct from AuthFailed so the UI can surface it plainly.
+    // Clone host into an owned `String` so the address tuple doesn't borrow
+    // from `session` across the connect await — capturing `&str` there trips
+    // the `for<'a> &'a str: Send` HRTB check on russh 0.60.
+    let host_owned = session.host.clone();
     let connect_fut = client::connect(
         config,
-        (session.host.as_str(), session.port as u16),
+        (host_owned, session.port as u16),
         handler,
     );
     let mut handle = tokio::time::timeout(
@@ -184,15 +236,15 @@ pub async fn connect(
     // 3. Host-key TOFU check.
     let (alg, fp) = server_key
         .lock()
-        .await
+        .expect("server_key poisoned")
         .clone()
         .ok_or_else(|| AppError::Ssh("no host key".into()))?;
-    let check = check_known_host(&state.db, &session.host, session.port, &fp).await?;
+    let check = check_known_host(&deps.db, &session.host, session.port, &fp).await?;
     match check {
         KeyCheck::Matches => {}
         KeyCheck::Untrusted if req.trust_any => {
             db::known_hosts::upsert(
-                &state.db,
+                &deps.db,
                 &session.host,
                 session.port,
                 &alg,
@@ -207,7 +259,7 @@ pub async fn connect(
             actual_sha256,
         } if req.trust_any => {
             db::known_hosts::upsert(
-                &state.db,
+                &deps.db,
                 &session.host,
                 session.port,
                 &alg,
@@ -290,14 +342,14 @@ pub async fn connect(
     // surface the install error now rather than letting the channel race
     // into the shell with DISPLAY set but no local server listening.
     if let Some(display) = x11_display {
-        state.xserver.acquire(display).await?;
+        deps.xserver.acquire(display).await?;
         let cookie = xserver::generate_cookie();
         if let Err(e) = channel
             .request_x11(false, false, "MIT-MAGIC-COOKIE-1", cookie, 0)
             .await
         {
             // Already acquired — release so we don't leak a ref.
-            state.xserver.release(display).await;
+            deps.xserver.release(display).await;
             return Err(AppError::Ssh(format!("request_x11: {e}")));
         }
     }
@@ -305,6 +357,21 @@ pub async fn connect(
         .request_shell(true)
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // Optional starting directory — written before `initial_command` so the
+    // command runs in the right place. Same rationale as initial_command for
+    // using the shell channel rather than `channel_exec`: we need the
+    // interactive shell to stay alive. Tilde-prefixed paths go through raw
+    // so bash expansion still works; everything else is double-quoted.
+    if let Some(raw) = session.starting_dir.as_ref() {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let line = format!("cd {}\n", format_cd_target(trimmed));
+            if let Err(e) = channel.data(line.as_bytes()).await {
+                let err = e;
+                log_redacted!(warn, "ssh.starting_dir.failed", error = %err);
+            }
+        }
+    }
     // Optional initial command — written as keystrokes into the shell's
     // stdin the same way the user would have typed them. We intentionally
     // avoid `channel_exec` here so the interactive shell stays alive after
@@ -321,14 +388,13 @@ pub async fn connect(
     }
 
     // 6. Allocate connection id + mpsc + registry insert.
-    let id = state.ssh.alloc_id();
+    let id = deps.ssh.alloc_id();
     let (tx, rx) = mpsc::unbounded_channel::<ConnectionInput>();
     // Wrap the russh Handle in Arc<Mutex<..>> before ownership branches: the
     // driver task needs it for the Close-branch disconnect, and SFTP (Plan 3)
     // needs it to open a second session channel on demand.
     let handle_mutex = Arc::new(Mutex::new(handle));
-    state
-        .ssh
+    deps.ssh
         .insert(Connection {
             id,
             host: session.host.clone(),
@@ -345,9 +411,9 @@ pub async fn connect(
     // SFTP + SSH state in every exit branch (EOF / Close / ExitStatus / error).
     // Without this the `SftpRegistry` entry would outlive the transport and
     // `SftpHandle`s would leak until app shutdown (audit I-1).
-    let ssh_reg = state.ssh.clone();
-    let sftp_reg = state.sftp.clone();
-    let xserver_reg = state.xserver.clone();
+    let ssh_reg = deps.ssh.clone();
+    let sftp_reg = deps.sftp.clone();
+    let xserver_reg = deps.xserver.clone();
     tokio::spawn(drive_channel(
         app,
         id,
@@ -366,8 +432,8 @@ pub async fn connect(
     })
 }
 
-/// SECURITY NOTE: `Zeroizing` only covers the bytes we own. russh 0.45 copies
-/// the password into a `String` inside its auth `Msg` (see `russh/src/auth.rs`
+/// SECURITY NOTE: `Zeroizing` only covers the bytes we own. russh copies the
+/// password into a `String` inside its auth `Msg` (see `russh/src/auth.rs`
 /// for `Method::Password { password: String }`); that copy lives for the
 /// connection lifetime and is not zeroized. If this matters, migrate to the
 /// russh `keyboard-interactive` flow once upstream adds zeroizing wrappers.
@@ -386,7 +452,7 @@ enum AuthMaterial {
 }
 
 async fn load_auth_material(
-    state: &AppState,
+    deps: &ConnectDeps,
     session: &db::sessions::Session,
 ) -> Result<(AuthMaterial, Option<String>)> {
     match session.auth_type.as_str() {
@@ -395,8 +461,8 @@ async fn load_auth_material(
             let cred_id = session
                 .credential_id
                 .ok_or_else(|| AppError::Validation("missing credential".into()))?;
-            let row = db::credentials::get(&state.db, cred_id).await?;
-            let vs = state.vault.read().await;
+            let row = db::credentials::get(&deps.db, cred_id).await?;
+            let vs = deps.vault.read().await;
             let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
             Ok((
                 AuthMaterial::Password(Zeroizing::new(pt)),
@@ -407,14 +473,14 @@ async fn load_auth_material(
             let cred_id = session
                 .credential_id
                 .ok_or_else(|| AppError::Validation("missing credential".into()))?;
-            let row = db::credentials::get(&state.db, cred_id).await?;
-            let vs = state.vault.read().await;
+            let row = db::credentials::get(&deps.db, cred_id).await?;
+            let vs = deps.vault.read().await;
             let pem = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
             // Optional passphrase credential — stored as a separate row with
             // kind='key_passphrase' so a single stored passphrase can be reused
             // across multiple sessions that share the same private key.
             let passphrase = if let Some(pp_id) = session.key_passphrase_credential_id {
-                let pp_row = db::credentials::get(&state.db, pp_id).await?;
+                let pp_row = db::credentials::get(&deps.db, pp_id).await?;
                 let pp = vault::decrypt_with(&vs, &pp_row.nonce, &pp_row.ciphertext)?;
                 Some(Zeroizing::new(pp))
             } else {
@@ -441,24 +507,40 @@ async fn authenticate(
 ) -> Result<bool> {
     match mat {
         AuthMaterial::Agent => {
-            // Attempt to reach the user's SSH agent via SSH_AUTH_SOCK
-            // (Unix) or the platform-specific default (Windows). Wrap in a
-            // 30s timeout so an unresponsive agent socket (common after a
-            // screen lock on macOS) doesn't pin a connect future forever.
+            // Attempt to reach the user's SSH agent. Wrap in a 30s timeout
+            // so an unresponsive agent (e.g. OpenSSH-for-Windows named pipe
+            // that has entered a bad state) doesn't pin a connect future
+            // forever. `authenticate_publickey_with` sends a SIGN_REQUEST
+            // to the agent via the `Signer` trait; only `AgentIdentity::PublicKey`
+            // is wired here — OpenSSH certificates are a v0.2 follow-up.
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
-                let mut agent = russh_keys::agent::client::AgentClient::connect_env()
+                let mut agent = connect_ssh_agent()
                     .await
                     .map_err(|e| AppError::Ssh(format!("ssh-agent: {e}")))?;
                 let ids = agent
                     .request_identities()
                     .await
                     .map_err(|e| AppError::Ssh(e.to_string()))?;
+                let rsa_hash = handle
+                    .best_supported_rsa_hash()
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten();
                 for id in ids {
-                    let (a2, ok) = handle
-                        .authenticate_future(session.username.clone(), id, agent)
-                        .await;
-                    agent = a2;
-                    if ok.map_err(|e| AppError::Ssh(e.to_string()))? {
+                    let AgentIdentity::PublicKey { key, .. } = id else {
+                        continue;
+                    };
+                    let res = handle
+                        .authenticate_publickey_with(
+                            session.username.clone(),
+                            key,
+                            rsa_hash,
+                            &mut agent,
+                        )
+                        .await
+                        .map_err(|e| AppError::Ssh(e.to_string()))?;
+                    if res.success() {
                         return Ok::<_, AppError>(true);
                     }
                 }
@@ -470,10 +552,11 @@ async fn authenticate(
         AuthMaterial::Password(pw) => {
             let pw_str = std::str::from_utf8(&pw)
                 .map_err(|_| AppError::Validation("non-utf8 password".into()))?;
-            handle
+            let res = handle
                 .authenticate_password(&session.username, pw_str)
                 .await
-                .map_err(|e| AppError::Ssh(e.to_string()))
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            Ok(res.success())
         }
         AuthMaterial::PrivateKey { pem, passphrase } => {
             let pem_str = std::str::from_utf8(&pem)
@@ -485,14 +568,44 @@ async fn authenticate(
                         .map_err(|_| AppError::Validation("non-utf8 key passphrase".into()))
                 })
                 .transpose()?;
-            let keypair = russh_keys::decode_secret_key(pem_str, pp_str)
+            let keypair = decode_secret_key(pem_str, pp_str)
                 .map_err(|e| AppError::Ssh(format!("key parse: {e}")))?;
-            handle
-                .authenticate_publickey(&session.username, Arc::new(keypair))
+            // `PrivateKeyWithHashAlg` is RSA-only; `new` ignores `hash_alg`
+            // for non-RSA keys, so passing the server's preferred RSA hash
+            // unconditionally is safe and correct.
+            let rsa_hash = handle
+                .best_supported_rsa_hash()
                 .await
-                .map_err(|e| AppError::Ssh(e.to_string()))
+                .ok()
+                .flatten()
+                .flatten();
+            let key = PrivateKeyWithHashAlg::new(Arc::new(keypair), rsa_hash);
+            let res = handle
+                .authenticate_publickey(&session.username, key)
+                .await
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            Ok(res.success())
         }
     }
+}
+
+/// Platform-specific SSH agent connect. Returns a concrete `AgentClient`
+/// type (not a type-erased one) — `russh::auth::Signer::auth_sign`
+/// returns an `impl Future` whose `Send` bound the compiler can only
+/// prove when the stream type is concrete. A `Box<dyn AgentStream + Send>`
+/// trips an HRTB `Send` check at the `authenticate_publickey_with` call
+/// site. On Windows we prefer the OpenSSH-for-Windows named pipe
+/// (`\\.\pipe\openssh-ssh-agent`); Pageant support is a follow-up.
+#[cfg(windows)]
+async fn connect_ssh_agent(
+) -> std::result::Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>, russh::keys::Error> {
+    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await
+}
+
+#[cfg(unix)]
+async fn connect_ssh_agent(
+) -> std::result::Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
+    AgentClient::connect_env().await
 }
 
 async fn check_known_host(
@@ -587,5 +700,57 @@ async fn drive_channel(
     // sessions are using it.
     if let Some(display) = x11_display {
         xserver_reg.release(display).await;
+    }
+}
+
+/// Format a user-supplied path for use as the argument to `cd` in a POSIX
+/// shell. Tilde-prefixed paths (`~`, `~/foo`, `~user/foo`) are emitted raw
+/// so bash/zsh tilde expansion still kicks in; everything else is
+/// double-quoted with the metacharacters that have special meaning inside
+/// double quotes (`\`, `"`, `$`, `` ` ``) backslash-escaped. This makes a
+/// bare path with spaces work (`/var/log my dir` → `"/var/log my dir"`)
+/// without silently breaking on `$HOME` expansion inside user-typed values.
+fn format_cd_target(raw: &str) -> String {
+    if raw.starts_with('~') {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len() + 2);
+    out.push('"');
+    for ch in raw.chars() {
+        if matches!(ch, '\\' | '"' | '$' | '`') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(test)]
+mod cd_target_tests {
+    use super::format_cd_target;
+
+    #[test]
+    fn tilde_passes_through_raw() {
+        assert_eq!(format_cd_target("~"), "~");
+        assert_eq!(format_cd_target("~/projects"), "~/projects");
+        assert_eq!(format_cd_target("~root/logs"), "~root/logs");
+    }
+
+    #[test]
+    fn bare_path_is_quoted() {
+        assert_eq!(format_cd_target("/var/log"), "\"/var/log\"");
+        assert_eq!(
+            format_cd_target("/path with spaces"),
+            "\"/path with spaces\""
+        );
+    }
+
+    #[test]
+    fn metachars_are_escaped() {
+        assert_eq!(format_cd_target("/a$b"), "\"/a\\$b\"");
+        assert_eq!(format_cd_target("/a\"b"), "\"/a\\\"b\"");
+        assert_eq!(format_cd_target("/a\\b"), "\"/a\\\\b\"");
+        assert_eq!(format_cd_target("/a`b"), "\"/a\\`b\"");
     }
 }

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -16,17 +16,26 @@ import {
   Trash2,
 } from 'lucide-react';
 
-/** Colour palette for folder icons. Deterministic hash of the folder name
- *  picks one — gives the tree visual variety without a DB column. */
-const FOLDER_PALETTE = [
-  '#60a5fa', '#34d399', '#fbbf24', '#f87171',
-  '#a78bfa', '#22d3ee', '#f472b6', '#fb923c',
-] as const;
+/** Default tile backgrounds per session kind when the user hasn't set a
+ *  per-session colour. Routes through theme tokens so dark/light flips
+ *  are automatic — never hard-code hexes here. */
+const KIND_DEFAULT_TILE: Record<'ssh' | 'wsl' | 'local', string> = {
+  ssh:   'rgb(var(--accent))',
+  wsl:   'rgb(var(--warning))',
+  local: 'rgb(var(--success))',
+};
 
-function folderColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (Math.imul(h, 31) + name.charCodeAt(i)) | 0;
-  return FOLDER_PALETTE[Math.abs(h) % FOLDER_PALETTE.length];
+/** 2px horizontal accent line at the top or bottom of a row — shown
+ *  while dragging to signal "drop lands here". `pointer-events-none`
+ *  so it never steals the drop from the row itself. */
+function DropLine({ edge }: { edge: 'top' | 'bottom' }) {
+  const pos = edge === 'top' ? '-top-[1px]' : '-bottom-[1px]';
+  return (
+    <span
+      aria-hidden
+      className={`absolute left-0 right-0 ${pos} h-[2px] bg-accent rounded-sm pointer-events-none`}
+    />
+  );
 }
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
@@ -39,6 +48,9 @@ import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
 import { SessionDialog } from './session-dialog';
 import { ImportMobaxtermDialog } from './import-mobaxterm-dialog';
+import { BackupDialog } from './backup-dialog';
+import { RestoreDialog } from './restore-dialog';
+import { SyncDialog } from './sync-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -87,6 +99,35 @@ type PendingConfirm =
   | { kind: 'delete-folder'; folder: TFolder }
   | { kind: 'delete-session'; session: Session };
 
+/** Where a drag-in-progress will land. The `edge`-carrying variants draw
+ *  a horizontal line indicator at the named edge; the `into-*` variants
+ *  highlight the whole row. */
+type DropSlot =
+  | { kind: 'into-root' }
+  | { kind: 'into-folder'; folderId: number }
+  | { kind: 'before-session'; sessionId: number }
+  | { kind: 'after-session';  sessionId: number }
+  | { kind: 'before-folder';  folderId: number }
+  | { kind: 'after-folder';   folderId: number };
+
+function slotsEqual(a: DropSlot | null, b: DropSlot | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case 'into-root':
+      return true;
+    case 'into-folder':
+      return a.folderId === (b as { folderId: number }).folderId;
+    case 'before-session':
+    case 'after-session':
+      return a.sessionId === (b as { sessionId: number }).sessionId;
+    case 'before-folder':
+    case 'after-folder':
+      return a.folderId === (b as { folderId: number }).folderId;
+  }
+}
+
 export function SessionsSidebar() {
   const [folders, setFolders] = useState<TFolder[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -97,11 +138,16 @@ export function SessionsSidebar() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [importPath, setImportPath] = useState<string | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [restorePath, setRestorePath] = useState<string | null>(null);
+  const [syncOpen, setSyncOpen] = useState(false);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
-  // source); `dragTarget` is the hovered drop zone — a folder id, or 'root'
-  // for the background drop zone. null when nothing is being dragged-over.
+  // source); `dragTarget` is the hovered drop slot — see `DropSlot` below.
+  // null when nothing is being dragged-over. Slots describe *where* the
+  // drop will land (into a folder / before or after a sibling) so the same
+  // state drives both the visual indicator and the drop handler.
   const [drag, setDrag] = useState<{ kind: 'session' | 'folder'; id: number } | null>(null);
-  const [dragTarget, setDragTarget] = useState<number | 'root' | null>(null);
+  const [dragTarget, setDragTarget] = useState<DropSlot | null>(null);
 
   const openTabAction   = useTabs((s) => s.open);
   const openTabs        = useTabs((s) => s.tabs);
@@ -164,9 +210,30 @@ export function SessionsSidebar() {
         { label: 'Delete', danger: true, onClick: () => setConfirm({ kind: 'delete-folder', folder: f }) },
       );
     } else {
-      items.push({ label: 'Import from MobaXterm\u2026', onClick: pickMobaXtermFile });
+      items.push(
+        { label: 'Import from MobaXterm\u2026', onClick: pickMobaXtermFile },
+        { separator: true },
+        { label: 'Backup\u2026',  onClick: () => setBackupOpen(true) },
+        { label: 'Restore\u2026', onClick: pickRestoreFile },
+        { separator: true },
+        { label: 'Cloud sync\u2026', onClick: () => setSyncOpen(true) },
+      );
     }
     setMenu({ x: e.clientX, y: e.clientY, items });
+  }
+
+  async function pickRestoreFile() {
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        title: 'Restore ezTerm backup',
+        filters: [{ name: 'ezTerm backup', extensions: ['json'] }],
+      });
+      if (typeof picked === 'string' && picked) setRestorePath(picked);
+    } catch (e) {
+      toast.danger('Restore failed', errMessage(e));
+    }
   }
 
   async function pickMobaXtermFile() {
@@ -193,6 +260,14 @@ export function SessionsSidebar() {
   // HTML5 DnD. The dragged row puts {kind,id} into dataTransfer so the drop
   // handler can route to api.sessionMove / folderMove. Sort is always 0 on
   // drop (new-top-of-folder); intra-folder reordering is a separate pass.
+  //
+  // React 19 batches setState more aggressively than 18, so the first few
+  // `dragover` events fire before the `drag` state update from `dragstart`
+  // has rendered — gating `preventDefault()` on the state value left the
+  // browser marking the target as a non-drop zone, and `drop` never fired.
+  // Mirror the drag source into a ref for synchronous access; state is
+  // still used for the opacity / highlight visuals.
+  const dragSourceRef = useRef<{ kind: 'session' | 'folder'; id: number } | null>(null);
 
   function handleDragStart(
     e: React.DragEvent,
@@ -202,59 +277,218 @@ export function SessionsSidebar() {
     e.stopPropagation();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/json', JSON.stringify({ kind, id }));
+    dragSourceRef.current = { kind, id };
     setDrag({ kind, id });
   }
 
   function handleDragEnd() {
+    dragSourceRef.current = null;
     setDrag(null);
     setDragTarget(null);
   }
 
-  function handleDragOver(e: React.DragEvent, target: number | 'root') {
-    if (!drag) return;
-    // Never allow a folder to be dropped into itself — instant rejection.
-    if (drag.kind === 'folder' && target === drag.id) return;
+  function setDragTargetIfChanged(next: DropSlot | null) {
+    if (!slotsEqual(dragTarget, next)) setDragTarget(next);
+  }
+
+  /** Compute the slot for a row-aware drag: sessions split 50/50 above/below,
+   *  folder rows split 25% / 50% / 25% into above / into / below so users
+   *  can both reorder siblings *and* drop into a folder from the same row. */
+  function slotForRow(
+    e: React.DragEvent,
+    row: 'session' | 'folder',
+    id: number,
+  ): DropSlot {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const ratio = rect.height > 0 ? y / rect.height : 0.5;
+    if (row === 'session') {
+      return ratio < 0.5
+        ? { kind: 'before-session', sessionId: id }
+        : { kind: 'after-session', sessionId: id };
+    }
+    if (ratio < 0.25) return { kind: 'before-folder', folderId: id };
+    if (ratio > 0.75) return { kind: 'after-folder', folderId: id };
+    return { kind: 'into-folder', folderId: id };
+  }
+
+  function handleDragOver(e: React.DragEvent, slot: DropSlot) {
+    const src = dragSourceRef.current;
+    if (src) {
+      // Can't drop a folder into itself (either as a parent or as its own
+      // sibling-edge). before/after-folder on self is a no-op drop, but we
+      // still reject to avoid a confusing indicator line.
+      if (src.kind === 'folder' && slot.kind === 'into-folder' && slot.folderId === src.id) return;
+      if (src.kind === 'folder' && (slot.kind === 'before-folder' || slot.kind === 'after-folder') && slot.folderId === src.id) return;
+    }
+    // Always preventDefault so the browser keeps treating us as a valid
+    // drop target. The full-payload validity check happens at drop time.
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
-    if (dragTarget !== target) setDragTarget(target);
+    setDragTargetIfChanged(slot);
   }
 
-  async function handleDrop(e: React.DragEvent, target: number | 'root') {
+  async function handleDrop(e: React.DragEvent, slot: DropSlot) {
     e.preventDefault();
     e.stopPropagation();
     const raw = e.dataTransfer.getData('application/json');
+    dragSourceRef.current = null;
     setDrag(null);
     setDragTarget(null);
     if (!raw) return;
     let payload: { kind: 'session' | 'folder'; id: number };
     try { payload = JSON.parse(raw); } catch { return; }
-    const folderId: number | null = target === 'root' ? null : target;
-
-    // No-op if dropping onto current parent.
-    if (payload.kind === 'session') {
-      const cur = sessions.find((s) => s.id === payload.id);
-      if (cur && cur.folder_id === folderId) return;
-    } else {
-      const cur = folders.find((f) => f.id === payload.id);
-      if (!cur) return;
-      if (cur.parent_id === folderId) return;
-      if (folderId === payload.id) return; // self
-    }
 
     try {
       if (payload.kind === 'session') {
-        await api.sessionMove(payload.id, folderId, 0);
+        await dropSession(payload.id, slot);
       } else {
-        await api.folderMove(payload.id, folderId, 0);
-      }
-      if (folderId !== null) {
-        setExpanded((prev) => new Set(prev).add(folderId));
+        await dropFolder(payload.id, slot);
       }
       reload();
     } catch (err) {
       toast.danger('Move failed', errMessage(err));
     }
+  }
+
+  async function dropSession(sessionId: number, slot: DropSlot) {
+    // Destination folder for the session after the drop. `into-*` moves
+    // into the folder at position 0. `before-session` / `after-session`
+    // adopt the target session's folder (so cross-folder drop + reorder
+    // in one gesture works). Folder-edge drops aren't a valid destination
+    // for a session; treat them as "move into that folder's parent and
+    // reorder" — we position just above/below the folder in its parent.
+    const cur = sessions.find((s) => s.id === sessionId);
+    if (!cur) return;
+
+    const destFolderId = resolveDestFolderId(slot);
+    if (destFolderId === undefined) return;
+
+    // Expand the destination folder so the user sees where their drop
+    // landed, matching MobaXterm's feedback.
+    if (destFolderId !== null) {
+      setExpanded((prev) => new Set(prev).add(destFolderId));
+    }
+
+    // When the drop slot requests a specific position (before/after a
+    // sibling), reorder via the full-list API. For plain "into-folder"
+    // / "into-root" drops we keep the existing mv-to-sort-0 shortcut
+    // to preserve current UX (new item at top of folder).
+    if (slot.kind === 'into-folder' || slot.kind === 'into-root') {
+      if (cur.folder_id === destFolderId) return;
+      await api.sessionMove(sessionId, destFolderId, 0);
+      return;
+    }
+
+    const crossFolder = cur.folder_id !== destFolderId;
+    if (crossFolder) {
+      await api.sessionMove(sessionId, destFolderId, 0);
+    }
+    // Build new order among sessions in destFolderId.
+    const existingInDest = sessions
+      .filter((s) => s.folder_id === destFolderId && s.id !== sessionId)
+      .sort((a, b) => a.sort - b.sort || a.id - b.id)
+      .map((s) => s.id);
+
+    const ordered = buildOrderForSessionDrop(existingInDest, sessionId, slot);
+    if (ordered.length <= 1 && !crossFolder) return;
+    await api.sessionReorder(destFolderId, ordered);
+  }
+
+  async function dropFolder(folderId: number, slot: DropSlot) {
+    const cur = folders.find((f) => f.id === folderId);
+    if (!cur) return;
+    if (slot.kind === 'into-folder' && slot.folderId === folderId) return;
+
+    // Destination parent for the folder.
+    const destParentId = resolveDestFolderId(slot);
+    if (destParentId === undefined) return;
+    // Can't make a folder its own ancestor — the backend will reject
+    // the cycle anyway but we short-circuit here for a cleaner UX.
+    if (destParentId === folderId) return;
+
+    if (slot.kind === 'into-folder' || slot.kind === 'into-root') {
+      if (cur.parent_id === destParentId) return;
+      await api.folderMove(folderId, destParentId, 0);
+      if (destParentId !== null) {
+        setExpanded((prev) => new Set(prev).add(destParentId));
+      }
+      return;
+    }
+
+    const crossParent = cur.parent_id !== destParentId;
+    if (crossParent) {
+      await api.folderMove(folderId, destParentId, 0);
+    }
+    const existingInDest = folders
+      .filter((f) => f.parent_id === destParentId && f.id !== folderId)
+      .sort((a, b) => a.sort - b.sort || a.id - b.id)
+      .map((f) => f.id);
+    const ordered = buildOrderForFolderDrop(existingInDest, folderId, slot);
+    if (ordered.length <= 1 && !crossParent) return;
+    await api.folderReorder(destParentId, ordered);
+  }
+
+  function resolveDestFolderId(slot: DropSlot): number | null | undefined {
+    switch (slot.kind) {
+      case 'into-root':
+        return null;
+      case 'into-folder':
+        return slot.folderId;
+      case 'before-session':
+      case 'after-session': {
+        const sib = sessions.find((s) => s.id === slot.sessionId);
+        return sib ? sib.folder_id : undefined;
+      }
+      case 'before-folder':
+      case 'after-folder': {
+        const sib = folders.find((f) => f.id === slot.folderId);
+        return sib ? sib.parent_id : undefined;
+      }
+    }
+  }
+
+  function buildOrderForSessionDrop(
+    existingInDest: number[],
+    draggedId: number,
+    slot: DropSlot,
+  ): number[] {
+    if (slot.kind === 'before-session' || slot.kind === 'after-session') {
+      const anchor = slot.sessionId;
+      const idx = existingInDest.indexOf(anchor);
+      if (idx < 0) return [draggedId, ...existingInDest];
+      const insertAt = slot.kind === 'before-session' ? idx : idx + 1;
+      return [
+        ...existingInDest.slice(0, insertAt),
+        draggedId,
+        ...existingInDest.slice(insertAt),
+      ];
+    }
+    // before-folder / after-folder from a session drag: drop at the top
+    // of the folder's parent's session list. Rare; we just prepend.
+    return [draggedId, ...existingInDest];
+  }
+
+  function buildOrderForFolderDrop(
+    existingInDest: number[],
+    draggedId: number,
+    slot: DropSlot,
+  ): number[] {
+    if (slot.kind === 'before-folder' || slot.kind === 'after-folder') {
+      const anchor = slot.folderId;
+      const idx = existingInDest.indexOf(anchor);
+      if (idx < 0) return [draggedId, ...existingInDest];
+      const insertAt = slot.kind === 'before-folder' ? idx : idx + 1;
+      return [
+        ...existingInDest.slice(0, insertAt),
+        draggedId,
+        ...existingInDest.slice(insertAt),
+      ];
+    }
+    // before-session / after-session isn't a valid folder drop slot; the
+    // caller sorted this out by resolving destFolderId. Prepend fallback.
+    return [draggedId, ...existingInDest];
   }
 
   function openSessionMenu(e: React.MouseEvent, s: Session) {
@@ -285,9 +519,18 @@ export function SessionsSidebar() {
     const isDragSource = !!(
       node.folder && drag?.kind === 'folder' && drag.id === node.folder.id
     );
-    const isDropTarget =
-      node.folder != null && dragTarget === node.folder.id;
-    const folderTint = node.folder ? folderColor(node.folder.name) : undefined;
+    const isIntoTarget =
+      node.folder != null
+      && dragTarget?.kind === 'into-folder'
+      && dragTarget.folderId === node.folder.id;
+    const hasBeforeEdge =
+      node.folder != null
+      && dragTarget?.kind === 'before-folder'
+      && dragTarget.folderId === node.folder.id;
+    const hasAfterEdge =
+      node.folder != null
+      && dragTarget?.kind === 'after-folder'
+      && dragTarget.folderId === node.folder.id;
     const sessionCount = countDescendantSessions(node);
     return (
       <div>
@@ -296,12 +539,12 @@ export function SessionsSidebar() {
             draggable
             onDragStart={(e) => handleDragStart(e, 'folder', node.folder!.id)}
             onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleDragOver(e, node.folder!.id)}
-            onDrop={(e) => handleDrop(e, node.folder!.id)}
+            onDragOver={(e) => handleDragOver(e, slotForRow(e, 'folder', node.folder!.id))}
+            onDrop={(e) => handleDrop(e, slotForRow(e, 'folder', node.folder!.id))}
             onClick={() => toggleFolder(node.folder!.id)}
             onContextMenu={(e) => openFolderMenu(e, node.folder!)}
             className={`group relative h-7 flex items-center gap-1.5 cursor-default select-none pr-2 transition-colors ${
-              isDropTarget
+              isIntoTarget
                 ? 'bg-accent/20 outline outline-1 outline-accent/60 text-fg'
                 : 'text-fg/80 hover:text-fg hover:bg-surface2/70'
             } ${isDragSource ? 'opacity-50' : ''}`}
@@ -310,13 +553,14 @@ export function SessionsSidebar() {
             aria-expanded={isOpen}
             aria-selected={false}
           >
+            {hasBeforeEdge && <DropLine edge="top" />}
+            {hasAfterEdge  && <DropLine edge="bottom" />}
             <span className="w-3 h-3 flex items-center justify-center text-muted/80 shrink-0">
               {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
             </span>
             <FolderIcon
               size={14}
-              className="shrink-0"
-              style={{ color: folderTint }}
+              className={`shrink-0 ${isOpen ? 'text-accent' : 'text-accent/70'}`}
               strokeWidth={2}
             />
             <span className="truncate text-xs font-medium flex-1">{node.folder.name}</span>
@@ -352,6 +596,8 @@ export function SessionsSidebar() {
               const isSelected  = selectedId === s.id;
               const isConnected = connectedSessionIds.has(s.id);
               const isSrc = drag?.kind === 'session' && drag.id === s.id;
+              const sessionHasBefore = dragTarget?.kind === 'before-session' && dragTarget.sessionId === s.id;
+              const sessionHasAfter  = dragTarget?.kind === 'after-session'  && dragTarget.sessionId === s.id;
               // Left-rail colour priority: connected green > selected accent
               // > session's own colour > transparent.
               const rail = isConnected
@@ -369,14 +615,18 @@ export function SessionsSidebar() {
                   onContextMenu={(e) => openSessionMenu(e, s)}
                   onDoubleClick={() => openTabAction(s)}
                   onDragOver={(e) => {
-                    // Sessions aren't drop targets themselves; redirect the
-                    // hover highlight to the enclosing folder (or root) so
-                    // dragging over a session inside a folder still signals
-                    // the valid drop location.
                     if (!drag) return;
-                    handleDragOver(e, folderId ?? 'root');
+                    // Split the row 50/50: top half places the dragged item
+                    // *before* this session, bottom half *after*. Works for
+                    // both same-folder reordering and cross-folder moves
+                    // (the drop handler resolves destFolderId from the
+                    // anchor session's folder).
+                    handleDragOver(e, slotForRow(e, 'session', s.id));
                   }}
-                  onDrop={(e) => { if (drag) handleDrop(e, folderId ?? 'root'); }}
+                  onDrop={(e) => {
+                    if (!drag) return;
+                    handleDrop(e, slotForRow(e, 'session', s.id));
+                  }}
                   className={`group relative h-7 flex items-center gap-2 cursor-default select-none pr-2 transition-colors ${
                     isSelected
                       ? 'bg-accent/18 text-fg'
@@ -387,6 +637,8 @@ export function SessionsSidebar() {
                   aria-selected={isSelected}
                   title={`${s.username}@${s.host}${s.port !== 22 ? `:${s.port}` : ''}`}
                 >
+                  {sessionHasBefore && <DropLine edge="top" />}
+                  {sessionHasAfter  && <DropLine edge="bottom" />}
                   <span
                     className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm ${
                       isConnected ? 'animate-pulse' : ''
@@ -399,13 +651,24 @@ export function SessionsSidebar() {
                       s.session_kind === 'wsl' ? SquareTerminal :
                       s.session_kind === 'local' ? MonitorDot :
                       Server;
+                    // Tile priority: connected green > per-session colour >
+                    // kind default. Keeps user branding visible when idle,
+                    // flips to a clear "live" signal while connected.
+                    const tileBg = isConnected
+                      ? 'rgb(var(--success))'
+                      : (s.color ?? KIND_DEFAULT_TILE[s.session_kind]);
                     return (
-                      <KindIcon
-                        size={13}
-                        className="shrink-0"
-                        style={{ color: isConnected ? 'rgb(var(--success))' : (s.color ?? undefined) }}
-                        strokeWidth={2}
-                      />
+                      <span
+                        className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center"
+                        style={{ background: tileBg }}
+                        aria-hidden
+                      >
+                        <KindIcon
+                          size={11}
+                          className="text-white"
+                          strokeWidth={2.25}
+                        />
+                      </span>
                     );
                   })()}
                   <span className={`truncate text-xs flex-1 ${isSelected ? 'font-medium' : ''}`}>
@@ -473,13 +736,13 @@ export function SessionsSidebar() {
           whitespace or a root-level row while dragging. */}
       <div
         className={`flex-1 min-h-0 overflow-auto py-1 transition-colors ${
-          drag && dragTarget === 'root' ? 'bg-accent/10 outline outline-1 outline-accent/40 -outline-offset-1' : ''
+          drag && dragTarget?.kind === 'into-root' ? 'bg-accent/10 outline outline-1 outline-accent/40 -outline-offset-1' : ''
         }`}
         role="tree"
         aria-label="Sessions"
         onContextMenu={(e) => { if (e.target === e.currentTarget) openFolderMenu(e, null); }}
-        onDragOver={(e) => handleDragOver(e, 'root')}
-        onDrop={(e) => handleDrop(e, 'root')}
+        onDragOver={(e) => handleDragOver(e, { kind: 'into-root' })}
+        onDrop={(e) => handleDrop(e, { kind: 'into-root' })}
       >
         {empty ? (
           <EmptyState
@@ -557,6 +820,51 @@ export function SessionsSidebar() {
             setConfirm(null);
             reload();
             toast.success('Folder deleted', confirm.folder.name);
+          }}
+        />
+      )}
+
+      {syncOpen && (
+        <SyncDialog
+          onClose={() => setSyncOpen(false)}
+          onPullToRestore={(tempPath) => {
+            setSyncOpen(false);
+            setRestorePath(tempPath);
+          }}
+        />
+      )}
+
+      {backupOpen && (
+        <BackupDialog
+          onCancel={() => setBackupOpen(false)}
+          onDone={(summary) => {
+            setBackupOpen(false);
+            const parts = [
+              summary.sessions && `${summary.sessions} session${summary.sessions === 1 ? '' : 's'}`,
+              summary.credentials && `${summary.credentials} credential${summary.credentials === 1 ? '' : 's'}`,
+              summary.folders && `${summary.folders} folder${summary.folders === 1 ? '' : 's'}`,
+              summary.known_hosts && `${summary.known_hosts} known host${summary.known_hosts === 1 ? '' : 's'}`,
+            ].filter(Boolean).join(', ');
+            toast.success('Backup saved', parts || 'empty backup');
+          }}
+        />
+      )}
+
+      {restorePath && (
+        <RestoreDialog
+          filePath={restorePath}
+          onCancel={() => setRestorePath(null)}
+          onDone={(summary) => {
+            setRestorePath(null);
+            reload();
+            const parts = [
+              summary.sessions_created && `${summary.sessions_created} session${summary.sessions_created === 1 ? '' : 's'}`,
+              summary.credentials_created && `${summary.credentials_created} credential${summary.credentials_created === 1 ? '' : 's'}`,
+              summary.folders_created && `${summary.folders_created} folder${summary.folders_created === 1 ? '' : 's'}`,
+              summary.known_hosts_upserted && `${summary.known_hosts_upserted} host${summary.known_hosts_upserted === 1 ? '' : 's'}`,
+              summary.settings_applied && `${summary.settings_applied} setting${summary.settings_applied === 1 ? '' : 's'}`,
+            ].filter(Boolean).join(', ');
+            toast.success('Restore complete', parts || 'nothing imported');
           }}
         />
       )}

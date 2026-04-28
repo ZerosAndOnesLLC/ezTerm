@@ -21,7 +21,9 @@ pub async fn folder_create(
     if name.trim().is_empty() {
         return Err(crate::error::AppError::Validation("name required".into()));
     }
-    folders::create(&state.db, parent_id, name.trim()).await
+    let out = folders::create(&state.db, parent_id, name.trim()).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
@@ -30,13 +32,17 @@ pub async fn folder_rename(state: State<'_, AppState>, id: i64, name: String) ->
     if name.trim().is_empty() {
         return Err(crate::error::AppError::Validation("name required".into()));
     }
-    folders::rename(&state.db, id, name.trim()).await
+    folders::rename(&state.db, id, name.trim()).await?;
+    state.sync.trigger();
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn folder_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     require_unlocked(&state).await?;
-    folders::delete(&state.db, id).await
+    folders::delete(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(())
 }
 
 #[tauri::command]
@@ -47,5 +53,22 @@ pub async fn folder_move(
     sort: i64,
 ) -> Result<()> {
     require_unlocked(&state).await?;
-    folders::mv(&state.db, id, parent_id, sort).await
+    folders::mv(&state.db, id, parent_id, sort).await?;
+    state.sync.trigger();
+    Ok(())
+}
+
+/// Renumber sibling folders under `parent_id` in the supplied order.
+/// Used by the intra-folder DnD reorder path when the dragged row is a
+/// folder landing among its siblings.
+#[tauri::command]
+pub async fn folder_reorder(
+    state: State<'_, AppState>,
+    parent_id: Option<i64>,
+    ids: Vec<i64>,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    folders::reorder(&state.db, parent_id, &ids).await?;
+    state.sync.trigger();
+    Ok(())
 }

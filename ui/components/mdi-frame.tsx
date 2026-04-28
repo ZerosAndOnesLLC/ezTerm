@@ -14,7 +14,7 @@ const TerminalView = dynamic(
 
 interface Props {
   tab:     Tab;
-  areaRef: RefObject<HTMLDivElement>;
+  areaRef: RefObject<HTMLDivElement | null>;
   areaW:   number;
   areaH:   number;
   setDragging: (v: boolean) => void;
@@ -124,7 +124,7 @@ export function MdiFrame({ tab, areaRef, areaW, areaH, setDragging }: Props) {
 
 interface HandleProps {
   tabId: string;
-  areaRef: RefObject<HTMLDivElement>;
+  areaRef: RefObject<HTMLDivElement | null>;
   edge: ResizeEdge;
   cls: string;
   cursor: string;

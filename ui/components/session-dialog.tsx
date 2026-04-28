@@ -3,22 +3,27 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Cog,
   Cpu,
+  Folder as FolderIcon,
+  FolderOpen,
   Key,
   KeyRound,
   Minus,
   MonitorDot,
   Network,
   Plus,
+  Server,
   Sliders,
   Square,
   SquareTerminal,
   Terminal as TerminalIcon,
   Trash2,
   Type,
+  User,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api } from '@/lib/tauri';
+import { fontChoicesForOS } from '@/lib/fonts';
 import type {
   AuthType,
   CursorStyle,
@@ -43,7 +48,13 @@ type Props = Mode & {
 type TabKey = 'general' | 'terminal' | 'advanced';
 
 // Defaults mirror the Rust-side DB defaults (see migration
-// 20260420130000_session_advanced_settings.sql).
+// 20260420130000_session_advanced_settings.sql), with one deliberate exception:
+// `keepalive_secs` defaults to 60 here even though the DB column default is 0.
+// The UI always passes an explicit value on insert, so this is the operational
+// default for new sessions; NAT/firewall idle timers otherwise drop overnight
+// connections. 60s matches MobaXterm's default. Users can still set 0 to
+// disable. Existing rows are backfilled by migration
+// 20260423120000_keepalive_default_60.sql.
 const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'username'> = {
   auth_type: 'agent',
   credential_id: null,
@@ -52,13 +63,15 @@ const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'use
   initial_command: null,
   scrollback_lines: 5000,
   font_size: 13,
+  font_family: '',
   cursor_style: 'block',
   compression: 0,
-  keepalive_secs: 0,
+  keepalive_secs: 60,
   connect_timeout_secs: 15,
   env: [],
   session_kind: 'ssh',
   forward_x11: 0,
+  starting_dir: null,
 };
 
 // Palette for the tab-color dot. Slate stores null = "no accent".
@@ -91,6 +104,7 @@ export function SessionDialog(props: Props) {
         initial_command: s.initial_command,
         scrollback_lines: s.scrollback_lines,
         font_size: s.font_size,
+        font_family: s.font_family ?? '',
         cursor_style: s.cursor_style,
         compression: s.compression,
         keepalive_secs: s.keepalive_secs,
@@ -98,6 +112,7 @@ export function SessionDialog(props: Props) {
         env: [], // populated async below
         session_kind: s.session_kind,
         forward_x11: s.forward_x11,
+        starting_dir: s.starting_dir,
       };
     }
     return {
@@ -191,6 +206,7 @@ export function SessionDialog(props: Props) {
       const cleaned: SessionInput = {
         ...v,
         initial_command: v.initial_command?.trim() ? v.initial_command : null,
+        starting_dir: v.starting_dir?.trim() ? v.starting_dir.trim() : null,
         env: v.env.filter((p) => p.key.trim()),
       };
       if (props.mode === 'edit') {
@@ -366,142 +382,157 @@ function GeneralPane({
 
   return (
     <>
-      <SectionHeading>Type</SectionHeading>
-      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Session type">
-        <KindOption
-          value="ssh" current={v.session_kind} Icon={Network}
-          onSelect={switchKind}
-          title="SSH" hint="Remote Linux / Unix server" />
-        <KindOption
-          value="wsl" current={v.session_kind} Icon={SquareTerminal}
-          onSelect={switchKind}
-          title="WSL" hint="Local Linux subsystem distro" />
-        <KindOption
-          value="local" current={v.session_kind} Icon={MonitorDot}
-          onSelect={switchKind}
-          title="Local Shell" hint="cmd / PowerShell / pwsh" />
-      </div>
+      <Section title="Type">
+        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Session type">
+          <KindOption
+            value="ssh" current={v.session_kind} Icon={Network}
+            onSelect={switchKind}
+            title="SSH" hint="Remote Linux / Unix server" />
+          <KindOption
+            value="wsl" current={v.session_kind} Icon={SquareTerminal}
+            onSelect={switchKind}
+            title="WSL" hint="Local Linux subsystem distro" />
+          <KindOption
+            value="local" current={v.session_kind} Icon={MonitorDot}
+            onSelect={switchKind}
+            title="Local Shell" hint="cmd / PowerShell / pwsh" />
+        </div>
+      </Section>
 
-      <SectionHeading>Connection</SectionHeading>
-      <Field label="Name">
-        <input
-          value={v.name}
-          onChange={(e) => setV({ ...v, name: e.target.value })}
-          className="input"
-          autoFocus
-          placeholder={isWsl ? 'My Ubuntu WSL' : isLocal ? 'Local PowerShell' : 'My production server'}
-        />
-      </Field>
-      <Field label="Folder">
-        <select
-          value={v.folder_id ?? ''}
-          onChange={(e) => setV({ ...v, folder_id: e.target.value ? Number(e.target.value) : null })}
-          className="input"
-        >
-          <option value="">(root)</option>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>{f.name}</option>
-          ))}
-        </select>
-      </Field>
-
-      {isSsh && (
-        <>
-          <div className="grid grid-cols-[1fr_110px] gap-3">
-            <Field label="Host">
-              <input
-                value={v.host}
-                onChange={(e) => setV({ ...v, host: e.target.value })}
-                className="input"
-                placeholder="example.com or 10.0.0.1"
-              />
-            </Field>
-            <Field label="Port">
-              <input
-                type="number" min={1} max={65535}
-                value={v.port}
-                onChange={(e) => setV({ ...v, port: Number(e.target.value) })}
-                className="input"
-              />
-            </Field>
-          </div>
-          <Field label="Username">
-            <input
-              value={v.username}
-              onChange={(e) => setV({ ...v, username: e.target.value })}
-              className="input"
-              placeholder="root"
-            />
-          </Field>
-        </>
-      )}
-
-      {isWsl && (
-        <>
-          <Field
-            label="Distro"
-            hint="Leave blank to launch the default distro. Type exactly as shown by `wsl -l --quiet`."
-          >
-            <input
-              value={v.host}
-              onChange={(e) => setV({ ...v, host: e.target.value })}
-              className="input font-mono"
-              placeholder="Ubuntu-24.04"
-            />
-          </Field>
-          <Field label="WSL user (optional)">
-            <input
-              value={v.username}
-              onChange={(e) => setV({ ...v, username: e.target.value })}
-              className="input font-mono"
-              placeholder="(distro default)"
-            />
-          </Field>
-        </>
-      )}
-
-      {isLocal && (
-        <>
-          <Field
-            label="Shell"
-            hint="Short name or absolute path. Short names resolve via %PATH%."
-          >
+      <Section title="Connection">
+        <Field label="Name">
+          <input
+            value={v.name}
+            onChange={(e) => setV({ ...v, name: e.target.value })}
+            className="input"
+            autoFocus
+            placeholder={isWsl ? 'My Ubuntu WSL' : isLocal ? 'Local PowerShell' : 'My production server'}
+          />
+        </Field>
+        <Field label="Folder">
+          <IconSlot icon={FolderIcon}>
             <select
-              value={['cmd', 'pwsh', 'powershell'].includes(v.host) ? v.host : '__custom'}
-              onChange={(e) => {
-                const val = e.target.value;
-                setV({ ...v, host: val === '__custom' ? (v.host || '') : val });
-              }}
-              className="input font-mono"
+              value={v.folder_id ?? ''}
+              onChange={(e) => setV({ ...v, folder_id: e.target.value ? Number(e.target.value) : null })}
+              className="input pl-8"
             >
-              <option value="cmd">cmd</option>
-              <option value="pwsh">pwsh</option>
-              <option value="powershell">powershell</option>
-              <option value="__custom">Custom path…</option>
+              <option value="">(root)</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
             </select>
-            {!['cmd', 'pwsh', 'powershell'].includes(v.host) && (
-              <input
-                value={v.host}
-                onChange={(e) => setV({ ...v, host: e.target.value })}
-                className="input font-mono mt-2"
-                placeholder={'C:\\Program Files\\Git\\bin\\bash.exe'}
-              />
-            )}
-          </Field>
-          <Field label="Starting directory (optional)">
-            <input
-              value={v.username}
-              onChange={(e) => setV({ ...v, username: e.target.value })}
-              className="input font-mono"
-              placeholder={'C:\\Users\\you\\projects'}
-            />
-          </Field>
-        </>
-      )}
+          </IconSlot>
+        </Field>
+
+        {isSsh && (
+          <>
+            <div className="grid grid-cols-[1fr_110px] gap-3">
+              <Field label="Host">
+                <IconSlot icon={Server}>
+                  <input
+                    value={v.host}
+                    onChange={(e) => setV({ ...v, host: e.target.value })}
+                    className="input pl-8"
+                    placeholder="example.com or 10.0.0.1"
+                  />
+                </IconSlot>
+              </Field>
+              <Field label="Port">
+                <input
+                  type="number" min={1} max={65535}
+                  value={v.port}
+                  onChange={(e) => setV({ ...v, port: Number(e.target.value) })}
+                  className="input"
+                />
+              </Field>
+            </div>
+            <Field label="Username">
+              <IconSlot icon={User}>
+                <input
+                  value={v.username}
+                  onChange={(e) => setV({ ...v, username: e.target.value })}
+                  className="input pl-8"
+                  placeholder="root"
+                />
+              </IconSlot>
+            </Field>
+          </>
+        )}
+
+        {isWsl && (
+          <>
+            <Field
+              label="Distro"
+              hint="Leave blank to launch the default distro. Type exactly as shown by `wsl -l --quiet`."
+            >
+              <IconSlot icon={SquareTerminal}>
+                <input
+                  value={v.host}
+                  onChange={(e) => setV({ ...v, host: e.target.value })}
+                  className="input font-mono pl-8"
+                  placeholder="Ubuntu-24.04"
+                />
+              </IconSlot>
+            </Field>
+            <Field label="WSL user (optional)">
+              <IconSlot icon={User}>
+                <input
+                  value={v.username}
+                  onChange={(e) => setV({ ...v, username: e.target.value })}
+                  className="input font-mono pl-8"
+                  placeholder="(distro default)"
+                />
+              </IconSlot>
+            </Field>
+          </>
+        )}
+
+        {isLocal && (
+          <>
+            <Field
+              label="Shell"
+              hint="Short name or absolute path. Short names resolve via %PATH%."
+            >
+              <IconSlot icon={TerminalIcon}>
+                <select
+                  value={['cmd', 'pwsh', 'powershell'].includes(v.host) ? v.host : '__custom'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setV({ ...v, host: val === '__custom' ? (v.host || '') : val });
+                  }}
+                  className="input font-mono pl-8"
+                >
+                  <option value="cmd">cmd</option>
+                  <option value="pwsh">pwsh</option>
+                  <option value="powershell">powershell</option>
+                  <option value="__custom">Custom path…</option>
+                </select>
+              </IconSlot>
+              {!['cmd', 'pwsh', 'powershell'].includes(v.host) && (
+                <input
+                  value={v.host}
+                  onChange={(e) => setV({ ...v, host: e.target.value })}
+                  className="input font-mono mt-2"
+                  placeholder={'C:\\Program Files\\Git\\bin\\bash.exe'}
+                />
+              )}
+            </Field>
+            <Field label="Starting directory (optional)">
+              <IconSlot icon={FolderOpen}>
+                <input
+                  value={v.username}
+                  onChange={(e) => setV({ ...v, username: e.target.value })}
+                  className="input font-mono pl-8"
+                  placeholder={'C:\\Users\\you\\projects'}
+                />
+              </IconSlot>
+            </Field>
+          </>
+        )}
+      </Section>
 
       {isSsh && (
-        <>
-          <SectionHeading>Authentication</SectionHeading>
+        <Section title="Authentication">
           <Field label="Method">
             <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Auth method">
               <AuthOption value="password" current={v.auth_type} Icon={Key}
@@ -542,32 +573,33 @@ function GeneralPane({
               switch to Password or Private Key.
             </p>
           )}
-        </>
+        </Section>
       )}
 
-      <SectionHeading>Appearance</SectionHeading>
-      <Field label="Tab color">
-        <div className="flex gap-1.5 items-center">
-          {SWATCHES.map((s) => {
-            const selected = v.color === s.value;
-            const bg = 'display' in s ? s.display : s.value!;
-            return (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setV({ ...v, color: s.value })}
-                aria-label={s.label}
-                title={s.label}
-                aria-pressed={selected}
-                className={`w-5 h-5 rounded-sm border transition ${
-                  selected ? 'ring-2 ring-accent border-transparent' : 'border-border hover:border-muted'
-                }`}
-                style={{ background: bg }}
-              />
-            );
-          })}
-        </div>
-      </Field>
+      <Section title="Appearance">
+        <Field label="Tab color">
+          <div className="flex gap-1.5 items-center">
+            {SWATCHES.map((s) => {
+              const selected = v.color === s.value;
+              const bg = 'display' in s ? s.display : s.value!;
+              return (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => setV({ ...v, color: s.value })}
+                  aria-label={s.label}
+                  title={s.label}
+                  aria-pressed={selected}
+                  className={`w-5 h-5 rounded-sm border transition ${
+                    selected ? 'ring-2 ring-accent border-transparent' : 'border-border hover:border-muted'
+                  }`}
+                  style={{ background: bg }}
+                />
+              );
+            })}
+          </div>
+        </Field>
+      </Section>
     </>
   );
 }
@@ -581,66 +613,97 @@ function TerminalPane({ v, setV }: PaneProps) {
 
   return (
     <>
-      <SectionHeading>On connect</SectionHeading>
-      <Field label="Initial command (optional)" hint="Runs once after the shell opens, as if you typed it.">
-        <input
-          value={v.initial_command ?? ''}
-          onChange={(e) => setV({ ...v, initial_command: e.target.value })}
-          className="input font-mono"
-          placeholder="tmux attach -t main || tmux new -s main"
-        />
-      </Field>
+      <Section title="On connect">
+        <Field
+          label="Starting directory (optional)"
+          hint={
+            v.session_kind === 'wsl'
+              ? 'Linux path. Empty uses your Linux home (~).'
+              : v.session_kind === 'ssh'
+              ? 'cd to this after connect. Empty uses the remote $HOME.'
+              : 'Ignored for local shells — the Host field is used as cwd.'
+          }
+        >
+          <IconSlot icon={FolderOpen}>
+            <input
+              value={v.starting_dir ?? ''}
+              onChange={(e) => setV({ ...v, starting_dir: e.target.value })}
+              className="input font-mono pl-8"
+              placeholder={v.session_kind === 'wsl' ? '~/projects' : '/var/log'}
+            />
+          </IconSlot>
+        </Field>
+        <Field label="Initial command (optional)" hint="Runs once after the shell opens, as if you typed it.">
+          <input
+            value={v.initial_command ?? ''}
+            onChange={(e) => setV({ ...v, initial_command: e.target.value })}
+            className="input font-mono"
+            placeholder="tmux attach -t main || tmux new -s main"
+          />
+        </Field>
+      </Section>
 
-      <SectionHeading>Display</SectionHeading>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Scrollback lines" hint="0 disables scrollback.">
-          <input
-            type="number" min={0} max={100_000} step={500}
-            value={v.scrollback_lines}
-            onChange={(e) => setV({ ...v, scrollback_lines: Number(e.target.value) })}
-            className="input"
-          />
-        </Field>
-        <Field label="Font size">
-          <input
-            type="number" min={8} max={48}
-            value={v.font_size}
-            onChange={(e) => setV({ ...v, font_size: Number(e.target.value) })}
-            className="input"
-          />
-        </Field>
-      </div>
-      <Field label="Cursor style">
-        <div className="inline-flex rounded border border-border overflow-hidden">
-          {CURSOR_OPTIONS.map((o) => {
-            const on = v.cursor_style === o.v;
-            return (
-              <button
-                key={o.v}
-                type="button"
-                onClick={() => setV({ ...v, cursor_style: o.v })}
-                aria-pressed={on}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
-                  on
-                    ? 'bg-surface2 text-fg'
-                    : 'bg-surface text-muted hover:bg-surface2/60 hover:text-fg'
-                }`}
-              >
-                <o.Icon size={12} />
-                <span>{o.label}</span>
-              </button>
-            );
-          })}
+      <Section title="Display">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Scrollback lines" hint="0 disables scrollback.">
+            <input
+              type="number" min={0} max={100_000} step={500}
+              value={v.scrollback_lines}
+              onChange={(e) => setV({ ...v, scrollback_lines: Number(e.target.value) })}
+              className="input"
+            />
+          </Field>
+          <Field label="Font size">
+            <input
+              type="number" min={8} max={48}
+              value={v.font_size}
+              onChange={(e) => setV({ ...v, font_size: Number(e.target.value) })}
+              className="input"
+            />
+          </Field>
         </div>
-      </Field>
+        <Field
+          label="Font family"
+          hint="(default) uses the app's OS-aware mono stack. Presets list fonts that ship with your OS by default."
+        >
+          <FontFamilyPicker
+            value={v.font_family}
+            onChange={(next) => setV({ ...v, font_family: next })}
+          />
+        </Field>
+        <Field label="Cursor style">
+          <div className="inline-flex rounded border border-border overflow-hidden">
+            {CURSOR_OPTIONS.map((o) => {
+              const on = v.cursor_style === o.v;
+              return (
+                <button
+                  key={o.v}
+                  type="button"
+                  onClick={() => setV({ ...v, cursor_style: o.v })}
+                  aria-pressed={on}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
+                    on
+                      ? 'bg-surface2 text-fg'
+                      : 'bg-surface text-muted hover:bg-surface2/60 hover:text-fg'
+                  }`}
+                >
+                  <o.Icon size={12} />
+                  <span>{o.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+      </Section>
 
-      <SectionHeading>Environment variables</SectionHeading>
-      <p className="text-muted text-xs">
-        Sent via SSH <span className="font-mono">env</span> requests on connect.
-        Most servers reject unlisted names via <span className="font-mono">AcceptEnv</span>;
-        <span className="font-mono"> LANG</span> and <span className="font-mono">LC_*</span> usually work.
-      </p>
-      <EnvEditor value={v.env} onChange={(env) => setV({ ...v, env })} />
+      <Section title="Environment variables">
+        <p className="text-muted text-xs">
+          Sent via SSH <span className="font-mono">env</span> requests on connect.
+          Most servers reject unlisted names via <span className="font-mono">AcceptEnv</span>;
+          <span className="font-mono"> LANG</span> and <span className="font-mono">LC_*</span> usually work.
+        </p>
+        <EnvEditor value={v.env} onChange={(env) => setV({ ...v, env })} />
+      </Section>
     </>
   );
 }
@@ -648,44 +711,45 @@ function TerminalPane({ v, setV }: PaneProps) {
 function AdvancedPane({ v, setV }: PaneProps) {
   return (
     <>
-      <SectionHeading>Connection</SectionHeading>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Connect timeout (seconds)">
-          <input
-            type="number" min={1} max={600}
-            value={v.connect_timeout_secs}
-            onChange={(e) => setV({ ...v, connect_timeout_secs: Number(e.target.value) })}
-            className="input"
-          />
-        </Field>
-        <Field label="Keepalive (seconds)" hint="0 disables SSH keepalives.">
-          <input
-            type="number" min={0} max={7200}
-            value={v.keepalive_secs}
-            onChange={(e) => setV({ ...v, keepalive_secs: Number(e.target.value) })}
-            className="input"
-          />
-        </Field>
-      </div>
+      <Section title="Connection">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Connect timeout (seconds)">
+            <input
+              type="number" min={1} max={600}
+              value={v.connect_timeout_secs}
+              onChange={(e) => setV({ ...v, connect_timeout_secs: Number(e.target.value) })}
+              className="input"
+            />
+          </Field>
+          <Field label="Keepalive (seconds)" hint="0 disables SSH keepalives.">
+            <input
+              type="number" min={0} max={7200}
+              value={v.keepalive_secs}
+              onChange={(e) => setV({ ...v, keepalive_secs: Number(e.target.value) })}
+              className="input"
+            />
+          </Field>
+        </div>
+      </Section>
 
-      <SectionHeading>Transport</SectionHeading>
-      <label className="flex items-center gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={v.compression === 1}
-          onChange={(e) => setV({ ...v, compression: e.target.checked ? 1 : 0 })}
-          className="w-4 h-4 accent-accent"
-        />
-        <span>Enable SSH compression (zlib)</span>
-      </label>
-      <p className="text-muted text-xs -mt-2">
-        Helps on slow links. Negligible or negative effect on LANs; leave off unless
-        you know the link is constrained.
-      </p>
+      <Section title="Transport">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={v.compression === 1}
+            onChange={(e) => setV({ ...v, compression: e.target.checked ? 1 : 0 })}
+            className="w-4 h-4 accent-accent"
+          />
+          <span>Enable SSH compression (zlib)</span>
+        </label>
+        <p className="text-muted text-xs -mt-1.5">
+          Helps on slow links. Negligible or negative effect on LANs; leave off unless
+          you know the link is constrained.
+        </p>
+      </Section>
 
       {v.session_kind === 'ssh' && (
-        <>
-          <SectionHeading>X11 forwarding</SectionHeading>
+        <Section title="X11 forwarding">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -695,7 +759,7 @@ function AdvancedPane({ v, setV }: PaneProps) {
             />
             <span>Forward X11 (display remote GUI apps locally)</span>
           </label>
-          <p className="text-muted text-xs -mt-2">
+          <p className="text-muted text-xs -mt-1.5">
             On connect, ezTerm starts a local VcXsrv display on
             <span className="font-mono mx-1">:0</span>
             and asks the SSH server for X11 forwarding. Requires
@@ -707,7 +771,7 @@ function AdvancedPane({ v, setV }: PaneProps) {
             >VcXsrv</a>
             installed at <span className="font-mono">%ProgramFiles%\VcXsrv\</span>.
           </p>
-        </>
+        </Section>
       )}
     </>
   );
@@ -833,11 +897,49 @@ function defaultHost(kind: SessionKind): string {
   return '';
 }
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
+/** Panel-style grouping card. Mirrors MobaXterm's connection manager feel —
+ *  each logical section reads as one unit against the dialog surface.
+ *
+ *  Layering (token-driven, flips with theme): dialog uses `bg-surface`, so
+ *  the card drops a step to `bg-bg` to appear inset, and inputs inside sit
+ *  on `bg-surface2` so they still stand out on the card. A thin border
+ *  sharpens the panel edge. Title row sits inside the card (not above it)
+ *  so section affordance stays contained. */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <h3 className="text-xs uppercase tracking-wider text-muted font-semibold pt-2 first:pt-0">
+    <section className="rounded-md border border-border bg-bg shadow-inner">
+      <header className="px-3.5 pt-2.5 pb-1.5 border-b border-border/60">
+        <h3 className="text-xs uppercase tracking-wider text-muted font-semibold">
+          {title}
+        </h3>
+      </header>
+      <div className="p-3.5 space-y-3">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** Input wrapper that renders a muted leading icon inside the .input box.
+ *  Use for identity-style fields (host, user, folder) where a glyph
+ *  sharpens scanning. Children must accept `className` since we pass
+ *  `pl-8` for the icon-sized inset. */
+function IconSlot({
+  icon: Icon,
+  children,
+}: {
+  icon: LucideIcon;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <Icon
+        size={14}
+        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+        aria-hidden
+      />
       {children}
-    </h3>
+    </div>
   );
 }
 
@@ -850,5 +952,53 @@ function Field({
       {children}
       {hint && <span className="block text-muted text-xs">{hint}</span>}
     </label>
+  );
+}
+
+/** Preset dropdown + free-text input. Picking "(custom…)" flips to a
+ *  text input so power users can type any CSS font stack. Values from
+ *  other OSes (e.g. "Menlo" on a Windows install) show as "(custom)"
+ *  in the dropdown so we don't misrepresent the current value. */
+function FontFamilyPicker({
+  value,
+  onChange,
+}: { value: string; onChange: (next: string) => void }) {
+  const choices = useMemo(() => fontChoicesForOS(), []);
+  const isPreset = choices.some((c) => c.value === value);
+  const [customOpen, setCustomOpen] = useState(() => !isPreset && value !== '');
+
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={customOpen ? '__custom__' : value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__custom__') {
+            setCustomOpen(true);
+            return;
+          }
+          setCustomOpen(false);
+          onChange(v);
+        }}
+        className="input"
+      >
+        {choices.map((c) => (
+          <option key={c.value || '__default__'} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+        <option value="__custom__">Custom…</option>
+      </select>
+      {customOpen && (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder='e.g. "Iosevka", "Fira Code"'
+          className="input"
+          aria-label="Custom font family"
+        />
+      )}
+    </div>
   );
 }

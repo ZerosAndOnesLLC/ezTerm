@@ -38,6 +38,9 @@ export interface Session {
   initial_command: string | null;
   scrollback_lines: number;
   font_size: number;
+  /** CSS font-family string. Empty string means "use the app default
+   *  stack" (Cascadia Mono + fallbacks, see lib/xterm.ts). */
+  font_family: string;
   cursor_style: CursorStyle;
   compression: number; // 0 | 1
   keepalive_secs: number;
@@ -45,6 +48,11 @@ export interface Session {
   session_kind: SessionKind;
   /** 0/1 — SSH-only. Enables X11 forwarding against the bundled VcXsrv. */
   forward_x11: number;
+  /** Optional starting directory. WSL: passed as `wsl.exe --cd <value>`,
+   *  empty = `~` (Linux home). SSH: `cd <value>` is written to the shell
+   *  after connect, empty = remote default ($HOME). Ignored for local
+   *  (cmd/pwsh) rows. */
+  starting_dir: string | null;
 }
 
 export interface SessionInput {
@@ -60,6 +68,7 @@ export interface SessionInput {
   initial_command: string | null;
   scrollback_lines: number;
   font_size: number;
+  font_family: string;
   cursor_style: CursorStyle;
   compression: number;
   keepalive_secs: number;
@@ -67,12 +76,103 @@ export interface SessionInput {
   env: EnvPair[];
   session_kind: SessionKind;
   forward_x11: number;
+  starting_dir: string | null;
 }
 
 export interface XServerStatus {
   installed:        boolean;
   install_path:     string | null;
   running_displays: number[];
+}
+
+// --- Backup / restore -----------------------------------------------------
+
+export interface BackupSummary {
+  folders:      number;
+  sessions:     number;
+  credentials:  number;
+  known_hosts:  number;
+  settings:     number;
+}
+
+export interface BackupPreview {
+  created_at:    string;
+  app_version:   string;
+  folders:       Folder[];
+  sessions:      BackupSessionPreview[];
+  credentials:   BackupCredentialPreview[];
+  known_hosts:   BackupKnownHostPreview[];
+  setting_count: number;
+}
+
+export interface BackupSessionPreview {
+  id:            number;
+  folder_id:     number | null;
+  name:          string;
+  host:          string;
+  port:          number;
+  username:      string;
+  session_kind:  SessionKind;
+  auth_type:     AuthType;
+  credential_id: number | null;
+}
+
+export interface BackupCredentialPreview {
+  id:    number;
+  kind:  CredentialKind;
+  label: string;
+}
+
+export interface BackupKnownHostPreview {
+  host: string;
+  port: number;
+  fingerprint_sha256: string;
+}
+
+export interface BackupSelection {
+  folder_ids:       number[];
+  session_ids:      number[];
+  credential_ids:   number[];
+  /** [host, port] pairs. */
+  known_hosts:      [string, number][];
+  include_settings: boolean;
+}
+
+export interface RestoreSummary {
+  folders_created:      number;
+  sessions_created:     number;
+  credentials_created:  number;
+  known_hosts_upserted: number;
+  settings_applied:     number;
+  renamed:              string[];
+}
+
+// --- Cloud sync (phase 1 = local folder) ---------------------------------
+
+export type SyncKind = 'none' | 'local' | 's3';
+
+export interface SyncStatus {
+  kind:               SyncKind;
+  local_path:         string | null;
+  s3_endpoint:        string | null;
+  s3_bucket:          string | null;
+  s3_prefix:          string | null;
+  s3_region:          string | null;
+  s3_access_key_id:   string | null;
+  s3_last_etag:       string | null;
+  last_success_at:    string | null;
+  last_error:         string | null;
+  pending:            boolean;
+}
+
+export interface S3ConfigInput {
+  endpoint:          string;
+  region:            string;
+  bucket:            string;
+  prefix:            string;
+  access_key_id:     string;
+  secret_access_key: string;
+  passphrase:        string;
 }
 
 export interface CredentialMeta {

@@ -1,13 +1,16 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { PanelLeftOpen } from 'lucide-react';
+import { type Update } from '@tauri-apps/plugin-updater';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
+import { maybeAutoCheck } from '@/lib/updater';
 import { SessionsSidebar } from './sessions-sidebar';
 import { TabsShell } from './tabs-shell';
 import { StatusBar } from './status-bar';
 import { ToastRegion } from './toast-region';
+import { UpdateDialog } from './update-dialog';
 
 const SIDEBAR_WIDTH_KEY = 'ezterm.sidebarWidth';
 const SIDEBAR_MIN = 180;
@@ -18,18 +21,41 @@ export function MainShell({ onLock }: { onLock: () => void }) {
   const collapsed  = useTabs((s) => s.sidebarCollapsed);
   const toggle     = useTabs((s) => s.toggleSidebar);
 
-  // Persist sidebar width across sessions. SSR-safe: start with default and
-  // hydrate from localStorage in an effect so the initial render matches.
-  const [width, setWidth] = useState<number>(SIDEBAR_DEFAULT);
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  // Persist sidebar width across sessions. We hydrate via the lazy
+  // useState initialiser so the first render already shows the correct
+  // width (avoids a one-frame jump and satisfies
+  // react-hooks/set-state-in-effect). SSR-safe: `window` check for the
+  // initial render when localStorage is absent.
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return SIDEBAR_DEFAULT;
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
     if (Number.isFinite(stored) && stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX) {
-      setWidth(stored);
+      return stored;
     }
-  }, []);
+    return SIDEBAR_DEFAULT;
+  });
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
   }, [width]);
+
+  // Auto-update check — cadence-gated (30d default) so we don't hit the
+  // GitHub Releases endpoint on every unlock. If an update is waiting,
+  // surface a prompt via UpdateDialog; the user can always dismiss and
+  // install later from the sidebar menu.
+  const [autoUpdate, setAutoUpdate] = useState<Update | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const autoUpdateChecked = useRef(false);
+  useEffect(() => {
+    if (autoUpdateChecked.current) return;
+    autoUpdateChecked.current = true;
+    (async () => {
+      const u = await maybeAutoCheck();
+      if (u) {
+        setAutoUpdate(u);
+        setUpdateDialogOpen(true);
+      }
+    })();
+  }, []);
 
   // WSL autodetect — runs on every unlock. The Rust command is idempotent
   // per-distro (only adds distros not already present as a session in the
@@ -162,8 +188,14 @@ export function MainShell({ onLock }: { onLock: () => void }) {
           <TabsShell />
         </div>
       </div>
-      <StatusBar onLock={onLock} />
+      <StatusBar onLock={onLock} onOpenUpdater={() => setUpdateDialogOpen(true)} />
       <ToastRegion />
+      {updateDialogOpen && (
+        <UpdateDialog
+          initialUpdate={autoUpdate}
+          onClose={() => { setUpdateDialogOpen(false); setAutoUpdate(null); }}
+        />
+      )}
     </div>
   );
 }

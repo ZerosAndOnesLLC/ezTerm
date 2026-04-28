@@ -1,14 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Lock, Monitor, Moon, Sun } from 'lucide-react';
+import { Lock, Monitor, Moon, Sparkles, Sun } from 'lucide-react';
+import { getVersion } from '@tauri-apps/api/app';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
 import type { XServerStatus } from '@/lib/types';
 
-type StatusBarProps = { onLock: () => void };
+type StatusBarProps = { onLock: () => void; onOpenUpdater: () => void };
 
-export function StatusBar({ onLock }: StatusBarProps) {
+export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
   const [theme, setTheme] = useState<Theme>(() =>
     typeof document !== 'undefined' && document.documentElement.classList.contains('light')
       ? 'light'
@@ -19,6 +20,9 @@ export function StatusBar({ onLock }: StatusBarProps) {
   const active   = tabs.find((t) => t.tabId === activeId) ?? null;
 
   useEffect(() => { loadTheme().then(setTheme); }, []);
+
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
   // X server state — polled lightly so the pill reflects VcXsrv coming up
   // or going away as sessions toggle X11 forwarding. Hidden entirely when
@@ -83,7 +87,9 @@ export function StatusBar({ onLock }: StatusBarProps) {
           <span className="opacity-40" aria-hidden>·</span>
         </>
       )}
-      <span className="opacity-60 tabular-nums">ezTerm v0.11</span>
+      <span className="opacity-60 tabular-nums">
+        ezTerm{appVersion ? ` v${appVersion}` : ''}
+      </span>
       <span className="opacity-40" aria-hidden>·</span>
       <button
         type="button"
@@ -93,6 +99,15 @@ export function StatusBar({ onLock }: StatusBarProps) {
         className="icon-btn w-5 h-5"
       >
         {theme === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
+      </button>
+      <button
+        type="button"
+        onClick={onOpenUpdater}
+        aria-label="Check for updates"
+        title="Check for updates"
+        className="icon-btn w-5 h-5"
+      >
+        <Sparkles size={12} />
       </button>
       <button
         type="button"

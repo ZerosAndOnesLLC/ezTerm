@@ -82,6 +82,7 @@ export function AuthFixOverlay({ session, errorMessage, onCancel, onSaved }: Pro
         initial_command: session.initial_command,
         scrollback_lines: session.scrollback_lines,
         font_size: session.font_size,
+        font_family: session.font_family ?? '',
         cursor_style: session.cursor_style,
         compression: session.compression,
         keepalive_secs: session.keepalive_secs,
@@ -89,6 +90,7 @@ export function AuthFixOverlay({ session, errorMessage, onCancel, onSaved }: Pro
         env,
         session_kind: session.session_kind,
         forward_x11: session.forward_x11,
+        starting_dir: session.starting_dir,
       };
       const updated = await api.sessionUpdate(session.id, input);
       onSaved(updated);

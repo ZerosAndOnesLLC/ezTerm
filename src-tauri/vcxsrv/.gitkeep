@@ -1,0 +1,8 @@
+This directory is populated by CI (see .github/workflows/release.yml
+"Stage VcXsrv for bundling" step) with the VcXsrv tree copied from
+Chocolatey's install at C:\Program Files\VcXsrv\. The Tauri bundler
+picks it up as a Windows resource via tauri.windows.conf.json so MSI
+and NSIS installers ship a pre-bundled VcXsrv.
+
+For local dev only this `.gitkeep` is present; VcXsrv is resolved from
+C:\Program Files\VcXsrv\ or the "Install VcXsrv via the app" flow.

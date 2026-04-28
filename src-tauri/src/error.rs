@@ -62,6 +62,9 @@ pub enum AppError {
     #[error("path traversal rejected")]
     PathTraversal,
 
+    #[error("VcXsrv is not installed")]
+    XServerMissing,
+
     // Consumed by a future `sftp_cancel` command; reserved for Bundle 2/3.
     #[allow(dead_code)]
     #[error("transfer cancelled")]
@@ -101,6 +104,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::Sftp(_) => "sftp",
         AppError::Scp(_) => "scp",
         AppError::PathTraversal => "path_traversal",
+        AppError::XServerMissing => "xserver_missing",
         AppError::TransferCancelled => "transfer_cancelled",
     }
 }

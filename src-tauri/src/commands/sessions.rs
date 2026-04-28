@@ -26,6 +26,11 @@ const ENV_VALUE_MAX: usize = 4_096;
 // reasonable use case and keeps the per-connect handshake bounded.
 const ENV_MAX_COUNT: usize = 64;
 const INITIAL_COMMAND_MAX: usize = 4_096;
+// Starting directory: POSIX PATH_MAX is typically 4096; Linux ext4 allows
+// filenames up to 255 bytes and paths up to 4096. We cap below that so
+// deeply nested nonsense doesn't sneak past — real starting dirs are
+// short.
+const STARTING_DIR_MAX: usize = 1_024;
 
 fn validate(input: &SessionInput) -> Result<()> {
     if input.name.trim().is_empty() {
@@ -117,6 +122,16 @@ fn validate(input: &SessionInput) -> Result<()> {
             return Err(AppError::Validation("initial_command too long".into()));
         }
     }
+    if let Some(sd) = &input.starting_dir {
+        if sd.len() > STARTING_DIR_MAX {
+            return Err(AppError::Validation("starting_dir too long".into()));
+        }
+        if sd.contains('\0') || sd.contains('\n') || sd.contains('\r') {
+            return Err(AppError::Validation(
+                "starting_dir contains NUL or newline".into(),
+            ));
+        }
+    }
     if input.env.len() > ENV_MAX_COUNT {
         return Err(AppError::Validation("too many env vars".into()));
     }
@@ -162,7 +177,9 @@ pub async fn session_env_get(state: State<'_, AppState>, id: i64) -> Result<Vec<
 pub async fn session_create(state: State<'_, AppState>, input: SessionInput) -> Result<Session> {
     require_unlocked(&state).await?;
     validate(&input)?;
-    sessions::create(&state.db, &input).await
+    let out = sessions::create(&state.db, &input).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
@@ -173,19 +190,25 @@ pub async fn session_update(
 ) -> Result<Session> {
     require_unlocked(&state).await?;
     validate(&input)?;
-    sessions::update(&state.db, id, &input).await
+    let out = sessions::update(&state.db, id, &input).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
 pub async fn session_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     require_unlocked(&state).await?;
-    sessions::delete(&state.db, id).await
+    sessions::delete(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn session_duplicate(state: State<'_, AppState>, id: i64) -> Result<Session> {
     require_unlocked(&state).await?;
-    sessions::duplicate(&state.db, id).await
+    let out = sessions::duplicate(&state.db, id).await?;
+    state.sync.trigger();
+    Ok(out)
 }
 
 #[tauri::command]
@@ -196,5 +219,23 @@ pub async fn session_move(
     sort: i64,
 ) -> Result<()> {
     require_unlocked(&state).await?;
-    sessions::mv(&state.db, id, folder_id, sort).await
+    sessions::mv(&state.db, id, folder_id, sort).await?;
+    state.sync.trigger();
+    Ok(())
+}
+
+/// Renumber the sibling sessions in `folder_id` according to the order
+/// in `ids`. Used by the intra-folder drag-and-drop reorder flow: the
+/// frontend computes the final sibling order after a drop and sends
+/// the full ID list, backend renumbers atomically in one transaction.
+#[tauri::command]
+pub async fn session_reorder(
+    state: State<'_, AppState>,
+    folder_id: Option<i64>,
+    ids: Vec<i64>,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    sessions::reorder(&state.db, folder_id, &ids).await?;
+    state.sync.trigger();
+    Ok(())
 }

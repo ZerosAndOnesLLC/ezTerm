@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod commands;
 mod db;
 mod error;
@@ -10,6 +11,7 @@ mod scp;
 mod sftp;
 mod ssh;
 mod state;
+mod sync;
 mod vault;
 mod xserver;
 
@@ -34,6 +36,8 @@ async fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::folders::folder_list,
@@ -41,6 +45,7 @@ async fn main() {
             commands::folders::folder_rename,
             commands::folders::folder_delete,
             commands::folders::folder_move,
+            commands::folders::folder_reorder,
             commands::credentials::credential_list,
             commands::credentials::credential_create,
             commands::credentials::credential_delete,
@@ -52,6 +57,7 @@ async fn main() {
             commands::sessions::session_delete,
             commands::sessions::session_duplicate,
             commands::sessions::session_move,
+            commands::sessions::session_reorder,
             commands::import::mobaxterm_preview,
             commands::import::mobaxterm_commit,
             commands::settings::settings_get,
@@ -60,6 +66,10 @@ async fn main() {
             commands::vault::vault_init,
             commands::vault::vault_unlock,
             commands::vault::vault_lock,
+            commands::vault::vault_verify_password,
+            commands::backup::backup_create,
+            commands::backup::backup_preview,
+            commands::backup::backup_restore,
             commands::ssh::ssh_connect,
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
@@ -75,6 +85,7 @@ async fn main() {
             commands::sftp::sftp_chmod,
             commands::sftp::sftp_realpath,
             commands::sftp::sftp_upload,
+            commands::sftp::sftp_upload_bytes,
             commands::sftp::sftp_download,
             commands::scp::scp_upload,
             commands::scp::scp_download,
@@ -82,9 +93,18 @@ async fn main() {
             commands::local::local_write,
             commands::local::local_resize,
             commands::local::local_disconnect,
+            commands::local::local_ready,
             commands::local::wsl_list_distros,
             commands::local::wsl_autodetect_seed,
             commands::xserver::xserver_status,
+            commands::xserver::xserver_install,
+            commands::sync::sync_status,
+            commands::sync::sync_configure_local,
+            commands::sync::sync_configure_s3,
+            commands::sync::sync_disable,
+            commands::sync::sync_push_now,
+            commands::sync::sync_pull_to_temp,
+            commands::splash::ui_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");

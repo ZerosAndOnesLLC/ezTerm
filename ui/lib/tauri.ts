@@ -4,6 +4,8 @@ import type {
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
+  BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
+  SyncStatus, S3ConfigInput,
 } from './types';
 
 export function errMessage(e: unknown): string {
@@ -19,6 +21,8 @@ export const api = {
   vaultInit:   (password: string) => invoke<void>('vault_init', { password }),
   vaultUnlock: (password: string) => invoke<void>('vault_unlock', { password }),
   vaultLock:   () => invoke<void>('vault_lock'),
+  vaultVerifyPassword: (password: string) =>
+    invoke<boolean>('vault_verify_password', { password }),
 
   // Folders
   folderList:   () => invoke<Folder[]>('folder_list'),
@@ -28,6 +32,8 @@ export const api = {
   folderDelete: (id: number) => invoke<void>('folder_delete', { id }),
   folderMove:   (id: number, parentId: number | null, sort: number) =>
     invoke<void>('folder_move', { id, parentId, sort }),
+  folderReorder: (parentId: number | null, ids: number[]) =>
+    invoke<void>('folder_reorder', { parentId, ids }),
 
   // Sessions
   sessionList:      () => invoke<Session[]>('session_list'),
@@ -39,6 +45,8 @@ export const api = {
   sessionDuplicate: (id: number) => invoke<Session>('session_duplicate', { id }),
   sessionMove:      (id: number, folderId: number | null, sort: number) =>
     invoke<void>('session_move', { id, folderId, sort }),
+  sessionReorder:   (folderId: number | null, ids: number[]) =>
+    invoke<void>('session_reorder', { folderId, ids }),
 
   // Credentials
   credentialList:   () => invoke<CredentialMeta[]>('credential_list'),
@@ -51,8 +59,8 @@ export const api = {
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
 
   // SSH
-  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean) =>
-    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny }),
+  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean, disableX11?: boolean) =>
+    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11 }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('ssh_write', { connectionId, bytes }),
   sshResize:     (connectionId: number, cols: number, rows: number) =>
@@ -82,6 +90,8 @@ export const api = {
     invoke<string>('sftp_realpath', { connectionId, path }),
   sftpUpload:   (connectionId: number, localPath: string, remotePath: string) =>
     invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
+  sftpUploadBytes: (connectionId: number, remotePath: string, bytes: number[]) =>
+    invoke<TransferTicket>('sftp_upload_bytes', { connectionId, remotePath, bytes }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
 
@@ -94,11 +104,32 @@ export const api = {
     invoke<void>('local_resize', { connectionId, cols, rows }),
   localDisconnect: (connectionId: number) =>
     invoke<void>('local_disconnect', { connectionId }),
+  localReady:      (connectionId: number) =>
+    invoke<void>('local_ready', { connectionId }),
   wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
   wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
 
   // X11 forwarding
   xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
+  xserverInstall:  () => invoke<string>('xserver_install'),
+
+  // Backup / restore
+  backupCreate: (path: string, masterPassword: string, passphrase: string) =>
+    invoke<BackupSummary>('backup_create', { path, masterPassword, passphrase }),
+  backupPreview: (path: string, passphrase: string) =>
+    invoke<BackupPreview>('backup_preview', { path, passphrase }),
+  backupRestore: (path: string, passphrase: string, selection: BackupSelection) =>
+    invoke<RestoreSummary>('backup_restore', { path, passphrase, selection }),
+
+  // Cloud sync (phase 1 = local folder, phase 2 = S3-compatible)
+  syncStatus:          () => invoke<SyncStatus>('sync_status'),
+  syncConfigureLocal:  (path: string, passphrase: string) =>
+    invoke<void>('sync_configure_local', { path, passphrase }),
+  syncConfigureS3:     (cfg: S3ConfigInput) =>
+    invoke<void>('sync_configure_s3', { cfg }),
+  syncDisable:         () => invoke<void>('sync_disable'),
+  syncPushNow:         () => invoke<void>('sync_push_now'),
+  syncPullToTemp:      () => invoke<string>('sync_pull_to_temp'),
 
   // Import
   mobaxtermPreview: (path: string) =>

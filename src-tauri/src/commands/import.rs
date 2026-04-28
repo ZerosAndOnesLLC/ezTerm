@@ -236,6 +236,7 @@ pub async fn mobaxterm_commit(
     }
 
     tx.commit().await?;
+    state.sync.trigger();
     Ok(result)
 }
 
@@ -373,10 +374,10 @@ async fn insert_imported_session(
     sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \
-         initial_command, scrollback_lines, font_size, cursor_style, \
+         initial_command, scrollback_lines, font_size, font_family, cursor_style, \
          compression, keepalive_secs, connect_timeout_secs, session_kind, \
-         forward_x11) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 5000, 13, 'block', 0, 0, 15, ?, 0)",
+         forward_x11, starting_dir) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 5000, 13, '', 'block', 0, 0, 15, ?, 0, NULL)",
     )
     .bind(folder_id)
     .bind(name)

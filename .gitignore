@@ -12,6 +12,14 @@ src-tauri/WixTools/
 src-tauri/*.msi
 src-tauri/*.exe
 
+# VcXsrv payload is pulled in during CI (Chocolatey install → copy into
+# src-tauri/vcxsrv/) so it gets bundled as a Windows resource. The tree
+# is large (~10 MB) and recreated every build, so keep it out of git —
+# but track `.gitkeep` so the directory itself exists and the bundler
+# glob (tauri.windows.conf.json: "vcxsrv/**/*") always matches.
+src-tauri/vcxsrv/*
+!src-tauri/vcxsrv/.gitkeep
+
 # ---------- Node / Next.js ----------
 node_modules/
 .next/
@@ -21,6 +29,10 @@ build/
 .turbo/
 .pnpm-store/
 tsconfig.tsbuildinfo
+
+# ---------- Updater signing keys (NEVER commit these) ----------
+.tauri-updater-key
+.tauri-updater-key.pub
 
 # ---------- Env & secrets ----------
 .env
@@ -54,3 +66,7 @@ yarn-error.log*
 
 # ---------- User-local MobaXterm exports (for import testing) ----------
 *.mxtsessions
+
+# ---------- Release staging scratch (gh release download) ----------
+tmp-release-hashes/
+.release-notes-*.md

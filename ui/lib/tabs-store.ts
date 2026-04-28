@@ -81,6 +81,7 @@ interface TabsState {
   setSftpOpen: (tabId: string, open: boolean) => void;
   setCwd:      (tabId: string, cwd: string) => void;
   setSession:  (tabId: string, session: Session) => void;
+  reorder:     (fromIndex: number, toIndex: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   toggleSidebar:       () => void;
 
@@ -189,6 +190,23 @@ export const useTabs = create<TabsState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, session } : t)),
     })),
+  reorder: (fromIndex, toIndex) =>
+    set((s) => {
+      if (
+        fromIndex === toIndex ||
+        fromIndex < 0 ||
+        fromIndex >= s.tabs.length ||
+        toIndex < 0 ||
+        toIndex > s.tabs.length
+      ) {
+        return {};
+      }
+      const next = s.tabs.slice();
+      const [moved] = next.splice(fromIndex, 1);
+      const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
+      next.splice(insertAt, 0, moved);
+      return { tabs: next };
+    }),
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
   toggleSidebar:       () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 

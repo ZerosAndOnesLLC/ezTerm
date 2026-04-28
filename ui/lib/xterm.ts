@@ -14,21 +14,52 @@ export interface TerminalBundle {
 }
 
 export interface TerminalOptionsOverride {
-  fontSize?: number;
+  fontSize?:   number;
   scrollback?: number;
   cursorStyle?: CursorStyle;
+  /** Optional per-session font stack. Empty / undefined falls back to
+   *  the app default ([`DEFAULT_FONT_STACK`]). Values from the Font
+   *  picker / session dialog are stored verbatim — we re-wrap unquoted
+   *  single-name stacks in quotes so CSS doesn't split them on spaces. */
+  fontFamily?: string;
+}
+
+/** Cross-OS default stack. `ui-monospace` resolves to the OS's native
+ *  mono font first (SF Mono on macOS, Consolas on Windows via WebView2,
+ *  a system mono on Linux), then we list popular OS-specific defaults
+ *  as fallbacks so distros without `ui-monospace` support still land on
+ *  something sensible. Exported so the Font picker can show what the
+ *  "(default)" preset expands to. */
+export const DEFAULT_FONT_STACK =
+  'ui-monospace, "Cascadia Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace';
+
+/** Normalise a user-provided font-family string into a CSS-safe stack.
+ *  A single name with spaces ("Fira Code") gets wrapped in quotes so
+ *  xterm doesn't hand CSS a broken family list; a name the user already
+ *  quoted or comma-joined passes through untouched. */
+export function resolveFontFamily(value: string | undefined | null): string {
+  if (!value) return DEFAULT_FONT_STACK;
+  const trimmed = value.trim();
+  if (!trimmed) return DEFAULT_FONT_STACK;
+  // Already a quoted stack or a comma-joined list — trust the caller.
+  if (trimmed.includes(',') || trimmed.includes('"') || trimmed.includes("'")) {
+    return trimmed;
+  }
+  // Single bare name: quote if it has any whitespace.
+  if (/\s/.test(trimmed)) return `"${trimmed}"`;
+  return trimmed;
 }
 
 /** Build an xterm.js Terminal with our fixed palette (dark, MobaXterm-like).
  *  Theme does NOT change with the chrome theme toggle per spec §4.3.
- *  Per-session overrides (font size, scrollback, cursor style) come from
- *  the sessions row; omitted fields fall back to the MobaXterm-aligned
- *  defaults below. */
+ *  Per-session overrides (font size, font family, scrollback, cursor
+ *  style) come from the sessions row; omitted fields fall back to the
+ *  MobaXterm-aligned defaults below. */
 export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBundle {
   const terminal = new Terminal({
     cursorBlink: true,
     cursorStyle: opts.cursorStyle ?? 'block',
-    fontFamily: '"Cascadia Mono", Consolas, ui-monospace, monospace',
+    fontFamily: resolveFontFamily(opts.fontFamily),
     fontSize: opts.fontSize ?? 14,
     scrollback: opts.scrollback ?? 5000,
     allowProposedApi: true,

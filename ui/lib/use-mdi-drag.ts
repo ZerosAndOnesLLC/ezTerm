@@ -4,7 +4,7 @@ import { useTabs } from './tabs-store';
 interface Args {
   tabId:  string;
   /** Ref to the MDI area container — used to read live width/height for clamping. */
-  areaRef: React.RefObject<HTMLDivElement>;
+  areaRef: React.RefObject<HTMLDivElement | null>;
   /** Called on mousedown so the consumer can flip a `dragging` flag for pointer-events suppression. */
   onDragStart?: () => void;
   /** Called on mouseup. */

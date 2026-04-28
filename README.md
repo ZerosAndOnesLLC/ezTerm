@@ -20,9 +20,11 @@ on those platforms.
   `explorer.exe`, and the rest of WSL interop Just Works.
 - **Local shells** — `cmd`, `powershell`, `pwsh`, or any absolute path, with an
   optional starting directory.
-- **X11 forwarding** against [VcXsrv](https://sourceforge.net/projects/vcxsrv/) —
+- **X11 forwarding** against bundled [VcXsrv](https://sourceforge.net/projects/vcxsrv/) —
   tick "Forward X11" on an SSH session and remote GUI apps (`xeyes`, `gedit`,
-  JetBrains tools, …) pop as native Windows windows.
+  JetBrains tools, …) pop as native Windows windows. The Windows release
+  tarball ships VcXsrv in a `vcxsrv/` subfolder so no separate install is
+  needed.
 - **MobaXterm import** — point at a `.mxtsessions` export or `MobaXterm.ini` and
   import SSH + WSL rows with their folder structure. Private-key files are read
   off disk and stored as encrypted vault credentials, auto-attached to the
@@ -82,10 +84,13 @@ Pre-built binaries live on the
 Extract, run the `ezterm` / `ezterm.exe` binary. No install step required — the
 UI is embedded in the executable.
 
-**Optional dependencies:**
-- Windows — X11 forwarding needs [VcXsrv](https://sourceforge.net/projects/vcxsrv/)
-  installed at `%ProgramFiles%\VcXsrv\`.
-- Linux — runtime requires `webkit2gtk-4.1` and `libssl` (matches the build host).
+**Runtime dependencies:**
+- **Windows** — the release tarball bundles VcXsrv in a `vcxsrv/` subfolder
+  next to `ezterm.exe`, so X11 forwarding works out of the box. If you'd
+  rather use a system install, delete the bundled folder and install
+  [VcXsrv](https://sourceforge.net/projects/vcxsrv/) at
+  `%ProgramFiles%\VcXsrv\` — ezTerm falls back to that path.
+- **Linux** — needs `webkit2gtk-4.1` and `libssl` (matches the build host).
 
 ## Dev quickstart
 
@@ -156,7 +161,7 @@ ezTerm is licensed under the **GNU General Public License, version 3** (GPLv3
 only — not "or later"). See [LICENSE](LICENSE) for the full text.
 
 Third-party components retain their own licences:
-- `russh`, `russh-keys`, `russh-sftp` — Apache 2.0
+- `russh`, `russh-sftp` — Apache 2.0
 - `sqlx`, `tokio` — MIT / Apache 2.0
 - `portable-pty` — MIT
 - `xterm.js` — MIT
