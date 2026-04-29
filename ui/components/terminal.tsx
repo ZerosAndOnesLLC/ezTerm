@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2, PlugZap } from 'lucide-react';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api, errMessage } from '@/lib/tauri';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { subscribeSshEvents } from '@/lib/ssh';
@@ -376,7 +377,12 @@ export function TerminalView({ tab, visible }: Props) {
 
   async function doCopy() {
     const sel = bundleRef.current?.terminal.getSelection();
-    if (sel) await navigator.clipboard.writeText(sel);
+    if (!sel) return;
+    // Tauri's clipboard plugin routes through native OS APIs (NSPasteboard
+    // on macOS, xclip/wl-clipboard on Linux, OLE on Windows). Using
+    // navigator.clipboard.* here would silently fail on Linux WebKitGTK
+    // (no permission prompt available) and is flaky on macOS WKWebView.
+    await writeText(sel);
   }
 
   /** Apply a font change live to the xterm instance, the ref, and any
@@ -431,7 +437,9 @@ export function TerminalView({ tab, visible }: Props) {
   }
 
   async function doPaste() {
-    const txt = await navigator.clipboard.readText();
+    // See doCopy — clipboard plugin instead of navigator.clipboard for
+    // cross-platform reliability on Linux/macOS.
+    const txt = await readText();
     if (!txt || !tab.connectionId) return;
     const bytes = new TextEncoder().encode(txt);
     await termApiRef.current.write(tab.connectionId, Array.from(bytes)).catch(() => {});
