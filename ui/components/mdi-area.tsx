@@ -61,10 +61,10 @@ export function MdiArea() {
       rootClass = 'absolute inset-0';
       break;
     case 'tile-h':
-      rootClass = 'absolute inset-0 flex flex-col gap-px bg-border';
+      rootClass = 'absolute inset-0 flex flex-col gap-px bg-borderStrong';
       break;
     case 'tile-v':
-      rootClass = 'absolute inset-0 flex flex-row gap-px bg-border';
+      rootClass = 'absolute inset-0 flex flex-row gap-px bg-borderStrong';
       break;
     case 'tile-grid':
     case 'auto': {
@@ -78,7 +78,7 @@ export function MdiArea() {
       } else {
         ({ rows, cols } = tileGrid);
       }
-      rootClass = 'absolute inset-0 grid gap-px bg-border overflow-auto';
+      rootClass = 'absolute inset-0 grid gap-px bg-borderStrong overflow-auto';
       rootStyle = {
         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
         gridTemplateRows:    `repeat(${rows}, minmax(160px, 1fr))`,
