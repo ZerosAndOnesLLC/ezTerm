@@ -63,12 +63,21 @@ export function TabSlot({
       slotStyle = {};
       break;
     case 'tile-flex':
-      slotClass = 'flex-1 min-w-0 min-h-0 bg-bg relative';
+      // ring-inset on the active cell costs zero pixels (the ring lives
+      // inside the box, doesn't push siblings) and gives the focused
+      // terminal an obvious accent border in dark mode where the
+      // bg-borderStrong divider alone is enough for spatial separation
+      // but doesn't flag which cell has focus.
+      slotClass = `flex-1 min-w-0 min-h-0 bg-bg relative ${
+        isActive ? 'ring-1 ring-inset ring-accent' : ''
+      }`;
       slotStyle = {};
       canFocusOnMouseDown = true;
       break;
     case 'tile-grid':
-      slotClass = 'min-w-0 min-h-0 bg-bg relative';
+      slotClass = `min-w-0 min-h-0 bg-bg relative ${
+        isActive ? 'ring-1 ring-inset ring-accent' : ''
+      }`;
       slotStyle = {};
       canFocusOnMouseDown = true;
       break;
@@ -90,8 +99,12 @@ export function TabSlot({
       const h = Math.min(g.h, Math.max(120, cascadeAreaH));
       const x = Math.max(0, Math.min(cascadeAreaW - w, g.x));
       const y = Math.max(0, Math.min(cascadeAreaH - h, g.y));
+      // Inactive cascade frames now use borderStrong so they stay
+      // visible against the cascade-area background in dark mode (the
+      // default --border was tuned for chrome and washed out here).
+      // Active frame keeps the accent border for "I have focus" signal.
       slotClass = `absolute bg-bg border rounded-md shadow-lg overflow-hidden ${
-        isActive ? 'border-accent' : 'border-border'
+        isActive ? 'border-accent' : 'border-borderStrong'
       }`;
       slotStyle = { left: x, top: y, width: w, height: h, zIndex: g.z };
       canFocusOnMouseDown = true;

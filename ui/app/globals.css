@@ -23,13 +23,17 @@
 :root {
   color-scheme: dark;
 
-  --bg:         24  26  30;
-  --surface:    32  34  39;
-  --surface-2:  42  45  52;
-  --border:     58  62  70;
-  --fg:        226 228 233;
-  --muted:     150 156 168;
-  --accent:     88 148 225;
+  --bg:           24  26  30;
+  --surface:      32  34  39;
+  --surface-2:    42  45  52;
+  --border:       58  62  70;
+  /* Stronger separator for load-bearing layout dividers (tile gaps,
+     cascade frame borders) — needs more contrast than --border, which
+     is tuned to stay quiet on inputs and chrome. */
+  --border-strong: 92  98 112;
+  --fg:          226 228 233;
+  --muted:       150 156 168;
+  --accent:       88 148 225;
 
   --success:    74 170 120;
   --warning:   220 170  70;
@@ -40,13 +44,17 @@
 .light {
   color-scheme: light;
 
-  --bg:        243 244 247;
-  --surface:   252 252 253;
-  --surface-2: 234 236 241;
-  --border:   205 209 217;
-  --fg:        24  27  33;
-  --muted:    100 109 123;
-  --accent:    30 110 205;
+  --bg:           243 244 247;
+  --surface:      252 252 253;
+  --surface-2:    234 236 241;
+  --border:       205 209 217;
+  /* Light-mode --border already shows separation fine; --border-strong
+     is only marginally darker so the dark-mode token has a sane light
+     counterpart and tile/cascade look consistent across themes. */
+  --border-strong: 188 194 205;
+  --fg:           24  27  33;
+  --muted:       100 109 123;
+  --accent:       30 110 205;
 
   --success:   30 130  80;
   --warning:  180 125  30;
