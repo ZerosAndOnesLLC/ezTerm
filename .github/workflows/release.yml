@@ -208,12 +208,22 @@ jobs:
             # Pipe the password to stdin so minisign doesn't try a tty
             # prompt. Trusted-comment matches the convention Tauri uses
             # on its sigs: timestamp + file basename, tab-separated.
+            # Sign to a raw file first, then base64-encode. Tauri's
+            # bundler ships .sig files in base64-wrapped form (so the
+            # contents drop straight into latest.json's `signature`
+            # field, which the updater plugin base64-decodes uniformly).
+            # minisign's native output is the raw multi-line sig file;
+            # if we used it directly the plugin's base64-decode of the
+            # signature field would fail on the literal space at offset 9
+            # ("untrusted comment:") with "Invalid symbol 32 offset 9".
             printf '%s\n' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
               | minisign -S \
                   -s "$KEY_FILE" \
                   -t "timestamp:${ts}	file:${base}" \
                   -m "$deb" \
-                  -x "${deb}.sig"
+                  -x "${deb}.sig.raw"
+            base64 -w 0 "${deb}.sig.raw" > "${deb}.sig"
+            rm -f "${deb}.sig.raw"
             echo "signed: ${deb}.sig"
           done
 
