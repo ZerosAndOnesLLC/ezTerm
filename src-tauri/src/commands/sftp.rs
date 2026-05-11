@@ -51,15 +51,13 @@ pub async fn sftp_open(state: State<'_, AppState>, connection_id: u64) -> Result
         .await
         .ok_or(AppError::NotFound)?;
 
-    // Open a second session channel on the same SSH handle, then request the
-    // `sftp` subsystem. We scope the lock on the russh handle so it's released
-    // before the (blocking-ish) SftpSession handshake runs.
-    let channel = {
-        let h = conn.ssh_handle.lock().await;
-        h.channel_open_session()
-            .await
-            .map_err(|e| AppError::Ssh(e.to_string()))?
-    };
+    // Open a second session channel on the same SSH handle, then request
+    // the `sftp` subsystem. `channel_open_session` takes `&self` so the
+    // shared Arc<Handle> needs no further synchronisation.
+    let channel = conn.ssh_handle
+        .channel_open_session()
+        .await
+        .map_err(|e| AppError::Ssh(e.to_string()))?;
     channel
         .request_subsystem(true, "sftp")
         .await

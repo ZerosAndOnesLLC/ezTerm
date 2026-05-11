@@ -7,7 +7,7 @@ use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::Channel;
 use tauri::AppHandle;
 use tauri::Emitter;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
 use crate::db;
@@ -53,6 +53,20 @@ pub struct ClientHandler {
     /// display the connect flow acquired on — default :0). `None` disables
     /// X11 forwarding handling; `server_channel_open_x11` drops the channel.
     x11_display: Option<u8>,
+    /// Shared dispatch table for inbound `forwarded-tcpip` channels.
+    /// Populated by `ssh::forwards::remote::start` when a `-R` forward
+    /// is created; the callback below looks up `(bind_addr, bind_port)`
+    /// and shoves the inbound russh channel onto the matching sender.
+    /// Same `Arc` is held on the owning `Connection`'s `Forwards` so
+    /// the russh callback never has to reach back through `AppState`.
+    ///
+    /// Uses `std::sync::RwLock` (not tokio's) because the callback only
+    /// holds the read lock long enough to clone an `mpsc::UnboundedSender`
+    /// out — no awaits while held — and the russh event loop benefits
+    /// from a non-blocking read path.
+    forwarded_tcpip_dispatch: std::sync::Arc<std::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>
+    >>,
 }
 
 impl client::Handler for ClientHandler {
@@ -108,6 +122,36 @@ impl client::Handler for ClientHandler {
             let b = tokio::io::copy(&mut tcp_r, &mut ch_w);
             let _ = tokio::join!(a, b);
         });
+        Ok(())
+    }
+
+    /// Server is forwarding a TCP connection back to us on a port we
+    /// previously requested via `tcpip_forward` (a Remote forward).
+    /// Route the channel to the right forward task; drop it (russh
+    /// closes server-side) if the forward has since been cancelled.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        let key = (connected_address.to_string(), connected_port);
+        let tx = {
+            let map = self.forwarded_tcpip_dispatch
+                .read()
+                .expect("forwarded_tcpip_dispatch poisoned");
+            map.get(&key).cloned()
+        };
+        // Unbounded sender — backpressure is already enforced by the
+        // SSH channel window. `send` only fails if the receiver was
+        // dropped, in which case the forward was cancelled mid-flight
+        // and dropping the channel is the right move.
+        if let Some(tx) = tx {
+            let _ = tx.send(channel);
+        }
         Ok(())
     }
 }
@@ -208,9 +252,18 @@ async fn connect_impl(
     } else {
         None
     };
+    // Shared dispatch table for Remote forwards. Same `Arc` lives on
+    // both the handler (read by the russh callback) and on the
+    // `Connection.forwards.dispatch` (written by `remote::start` /
+    // `remote::stop`). Reads run sync inside the russh event loop;
+    // writes are rare (forward setup/teardown only).
+    let forwarded_tcpip_dispatch: Arc<std::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>,
+    >> = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
     let handler = ClientHandler {
         server_key: server_key.clone(),
         x11_display,
+        forwarded_tcpip_dispatch: forwarded_tcpip_dispatch.clone(),
     };
     // russh's `client::connect` has no built-in deadline, so we bound the
     // whole handshake (TCP + KEX + host-key) with the user-configured
@@ -390,10 +443,16 @@ async fn connect_impl(
     // 6. Allocate connection id + mpsc + registry insert.
     let id = deps.ssh.alloc_id();
     let (tx, rx) = mpsc::unbounded_channel::<ConnectionInput>();
-    // Wrap the russh Handle in Arc<Mutex<..>> before ownership branches: the
-    // driver task needs it for the Close-branch disconnect, and SFTP (Plan 3)
-    // needs it to open a second session channel on demand.
-    let handle_mutex = Arc::new(Mutex::new(handle));
+    // Wrap the russh Handle in Arc<...> (no Mutex) before ownership
+    // branches: the driver task needs it for the Close-branch
+    // disconnect, SFTP opens session channels on it, and port-forwards
+    // open direct-tcpip / tcpip_forward on it. All those methods take
+    // `&self`, so a Mutex would only serialize concurrent channel opens.
+    let handle_arc = Arc::new(handle);
+    let forwards = Arc::new(crate::ssh::forwards::Forwards::with_dispatch(
+        forwarded_tcpip_dispatch.clone(),
+    ));
+    let forwards_for_scan = forwards.clone();
     deps.ssh
         .insert(Connection {
             id,
@@ -401,10 +460,81 @@ async fn connect_impl(
             port: session.port,
             user: session.username.clone(),
             stdin: tx,
-            ssh_handle: handle_mutex.clone(),
+            ssh_handle: handle_arc.clone(),
             x11_display,
+            forwards,
         })
         .await;
+
+    // Auto-start scan. Failures don't abort the connect — the terminal
+    // is still useful even when a forward is misconfigured. Errors
+    // surface through the forwards:status:{id} event so the side pane's
+    // row shows red, plus a tracing::warn for the log.
+    let db_for_scan = deps.db.clone();
+    let app_for_scan = app.clone();
+    let handle_for_scan = handle_arc.clone();
+    let session_id_for_scan = session.id;
+    tokio::spawn(async move {
+        let auto = match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("auto-start db query failed: {e}");
+                // Synthesize a status-event so the pane can show that
+                // auto-start was attempted but the DB scan blew up.
+                // persistent_id=0 + a sentinel spec is the agreed shape
+                // for "scan-level" errors (per-row failures have their
+                // own emit below carrying the real id).
+                let _ = app_for_scan.emit(
+                    &format!("forwards:status:{id}"),
+                    &serde_json::json!({
+                        "runtime_id":    0,
+                        "persistent_id": null,
+                        "spec":          {
+                            "name": "auto-start",
+                            "kind": "local",
+                            "bind_addr": "",
+                            "bind_port": 0,
+                            "dest_addr": "",
+                            "dest_port": 0,
+                        },
+                        "status":        { "status": "error", "message": format!("auto-start db query: {e}") },
+                    }),
+                );
+                return;
+            }
+        };
+        for f in auto {
+            let spec = match crate::commands::forwards::spec_from_db(&f) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("auto-start forward {} bad shape: {e}", f.id);
+                    continue;
+                }
+            };
+            if let Err(e) = crate::commands::forwards::start_inner(
+                id,
+                app_for_scan.clone(),
+                forwards_for_scan.clone(),
+                handle_for_scan.clone(),
+                spec.clone(),
+                Some(f.id),
+            ).await {
+                tracing::warn!(
+                    "auto-start forward {}:{} failed: {e}",
+                    spec.bind_addr, spec.bind_port,
+                );
+                let _ = app_for_scan.emit(
+                    &format!("forwards:status:{id}"),
+                    &serde_json::json!({
+                        "runtime_id":    0,
+                        "persistent_id": f.id,
+                        "spec":          spec,
+                        "status":        { "status": "error", "message": e.to_string() },
+                    }),
+                );
+            }
+        }
+    });
 
     // 7. Spawn driver.
     // Clone the two registry Arcs so the driver task can clean up its own
@@ -417,7 +547,7 @@ async fn connect_impl(
     tokio::spawn(drive_channel(
         app,
         id,
-        handle_mutex,
+        handle_arc,
         channel,
         rx,
         ssh_reg,
@@ -628,7 +758,7 @@ async fn check_known_host(
 async fn drive_channel(
     app: AppHandle,
     id: u64,
-    handle: Arc<Mutex<Handle<ClientHandler>>>,
+    handle: Arc<Handle<ClientHandler>>,
     mut channel: Channel<Msg>,
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
     ssh_reg: Arc<ConnectionRegistry>,
@@ -676,8 +806,6 @@ async fn drive_channel(
                     Some(ConnectionInput::Close) | None => {
                         let _ = channel.eof().await;
                         let _ = handle
-                            .lock()
-                            .await
                             .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
                             .await;
                         let _ = app.emit(&ev_close, serde_json::Value::Null);

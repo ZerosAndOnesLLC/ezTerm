@@ -4,6 +4,7 @@ import type { CSSProperties, RefObject } from 'react';
 import { useTabs, type Tab, type ViewMode } from '@/lib/tabs-store';
 import { CascadeChrome } from './cascade-chrome';
 import { SftpPane } from './sftp-pane';
+import { ForwardsPane } from './forwards-pane';
 
 const TerminalView = dynamic(
   () => import('./terminal').then((m) => m.TerminalView),
@@ -126,6 +127,8 @@ export function TabSlot({
   const showCascadeChrome = kind === 'cascade';
   const sftpVisible = kind === 'tabs' && tab.sftpOpen && tab.session.session_kind === 'ssh';
   const sftpMounted = tab.sftpOpen && tab.session.session_kind === 'ssh';
+  const forwardsVisible = kind === 'tabs' && tab.forwardsOpen && tab.session.session_kind === 'ssh';
+  const forwardsMounted = tab.forwardsOpen && tab.session.session_kind === 'ssh';
 
   // Terminal-host positioning:
   //   - tabs mode: real flex item next to the SftpPane (flex:1 fills the
@@ -185,6 +188,14 @@ export function TabSlot({
           style={{ display: sftpVisible ? 'flex' : 'none' }}
         >
           <SftpPane tab={tab} isVisible={sftpVisible} />
+        </div>
+      )}
+      {forwardsMounted && (
+        <div
+          key="forwards"
+          style={{ display: forwardsVisible ? 'flex' : 'none' }}
+        >
+          <ForwardsPane tab={tab} isVisible={forwardsVisible} />
         </div>
       )}
       <div

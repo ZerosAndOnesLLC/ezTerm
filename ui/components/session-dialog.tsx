@@ -1,15 +1,18 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeftRight,
   Cog,
   Cpu,
   Folder as FolderIcon,
   FolderOpen,
+  Globe2,
   Key,
   KeyRound,
   Minus,
   MonitorDot,
   Network,
+  Pencil,
   Plus,
   Server,
   Sliders,
@@ -30,11 +33,15 @@ import type {
   DetectedShell,
   EnvPair,
   Folder,
+  Forward,
+  ForwardKind,
   Platform,
   Session,
   SessionInput,
   SessionKind,
 } from '@/lib/types';
+import { forwardLabel } from '@/lib/forwards';
+import { ForwardDialog } from './forward-dialog';
 import { CredentialPicker } from './credential-picker';
 
 type Mode =
@@ -47,7 +54,7 @@ type Props = Mode & {
   onSaved: () => void;
 };
 
-type TabKey = 'general' | 'terminal' | 'advanced';
+type TabKey = 'general' | 'terminal' | 'advanced' | 'forwards';
 
 // Defaults mirror the Rust-side DB defaults (see migration
 // 20260420130000_session_advanced_settings.sql), with one deliberate exception:
@@ -272,6 +279,9 @@ export function SessionDialog(props: Props) {
             <TabButton id="general"  label="General"  icon={<Sliders size={13} />}   active={tab} onClick={setTab} />
             <TabButton id="terminal" label="Terminal" icon={<TerminalIcon size={13} />} active={tab} onClick={setTab} />
             <TabButton id="advanced" label="Advanced" icon={<Cog size={13} />}       active={tab} onClick={setTab} />
+            {v.session_kind === 'ssh' && (
+              <TabButton id="forwards" label="Forwards" icon={<Network size={13} />} active={tab} onClick={setTab} />
+            )}
           </nav>
 
           <div className="flex-1 min-w-0 overflow-y-auto p-5 space-y-4" role="tabpanel">
@@ -283,6 +293,9 @@ export function SessionDialog(props: Props) {
             )}
             {tab === 'advanced' && (
               <AdvancedPane v={v} setV={setV} />
+            )}
+            {tab === 'forwards' && (
+              <ForwardsConfigPane sessionId={editId} />
             )}
           </div>
         </div>
@@ -930,6 +943,84 @@ function KindOption({
 function defaultHostForKind(kind: SessionKind, shells: DetectedShell[] | null): string {
   if (kind === 'local') return shells?.[0]?.program ?? '';
   return '';
+}
+
+/** Forwards tab inside the session edit dialog. Only meaningful once the
+ *  session row exists — new (unsaved) sessions show a "save first" hint.
+ *  This avoids a clunky two-phase staging flow; users can save the
+ *  session, reopen the dialog, then add forwards. */
+function ForwardsConfigPane({ sessionId }: { sessionId: number | null }) {
+  const [rows, setRows] = useState<Forward[]>([]);
+  const [editing, setEditing] = useState<Forward | 'new' | null>(null);
+
+  useEffect(() => {
+    if (sessionId == null) return;
+    api.forwardList(sessionId).then(setRows).catch(() => {});
+  }, [sessionId]);
+
+  if (sessionId == null) {
+    return (
+      <div className="text-sm text-muted">
+        Save the session first to configure forwards.
+      </div>
+    );
+  }
+
+  const KindIcon = (kind: ForwardKind) =>
+    kind === 'local' ? ArrowLeftRight
+    : kind === 'remote' ? Server
+    : Globe2;
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <div className="text-sm text-muted">No forwards configured for this session.</div>
+      )}
+      {rows.map((r) => {
+        const Icon = KindIcon(r.kind);
+        return (
+          <div key={r.id} className="flex items-center justify-between border border-border rounded px-2 py-1.5 text-sm gap-2">
+            <Icon size={12} className="shrink-0 text-muted" />
+            <span className="font-mono text-xs truncate flex-1">{forwardLabel(r)}</span>
+            {r.auto_start === 1 && (
+              <span className="text-[10px] uppercase text-success/80 border border-success/30 rounded px-1">auto</span>
+            )}
+            <div className="flex gap-0.5 shrink-0">
+              <button title="Edit"
+                      className="p-1 rounded hover:bg-surface2 text-muted hover:text-fg"
+                      onClick={() => setEditing(r)}><Pencil size={12} /></button>
+              <button title="Delete"
+                      className="p-1 rounded hover:bg-surface2 text-muted hover:text-fg"
+                      onClick={async () => {
+                        await api.forwardDelete(r.id);
+                        setRows((cur) => cur.filter((x) => x.id !== r.id));
+                      }}><Trash2 size={12} /></button>
+            </div>
+          </div>
+        );
+      })}
+      <button type="button" className="btn-ghost text-sm" onClick={() => setEditing('new')}>
+        <Plus size={12} className="inline mr-0.5" /> Add forward
+      </button>
+      {editing === 'new' && (
+        <ForwardDialog mode="persistent-create" sessionId={sessionId}
+                       onClose={() => setEditing(null)}
+                       onSaved={(out) => {
+                         setRows((cur) => [...cur, out as Forward]);
+                         setEditing(null);
+                       }} />
+      )}
+      {editing && editing !== 'new' && (
+        <ForwardDialog mode="persistent-edit" forward={editing as Forward}
+                       onClose={() => setEditing(null)}
+                       onSaved={(out) => {
+                         const upd = out as Forward;
+                         setRows((cur) => cur.map((x) => x.id === upd.id ? upd : x));
+                         setEditing(null);
+                       }} />
+      )}
+    </div>
+  );
 }
 
 /** Panel-style grouping card. Mirrors MobaXterm's connection manager feel —

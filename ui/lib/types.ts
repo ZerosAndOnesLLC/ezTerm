@@ -98,6 +98,59 @@ export interface DetectedShell {
   program:      string;
 }
 
+// --- Port forwards ----------------------------------------------------------
+
+export type ForwardKind = 'local' | 'remote' | 'dynamic';
+
+export interface ForwardSpec {
+  name:      string;
+  kind:      ForwardKind;
+  bind_addr: string;
+  bind_port: number;
+  dest_addr: string;
+  dest_port: number;
+}
+
+export interface Forward {
+  id:         number;
+  session_id: number;
+  name:       string;
+  kind:       ForwardKind;
+  bind_addr:  string;
+  bind_port:  number;
+  dest_addr:  string;
+  dest_port:  number;
+  auto_start: number;
+  sort:       number;
+  created_at: string;
+}
+
+export interface ForwardInput {
+  name:       string;
+  kind:       ForwardKind;
+  bind_addr:  string;
+  bind_port:  number;
+  dest_addr:  string;
+  dest_port:  number;
+  auto_start: number;
+}
+
+export type ForwardStatus =
+  | { status: 'running' }
+  | { status: 'stopped' }
+  | { status: 'error'; message: string };
+
+export interface RuntimeForward {
+  runtime_id:    number;
+  persistent_id: number | null;
+  spec:          ForwardSpec;
+  status:        ForwardStatus;
+}
+
+export type ForwardStartTarget =
+  | { kind: 'persistent'; id: number }
+  | { kind: 'ephemeral';  spec: ForwardSpec };
+
 // --- Backup / restore -----------------------------------------------------
 
 export interface BackupSummary {

@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 pub mod credentials;
 pub mod folders;
+pub mod forwards;
 pub mod known_hosts;
 pub mod sessions;
 pub mod settings;
