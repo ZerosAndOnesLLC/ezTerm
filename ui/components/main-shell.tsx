@@ -86,6 +86,40 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Local Shells autodetect — runs on every platform. On Unix it seeds
+  // entries from /etc/shells; on Windows it seeds cmd, powershell, and
+  // pwsh-if-installed alongside the existing WSL folder. Same idempotent
+  // semantics as the WSL flow above.
+  const localShellsAutodetectRan = useRef(false);
+  useEffect(() => {
+    if (localShellsAutodetectRan.current) return;
+    localShellsAutodetectRan.current = true;
+    let cancelled = false;
+    api.localShellsAutodetectSeed()
+      .then((n) => {
+        if (cancelled) return;
+        if (n > 0) {
+          toast.success(
+            'Local shells detected',
+            `Added ${n} session${n === 1 ? '' : 's'} to the Local Shells folder.`,
+          );
+        } else {
+          toast.info(
+            'Local shells autodetect',
+            'No new shells detected (or all already present).',
+          );
+        }
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        toast.danger(
+          'Local shells autodetect failed',
+          String((e as { message?: string })?.message ?? e),
+        );
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   // Global Ctrl+B toggles the sidebar.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

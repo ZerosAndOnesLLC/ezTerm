@@ -27,8 +27,10 @@ import { fontChoicesForOS } from '@/lib/fonts';
 import type {
   AuthType,
   CursorStyle,
+  DetectedShell,
   EnvPair,
   Folder,
+  Platform,
   Session,
   SessionInput,
   SessionKind,
@@ -362,13 +364,30 @@ function GeneralPane({
   folders: Folder[];
   credKind: 'password' | 'private_key' | null;
 }) {
+  // Detected local shells + platform feed the local-kind UI. Fetched
+  // once per dialog mount; both backend calls are cheap and idempotent.
+  // We keep `shells` as null until loaded so the dropdown can render a
+  // sensible loading state instead of flashing "Custom".
+  const [shells, setShells] = useState<DetectedShell[] | null>(null);
+  const [platform, setPlatform] = useState<Platform | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.listLocalShells().then((s) => { if (!cancelled) setShells(s); }).catch(() => {
+      if (!cancelled) setShells([]);
+    });
+    api.getPlatform().then((p) => { if (!cancelled) setPlatform(p); }).catch(() => {
+      if (!cancelled) setPlatform('other');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   function switchKind(next: SessionKind) {
     // Reset kind-specific fields when switching so stale values don't leak
     // across kinds (port only makes sense for ssh; credentials only for ssh).
     setV((cur) => ({
       ...cur,
       session_kind: next,
-      host: next === cur.session_kind ? cur.host : defaultHost(next),
+      host: next === cur.session_kind ? cur.host : defaultHostForKind(next, shells),
       port: next === 'ssh' ? (cur.port || 22) : 0,
       username: next === cur.session_kind ? cur.username : '',
       auth_type: next === 'ssh' ? cur.auth_type : 'agent',
@@ -379,6 +398,7 @@ function GeneralPane({
   const isSsh   = v.session_kind === 'ssh';
   const isWsl   = v.session_kind === 'wsl';
   const isLocal = v.session_kind === 'local';
+  const isWindows = platform === 'windows';
 
   return (
     <>
@@ -395,7 +415,8 @@ function GeneralPane({
           <KindOption
             value="local" current={v.session_kind} Icon={MonitorDot}
             onSelect={switchKind}
-            title="Local Shell" hint="cmd / PowerShell / pwsh" />
+            title="Local Shell"
+            hint={isWindows ? 'cmd / PowerShell / pwsh' : 'bash / zsh / fish / …'} />
         </div>
       </Section>
 
@@ -491,29 +512,39 @@ function GeneralPane({
           <>
             <Field
               label="Shell"
-              hint="Short name or absolute path. Short names resolve via %PATH%."
+              hint={
+                isWindows
+                  ? 'Short name or absolute path. Short names resolve via %PATH%.'
+                  : 'Pick a detected shell or enter a custom binary path.'
+              }
             >
               <IconSlot icon={TerminalIcon}>
                 <select
-                  value={['cmd', 'pwsh', 'powershell'].includes(v.host) ? v.host : '__custom'}
+                  value={
+                    shells?.some((s) => s.program === v.host) ? v.host : '__custom'
+                  }
                   onChange={(e) => {
                     const val = e.target.value;
                     setV({ ...v, host: val === '__custom' ? (v.host || '') : val });
                   }}
                   className="input font-mono pl-8"
                 >
-                  <option value="cmd">cmd</option>
-                  <option value="pwsh">pwsh</option>
-                  <option value="powershell">powershell</option>
+                  {(shells ?? []).map((s) => (
+                    <option key={s.program} value={s.program}>{s.display_name}</option>
+                  ))}
                   <option value="__custom">Custom path…</option>
                 </select>
               </IconSlot>
-              {!['cmd', 'pwsh', 'powershell'].includes(v.host) && (
+              {!shells?.some((s) => s.program === v.host) && (
                 <input
                   value={v.host}
                   onChange={(e) => setV({ ...v, host: e.target.value })}
                   className="input font-mono mt-2"
-                  placeholder={'C:\\Program Files\\Git\\bin\\bash.exe'}
+                  placeholder={
+                    isWindows
+                      ? 'C:\\Program Files\\Git\\bin\\bash.exe'
+                      : '/usr/local/bin/fish'
+                  }
                 />
               )}
             </Field>
@@ -523,7 +554,7 @@ function GeneralPane({
                   value={v.username}
                   onChange={(e) => setV({ ...v, username: e.target.value })}
                   className="input font-mono pl-8"
-                  placeholder={'C:\\Users\\you\\projects'}
+                  placeholder={isWindows ? 'C:\\Users\\you\\projects' : '/home/you/projects'}
                 />
               </IconSlot>
             </Field>
@@ -892,8 +923,12 @@ function KindOption({
   );
 }
 
-function defaultHost(kind: SessionKind): string {
-  if (kind === 'local') return 'cmd';
+/** Pick a sensible `host` default when the user switches `session_kind`.
+ *  For local shells we prefer the first detected shell (so the dropdown
+ *  has a real selection rather than the "Custom path…" placeholder),
+ *  falling back to an empty string while detection is in flight. */
+function defaultHostForKind(kind: SessionKind, shells: DetectedShell[] | null): string {
+  if (kind === 'local') return shells?.[0]?.program ?? '';
   return '';
 }
 

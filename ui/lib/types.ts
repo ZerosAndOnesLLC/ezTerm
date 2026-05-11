@@ -85,6 +85,19 @@ export interface XServerStatus {
   running_displays: number[];
 }
 
+/** Build target reported by the backend. Used to branch behavior in
+ *  the UI without pulling in tauri-plugin-os. */
+export type Platform = 'windows' | 'macos' | 'linux' | 'other';
+
+/** A shell the backend found on this host. `display_name` is the
+ *  human-readable label (basename on Unix, short id on Windows);
+ *  `program` is what gets stored in `Session.host` and handed back to
+ *  the spawn command. */
+export interface DetectedShell {
+  display_name: string;
+  program:      string;
+}
+
 // --- Backup / restore -----------------------------------------------------
 
 export interface BackupSummary {

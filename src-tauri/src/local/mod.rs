@@ -32,6 +32,7 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 pub mod registry;
+pub mod shells;
 
 pub use registry::{Connection, LocalInput, LocalRegistry};
 
@@ -192,25 +193,57 @@ fn build_command(
             c.arg(cd);
             Ok(c)
         }
-        "local" => {
-            let exe = match program.trim() {
-                "" | "cmd" => "cmd.exe",
-                "pwsh" => "pwsh.exe",
-                "powershell" => "powershell.exe",
-                other => other,
-            };
-            let mut c = CommandBuilder::new(exe);
-            if exe.ends_with("pwsh.exe") || exe.ends_with("powershell.exe") {
-                c.arg("-NoLogo");
-            }
-            let cwd = extra.trim();
-            if !cwd.is_empty() {
-                c.cwd(cwd);
-            }
-            Ok(c)
-        }
+        "local" => build_local_command(program, extra),
         _ => Err(AppError::Validation(format!("invalid session kind: {kind}"))),
     }
+}
+
+#[cfg(windows)]
+fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
+    let exe = match program.trim() {
+        "" | "cmd" => "cmd.exe",
+        "pwsh" => "pwsh.exe",
+        "powershell" => "powershell.exe",
+        other => other,
+    };
+    let mut c = CommandBuilder::new(exe);
+    if exe.ends_with("pwsh.exe") || exe.ends_with("powershell.exe") {
+        c.arg("-NoLogo");
+    }
+    let cwd = extra.trim();
+    if !cwd.is_empty() {
+        c.cwd(cwd);
+    }
+    Ok(c)
+}
+
+/// Unix `local` shell launcher. `program` is an absolute shell binary
+/// path (e.g. `/bin/bash`); blank falls back to `$SHELL` then `/bin/sh`.
+/// `extra` is an optional cwd, mirroring Windows local semantics.
+///
+/// Always invoked as a login shell (`-l`). On macOS especially, Terminal.app
+/// runs login shells so PATH and the user's profile env (Homebrew, asdf,
+/// etc.) are populated; matching that avoids "command not found" surprises.
+#[cfg(unix)]
+fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
+    let shell = match program.trim() {
+        "" => std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
+        other => other.to_string(),
+    };
+    let mut c = CommandBuilder::new(&shell);
+    c.arg("-l");
+    let cwd = extra.trim();
+    if !cwd.is_empty() {
+        c.cwd(cwd);
+    }
+    Ok(c)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn build_local_command(_program: &str, _extra: &str) -> Result<CommandBuilder> {
+    Err(AppError::Validation(
+        "local shells are not supported on this platform".into(),
+    ))
 }
 
 /// Convenience for the Tauri command layer. Takes a `i64` session id and
