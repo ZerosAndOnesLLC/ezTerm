@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
   Platform, DetectedShell,
+  Forward, ForwardInput, RuntimeForward, ForwardStartTarget,
   BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
   SyncStatus, S3ConfigInput,
 } from './types';
@@ -113,6 +115,26 @@ export const api = {
   listLocalShells: () => invoke<DetectedShell[]>('list_local_shells'),
   getPlatform:     () => invoke<Platform>('platform'),
 
+  // Port forwards (persistent)
+  forwardList:    (sessionId: number) => invoke<Forward[]>('forward_list', { sessionId }),
+  forwardCreate:  (sessionId: number, input: ForwardInput) =>
+    invoke<Forward>('forward_create', { sessionId, input }),
+  forwardUpdate:  (id: number, input: ForwardInput) =>
+    invoke<Forward>('forward_update', { id, input }),
+  forwardDelete:  (id: number) => invoke<void>('forward_delete', { id }),
+  forwardReorder: (sessionId: number, ids: number[]) =>
+    invoke<void>('forward_reorder', { sessionId, ids }),
+
+  // Port forwards (runtime)
+  forwardRuntimeList: (connectionId: number) =>
+    invoke<RuntimeForward[]>('forward_runtime_list', { connectionId }),
+  forwardStart: (connectionId: number, target: ForwardStartTarget) =>
+    invoke<RuntimeForward>('forward_start', { connectionId, target }),
+  forwardStop: (connectionId: number, runtimeId: number) =>
+    invoke<void>('forward_stop', { connectionId, runtimeId }),
+  forwardStopAll: (connectionId: number) =>
+    invoke<void>('forward_stop_all', { connectionId }),
+
   // X11 forwarding
   xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
   xserverInstall:  () => invoke<string>('xserver_install'),
@@ -141,3 +163,16 @@ export const api = {
   mobaxtermCommit:  (sessions: ParsedMobaSession[], duplicateStrategy: MobaDuplicateStrategy) =>
     invoke<MobaImportResult>('mobaxterm_commit', { sessions, duplicateStrategy }),
 };
+
+/** Subscribe to forwards:status:{connectionId} events. Returns an
+ *  unsubscribe function. Callers should call it on unmount. */
+export async function subscribeForwardEvents(
+  connectionId: number,
+  onUpdate: (rf: RuntimeForward) => void,
+): Promise<() => void> {
+  const un = await listen<RuntimeForward>(
+    `forwards:status:${connectionId}`,
+    (e) => onUpdate(e.payload),
+  );
+  return () => { un(); };
+}
