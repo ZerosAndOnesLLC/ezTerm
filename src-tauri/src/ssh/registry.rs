@@ -34,6 +34,10 @@ pub struct Connection {
     /// dead-code lint can't see through that.
     #[allow(dead_code)]
     pub x11_display: Option<u8>,
+    /// Per-connection port-forwarding runtime. Created empty at insert
+    /// time; populated by `commands::forwards::forward_start` and by
+    /// the auto-start scan in `connect_impl`.
+    pub forwards: std::sync::Arc<crate::ssh::forwards::Forwards>,
 }
 
 pub enum ConnectionInput {
@@ -86,6 +90,10 @@ impl ConnectionRegistry {
     pub async fn close(&self, id: u64) {
         let conn = self.inner.write().await.remove(&id);
         if let Some(c) = conn {
+            // Stop forwards before signalling the driver to drop the
+            // russh handle — Remote forwards need the handle for
+            // cancel_tcpip_forward at teardown.
+            c.forwards.stop_all().await;
             let _ = c.stdin.send(ConnectionInput::Close);
         }
     }

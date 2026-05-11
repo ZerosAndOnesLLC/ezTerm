@@ -53,6 +53,15 @@ pub struct ClientHandler {
     /// display the connect flow acquired on — default :0). `None` disables
     /// X11 forwarding handling; `server_channel_open_x11` drops the channel.
     x11_display: Option<u8>,
+    /// Shared dispatch table for inbound `forwarded-tcpip` channels.
+    /// Populated by `ssh::forwards::remote::start` when a `-R` forward
+    /// is created; the callback below looks up `(bind_addr, bind_port)`
+    /// and shoves the inbound russh channel onto the matching sender.
+    /// Same `Arc` is held on the owning `Connection`'s `Forwards` so
+    /// the russh callback never has to reach back through `AppState`.
+    forwarded_tcpip_dispatch: std::sync::Arc<tokio::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::Sender<russh::Channel<Msg>>>
+    >>,
 }
 
 impl client::Handler for ClientHandler {
@@ -108,6 +117,33 @@ impl client::Handler for ClientHandler {
             let b = tokio::io::copy(&mut tcp_r, &mut ch_w);
             let _ = tokio::join!(a, b);
         });
+        Ok(())
+    }
+
+    /// Server is forwarding a TCP connection back to us on a port we
+    /// previously requested via `tcpip_forward` (a Remote forward).
+    /// Route the channel to the right forward task; drop it (russh
+    /// closes server-side) if the forward has since been cancelled.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        let key = (connected_address.to_string(), connected_port);
+        let tx = {
+            let map = self.forwarded_tcpip_dispatch.read().await;
+            map.get(&key).cloned()
+        };
+        if let Some(tx) = tx {
+            // try_send so we never block russh's event loop. If the
+            // forward task is wedged, drop the channel — pragmatic
+            // backpressure for what should be a low-volume inflow.
+            let _ = tx.try_send(channel);
+        }
         Ok(())
     }
 }
@@ -208,9 +244,18 @@ async fn connect_impl(
     } else {
         None
     };
+    // Shared dispatch table for Remote forwards. Same `Arc` lives on
+    // both the handler (read by the russh callback) and on the
+    // `Connection.forwards.dispatch` (written by `remote::start` /
+    // `remote::stop`). No lock contention between the two — writes only
+    // happen from forward setup/teardown; reads only from the callback.
+    let forwarded_tcpip_dispatch: Arc<tokio::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::Sender<russh::Channel<Msg>>>,
+    >> = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
     let handler = ClientHandler {
         server_key: server_key.clone(),
         x11_display,
+        forwarded_tcpip_dispatch: forwarded_tcpip_dispatch.clone(),
     };
     // russh's `client::connect` has no built-in deadline, so we bound the
     // whole handshake (TCP + KEX + host-key) with the user-configured
@@ -394,6 +439,9 @@ async fn connect_impl(
     // driver task needs it for the Close-branch disconnect, and SFTP (Plan 3)
     // needs it to open a second session channel on demand.
     let handle_mutex = Arc::new(Mutex::new(handle));
+    let forwards = Arc::new(crate::ssh::forwards::Forwards::with_dispatch(
+        forwarded_tcpip_dispatch.clone(),
+    ));
     deps.ssh
         .insert(Connection {
             id,
@@ -403,6 +451,7 @@ async fn connect_impl(
             stdin: tx,
             ssh_handle: handle_mutex.clone(),
             x11_display,
+            forwards,
         })
         .await;
 
