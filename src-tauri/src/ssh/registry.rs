@@ -71,6 +71,14 @@ impl ConnectionRegistry {
         self.inner.read().await.get(&id).cloned()
     }
 
+    /// Snapshot of every live connection. Used by command paths that
+    /// need to touch every tab's per-connection forwards state — e.g.
+    /// updating or deleting a persistent forward that's currently
+    /// running in one or more tabs.
+    pub async fn list_all(&self) -> Vec<Arc<Connection>> {
+        self.inner.read().await.values().cloned().collect()
+    }
+
     pub async fn write(&self, id: u64, bytes: Vec<u8>) -> bool {
         if let Some(conn) = self.get(id).await {
             conn.stdin.send(ConnectionInput::Bytes(bytes)).is_ok()

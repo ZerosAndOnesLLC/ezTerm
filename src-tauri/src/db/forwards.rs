@@ -61,6 +61,18 @@ pub fn validate_input(input: &ForwardInput) -> Result<()> {
     if !(1..=65535).contains(&input.bind_port) {
         return Err(AppError::Validation("bind_port must be 1..=65535".into()));
     }
+    // Defense-in-depth: reject bind_addr values that can't parse to an
+    // IP (or the `localhost` alias) at save time. Otherwise garbage
+    // like "0.0.0.0; rm -rf /" or "::1 #comment" only fails at start
+    // time, possibly after a long delay.
+    let trimmed = input.bind_addr.trim();
+    if !trimmed.eq_ignore_ascii_case("localhost")
+        && trimmed.parse::<std::net::IpAddr>().is_err()
+    {
+        return Err(AppError::Validation(format!(
+            "bind_addr {trimmed:?} must be an IP literal or `localhost`",
+        )));
+    }
     Ok(())
 }
 

@@ -38,17 +38,86 @@ pub async fn forward_create(
 #[tauri::command]
 pub async fn forward_update(
     state: State<'_, AppState>,
+    app: AppHandle,
     id: i64,
     input: db::forwards::ForwardInput,
 ) -> Result<db::forwards::Forward> {
     require_unlocked(&state).await?;
-    db::forwards::update(&state.db, id, &input).await
+    // Stop any currently-running runtime forwards backed by this
+    // persistent id BEFORE writing the DB. Capture the connection ids
+    // we stopped on so we can re-start with the new spec.
+    let stopped_on = stop_runtimes_for_persistent(&state, id).await;
+    let updated = db::forwards::update(&state.db, id, &input).await?;
+    // Re-start using the freshly-updated row so the new spec is what
+    // goes live. Failures emit error events as usual; we don't fail
+    // the command — the DB row update succeeded, restart is a best
+    // effort.
+    let new_spec = match spec_from_db(&updated) {
+        Ok(s) => s,
+        Err(_) => return Ok(updated),
+    };
+    for conn in stopped_on {
+        let handle = conn.ssh_handle.clone();
+        let forwards = conn.forwards.clone();
+        let app2 = app.clone();
+        let spec = new_spec.clone();
+        let cid = conn.id;
+        tokio::spawn(async move {
+            if let Err(e) = start_inner(cid, app2.clone(), forwards, handle, spec.clone(), Some(id)).await {
+                tracing::warn!(
+                    "post-update restart of forward {}:{} failed: {e}",
+                    spec.bind_addr, spec.bind_port,
+                );
+                let _ = app2.emit(
+                    &format!("forwards:status:{cid}"),
+                    &serde_json::json!({
+                        "runtime_id":    0,
+                        "persistent_id": id,
+                        "spec":          spec,
+                        "status":        { "status": "error", "message": format!("restart after edit: {e}") },
+                    }),
+                );
+            }
+        });
+    }
+    Ok(updated)
 }
 
 #[tauri::command]
 pub async fn forward_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     require_unlocked(&state).await?;
+    // Stop any running runtime forwards for this persistent id before
+    // dropping the DB row. Otherwise a running -R keeps tunneling to
+    // a destination the user thought they deleted.
+    let _ = stop_runtimes_for_persistent(&state, id).await;
     db::forwards::delete(&state.db, id).await
+}
+
+/// Stop every runtime forward across all connections whose
+/// `persistent_id` matches the given id. Returns the connections we
+/// stopped on so callers can restart the forward on the same tabs
+/// with a new spec (see `forward_update`).
+async fn stop_runtimes_for_persistent(
+    state: &State<'_, AppState>,
+    id: i64,
+) -> Vec<Arc<crate::ssh::registry::Connection>> {
+    let mut stopped_on: Vec<Arc<crate::ssh::registry::Connection>> = Vec::new();
+    for conn in state.ssh.list_all().await {
+        let runtimes = conn.forwards.list().await;
+        let mut touched = false;
+        for rt in runtimes {
+            if rt.persistent_id == Some(id) {
+                if let Some(rf) = conn.forwards.remove(rt.runtime_id).await {
+                    if let Some(tx) = rf.stop_tx.lock().await.take() {
+                        let _ = tx.send(());
+                    }
+                }
+                touched = true;
+            }
+        }
+        if touched { stopped_on.push(conn); }
+    }
+    stopped_on
 }
 
 #[tauri::command]
