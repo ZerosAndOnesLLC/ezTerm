@@ -87,11 +87,12 @@ pub fn parse_request(buf: &[u8]) -> Result<ConnectRequest, Socks5Error> {
     Ok(ConnectRequest { host, port })
 }
 
-/// Reply byte codes (RFC 1928 §6).
+/// Reply byte codes (RFC 1928 §6). We only need the ones we currently
+/// emit — others can be added if the dispatch ever needs to distinguish
+/// e.g. host-unreachable from connection-refused.
 pub mod rep {
     pub const SUCCESS:                    u8 = 0x00;
     pub const GENERAL_FAILURE:            u8 = 0x01;
-    pub const HOST_UNREACHABLE:           u8 = 0x04;
     pub const CONNECTION_REFUSED:         u8 = 0x05;
     pub const COMMAND_NOT_SUPPORTED:      u8 = 0x07;
     pub const ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;

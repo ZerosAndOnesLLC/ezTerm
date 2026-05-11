@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod credentials;
 pub mod folders;
+pub mod forwards;
 pub mod import;
 pub mod local;
 pub mod scp;

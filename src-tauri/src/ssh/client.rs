@@ -442,6 +442,7 @@ async fn connect_impl(
     let forwards = Arc::new(crate::ssh::forwards::Forwards::with_dispatch(
         forwarded_tcpip_dispatch.clone(),
     ));
+    let forwards_for_scan = forwards.clone();
     deps.ssh
         .insert(Connection {
             id,
@@ -454,6 +455,51 @@ async fn connect_impl(
             forwards,
         })
         .await;
+
+    // Auto-start scan. Failures don't abort the connect — the terminal
+    // is still useful even when a forward is misconfigured. Errors
+    // surface through the forwards:status:{id} event so the side pane's
+    // row shows red, plus a tracing::warn for the log.
+    let db_for_scan = deps.db.clone();
+    let app_for_scan = app.clone();
+    let handle_for_scan = handle_mutex.clone();
+    let session_id_for_scan = session.id;
+    tokio::spawn(async move {
+        let auto = crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan)
+            .await
+            .unwrap_or_default();
+        for f in auto {
+            let spec = match crate::commands::forwards::spec_from_db(&f) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("auto-start forward {} bad shape: {e}", f.id);
+                    continue;
+                }
+            };
+            if let Err(e) = crate::commands::forwards::start_inner(
+                id,
+                app_for_scan.clone(),
+                forwards_for_scan.clone(),
+                handle_for_scan.clone(),
+                spec.clone(),
+                Some(f.id),
+            ).await {
+                tracing::warn!(
+                    "auto-start forward {}:{} failed: {e}",
+                    spec.bind_addr, spec.bind_port,
+                );
+                let _ = app_for_scan.emit(
+                    &format!("forwards:status:{id}"),
+                    &serde_json::json!({
+                        "runtime_id":    0,
+                        "persistent_id": f.id,
+                        "spec":          spec,
+                        "status":        { "status": "error", "message": e.to_string() },
+                    }),
+                );
+            }
+        }
+    });
 
     // 7. Spawn driver.
     // Clone the two registry Arcs so the driver task can clean up its own

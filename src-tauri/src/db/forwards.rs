@@ -1,8 +1,3 @@
-// Temporary dead-code allow until #50 wires the command surface that
-// exercises these items. Remove this attribute when commands/forwards.rs
-// lands.
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 

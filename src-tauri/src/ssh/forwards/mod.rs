@@ -14,10 +14,6 @@
 //! Dropping it triggers the listener task to exit; per-connection pumps
 //! die naturally when either side EOFs.
 
-// Temporary dead-code allow until #50 wires the command surface and
-// runtime implementations. Remove when commands/forwards.rs lands.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -45,8 +41,14 @@ pub struct ForwardSpec {
     pub dest_port: u16,      //  0 for Dynamic
 }
 
+/// `Starting` and `Restarting` cross the JSON boundary as part of the
+/// status-event payload but aren't (yet) emitted by Rust — the runtime
+/// jumps straight to `Running` on a successful bind. They stay in the
+/// enum so the frontend's exhaustive `ForwardStatus` discriminator
+/// covers every payload it may need to render during edit-in-place.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
+#[allow(dead_code)]
 pub enum ForwardStatus {
     Starting,
     Running,
@@ -99,8 +101,6 @@ pub struct Forwards {
 }
 
 impl Forwards {
-    pub fn new() -> Self { Self::default() }
-
     /// Construct a `Forwards` that shares its dispatch map with an
     /// already-built `ClientHandler`. Used by `connect_impl`.
     pub fn with_dispatch(
@@ -124,10 +124,6 @@ impl Forwards {
 
     pub async fn remove(&self, id: u64) -> Option<Arc<RuntimeForward>> {
         self.by_id.write().await.remove(&id)
-    }
-
-    pub async fn get(&self, id: u64) -> Option<Arc<RuntimeForward>> {
-        self.by_id.read().await.get(&id).cloned()
     }
 
     pub async fn list(&self) -> Vec<RuntimeForwardSummary> {
