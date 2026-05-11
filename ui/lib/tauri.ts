@@ -4,6 +4,7 @@ import type {
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
+  Platform, DetectedShell,
   BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
   SyncStatus, S3ConfigInput,
 } from './types';
@@ -108,6 +109,9 @@ export const api = {
     invoke<void>('local_ready', { connectionId }),
   wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
   wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
+  localShellsAutodetectSeed: () => invoke<number>('local_shells_autodetect_seed'),
+  listLocalShells: () => invoke<DetectedShell[]>('list_local_shells'),
+  getPlatform:     () => invoke<Platform>('platform'),
 
   // X11 forwarding
   xserverStatus:   () => invoke<XServerStatus>('xserver_status'),
