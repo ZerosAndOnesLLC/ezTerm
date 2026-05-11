@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { FolderTree, Terminal, X } from 'lucide-react';
+import { FolderTree, Network, Terminal, X } from 'lucide-react';
 import { useTabs } from '@/lib/tabs-store';
 import { MdiArea } from './mdi-area';
 import { ViewModeToolbar } from './view-mode-toolbar';
@@ -124,6 +124,22 @@ export function TabsShell() {
                   className="icon-btn w-5 h-5 ml-1"
                 >
                   <FolderTree size={12} />
+                </button>
+              )}
+              {t.session.session_kind === 'ssh' && (
+                <button
+                  type="button"
+                  draggable={false}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useTabs.getState().setForwardsOpen(t.tabId, !t.forwardsOpen);
+                  }}
+                  title={t.forwardsOpen ? 'Hide forwards pane' : 'Show forwards pane'}
+                  aria-label={t.forwardsOpen ? 'Hide forwards pane' : 'Show forwards pane'}
+                  aria-pressed={t.forwardsOpen}
+                  className="icon-btn w-5 h-5"
+                >
+                  <Network size={12} />
                 </button>
               )}
               <button

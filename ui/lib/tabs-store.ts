@@ -20,6 +20,7 @@ export interface Tab {
   status:       TabStatus;
   errorMessage: string | null;
   sftpOpen:     boolean;
+  forwardsOpen: boolean;
   cwd:          string;
 }
 
@@ -78,7 +79,8 @@ interface TabsState {
   setActive:  (tabId: string | null) => void;
   close:      (tabId: string) => void;
   clear:      () => void;
-  setSftpOpen: (tabId: string, open: boolean) => void;
+  setSftpOpen:     (tabId: string, open: boolean) => void;
+  setForwardsOpen: (tabId: string, open: boolean) => void;
   setCwd:      (tabId: string, cwd: string) => void;
   setSession:  (tabId: string, session: Session) => void;
   reorder:     (fromIndex: number, toIndex: number) => void;
@@ -148,6 +150,7 @@ export const useTabs = create<TabsState>((set, get) => ({
             status: 'connecting',
             errorMessage: null,
             sftpOpen: false,
+            forwardsOpen: false,
             cwd: '/',
           },
         ],
@@ -181,6 +184,10 @@ export const useTabs = create<TabsState>((set, get) => ({
   setSftpOpen: (tabId, open) =>
     set((s) => ({
       tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, sftpOpen: open } : t)),
+    })),
+  setForwardsOpen: (tabId, open) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, forwardsOpen: open } : t)),
     })),
   setCwd: (tabId, cwd) =>
     set((s) => ({
