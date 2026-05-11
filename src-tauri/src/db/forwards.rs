@@ -161,17 +161,6 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn reorder(pool: &SqlitePool, session_id: i64, ids: &[i64]) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    for (i, fid) in ids.iter().enumerate() {
-        sqlx::query("UPDATE session_forwards SET sort = ? WHERE id = ? AND session_id = ?")
-            .bind(i as i64).bind(fid).bind(session_id)
-            .execute(&mut *tx).await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -104,7 +104,6 @@ async fn main() {
             commands::forwards::forward_create,
             commands::forwards::forward_update,
             commands::forwards::forward_delete,
-            commands::forwards::forward_reorder,
             commands::forwards::forward_runtime_list,
             commands::forwards::forward_start,
             commands::forwards::forward_stop,

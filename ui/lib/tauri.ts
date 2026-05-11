@@ -122,8 +122,6 @@ export const api = {
   forwardUpdate:  (id: number, input: ForwardInput) =>
     invoke<Forward>('forward_update', { id, input }),
   forwardDelete:  (id: number) => invoke<void>('forward_delete', { id }),
-  forwardReorder: (sessionId: number, ids: number[]) =>
-    invoke<void>('forward_reorder', { sessionId, ids }),
 
   // Port forwards (runtime)
   forwardRuntimeList: (connectionId: number) =>

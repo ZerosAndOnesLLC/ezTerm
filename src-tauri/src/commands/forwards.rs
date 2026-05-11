@@ -120,16 +120,6 @@ async fn stop_runtimes_for_persistent(
     stopped_on
 }
 
-#[tauri::command]
-pub async fn forward_reorder(
-    state: State<'_, AppState>,
-    session_id: i64,
-    ids: Vec<i64>,
-) -> Result<()> {
-    require_unlocked(&state).await?;
-    db::forwards::reorder(&state.db, session_id, &ids).await
-}
-
 // ---------- Runtime ----------
 
 #[derive(Debug, Deserialize)]

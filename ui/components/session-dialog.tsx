@@ -40,6 +40,7 @@ import type {
   SessionInput,
   SessionKind,
 } from '@/lib/types';
+import { forwardLabel } from '@/lib/forwards';
 import { ForwardDialog } from './forward-dialog';
 import { CredentialPicker } from './credential-picker';
 
@@ -965,12 +966,6 @@ function ForwardsConfigPane({ sessionId }: { sessionId: number | null }) {
     );
   }
 
-  function autoLabel(f: Forward): string {
-    if (f.name) return f.name;
-    if (f.kind === 'dynamic') return `SOCKS5 @ ${f.bind_addr}:${f.bind_port}`;
-    return `${f.bind_addr}:${f.bind_port} → ${f.dest_addr}:${f.dest_port}`;
-  }
-
   const KindIcon = (kind: ForwardKind) =>
     kind === 'local' ? ArrowLeftRight
     : kind === 'remote' ? Server
@@ -986,7 +981,7 @@ function ForwardsConfigPane({ sessionId }: { sessionId: number | null }) {
         return (
           <div key={r.id} className="flex items-center justify-between border border-border rounded px-2 py-1.5 text-sm gap-2">
             <Icon size={12} className="shrink-0 text-muted" />
-            <span className="font-mono text-xs truncate flex-1">{autoLabel(r)}</span>
+            <span className="font-mono text-xs truncate flex-1">{forwardLabel(r)}</span>
             {r.auto_start === 1 && (
               <span className="text-[10px] uppercase text-success/80 border border-success/30 rounded px-1">auto</span>
             )}
