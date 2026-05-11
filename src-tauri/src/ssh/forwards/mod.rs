@@ -15,17 +15,66 @@
 //! die naturally when either side EOFs.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 
 use russh::{client::Msg, Channel};
 
+use crate::error::{AppError, Result};
+
 pub mod local;
 pub mod remote;
 pub mod socks5;
 pub mod dynamic;
+
+/// Copy-bidirectional buffer size for all forward kinds. SSH max packet
+/// size is ~64 KiB on modern servers; matching it lets a single stream
+/// fill the SSH channel window between window-adjust round-trips.
+pub const COPY_BUF: usize = 64 * 1024;
+
+/// Cap on concurrent in-flight pumps per forward. Sheds excess load
+/// (`try_acquire_owned` drops the accept) instead of letting tasks pile
+/// up under accept floods.
+pub const MAX_INFLIGHT_PER_FORWARD: usize = 256;
+
+/// SOCKS5 / Local / Dynamic per-stage read timeout. A client that
+/// dribbles bytes (slowloris) loses its task + FD after this.
+pub const SOCKS5_READ_TIMEOUT_SECS: u64 = 10;
+
+/// Parse `bind_addr` into a `SocketAddr`. Accepts an IPv4/IPv6 literal
+/// or the special `localhost` alias; rejects unparseable values. Needed
+/// so IPv6 literals like `::1` produce the right `SocketAddr` rather
+/// than the surprise `format!("{}:{}", "::1", 5432)` mash-up.
+pub fn bind_socket(bind_addr: &str, port: u16) -> Result<std::net::SocketAddr> {
+    let trimmed = bind_addr.trim();
+    if trimmed.eq_ignore_ascii_case("localhost") {
+        return Ok(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+    }
+    let ip: std::net::IpAddr = trimmed.parse().map_err(|_| {
+        AppError::Validation(format!(
+            "bind_addr {trimmed:?} must be an IP literal or `localhost`",
+        ))
+    })?;
+    Ok(std::net::SocketAddr::new(ip, port))
+}
+
+/// Format a bind-failure error message. Detects `AddrInUse` and emits
+/// the friendlier "another ezTerm tab?" hint promised by the spec.
+pub fn format_bind_error(bind_addr: &str, port: u16, err: &std::io::Error) -> String {
+    if err.kind() == std::io::ErrorKind::AddrInUse {
+        format!(
+            "bind {bind_addr}:{port} in use (another ezTerm tab, or a different app on this port?)"
+        )
+    } else if err.kind() == std::io::ErrorKind::PermissionDenied {
+        format!(
+            "bind {bind_addr}:{port} permission denied (ports below 1024 typically require admin/root)"
+        )
+    } else {
+        format!("bind {bind_addr}:{port}: {err}")
+    }
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -93,18 +142,23 @@ impl RuntimeForward {
 /// the owning forward's task. The dispatch `Arc` is shared with the
 /// owning `ClientHandler` so the russh callback can route without
 /// reaching back through `AppState`.
+///
+/// `dispatch` is `std::sync::RwLock` (not tokio's) because the russh
+/// callback reads it under a `&mut self` async context but only holds
+/// the lock long enough to clone an `UnboundedSender` out — no awaits
+/// while held.
 #[derive(Default)]
 pub struct Forwards {
     pub by_id:    RwLock<HashMap<u64, Arc<RuntimeForward>>>,
     pub next_id:  std::sync::atomic::AtomicU64,
-    pub dispatch: Arc<RwLock<HashMap<(String, u32), mpsc::Sender<Channel<Msg>>>>>,
+    pub dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
 }
 
 impl Forwards {
     /// Construct a `Forwards` that shares its dispatch map with an
     /// already-built `ClientHandler`. Used by `connect_impl`.
     pub fn with_dispatch(
-        dispatch: Arc<RwLock<HashMap<(String, u32), mpsc::Sender<Channel<Msg>>>>>,
+        dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
     ) -> Self {
         Self {
             by_id: Default::default(),

@@ -161,7 +161,7 @@ pub(crate) async fn start_inner(
     connection_id: u64,
     app: AppHandle,
     forwards: Arc<crate::ssh::forwards::Forwards>,
-    handle: Arc<tokio::sync::Mutex<russh::client::Handle<crate::ssh::client::ClientHandler>>>,
+    handle: Arc<russh::client::Handle<crate::ssh::client::ClientHandler>>,
     spec: ForwardSpec,
     persistent_id: Option<i64>,
 ) -> Result<RuntimeForwardSummary> {

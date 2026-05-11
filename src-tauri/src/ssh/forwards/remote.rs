@@ -5,41 +5,52 @@
 //! per-Connection dispatch map.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 
 use russh::client::{Handle, Msg};
 use russh::Channel;
-use tokio::io::copy_bidirectional;
+use tokio::io::copy_bidirectional_with_sizes;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
-use super::{ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary};
+use super::{ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary, COPY_BUF};
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
 
-const INBOUND_QUEUE_DEPTH: usize = 32;
-
 pub async fn start(
-    handle: Arc<Mutex<Handle<ClientHandler>>>,
-    dispatch: Arc<RwLock<HashMap<(String, u32), mpsc::Sender<Channel<Msg>>>>>,
+    handle: Arc<Handle<ClientHandler>>,
+    dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
     spec: ForwardSpec,
     runtime_id: u64,
     persistent_id: Option<i64>,
     on_status: Arc<dyn Fn(RuntimeForwardSummary) + Send + Sync>,
 ) -> Result<Arc<RuntimeForward>> {
     let key = (spec.bind_addr.clone(), spec.bind_port as u32);
-    let (tx, mut rx) = mpsc::channel::<Channel<Msg>>(INBOUND_QUEUE_DEPTH);
-    dispatch.write().await.insert(key.clone(), tx);
+
+    // Per-connection dedupe: refuse a duplicate (bind_addr, bind_port)
+    // registration. Otherwise a server could re-deliver channels into
+    // an unrelated forward task that happens to share the key.
+    {
+        let map = dispatch.read().expect("dispatch poisoned");
+        if map.contains_key(&key) {
+            return Err(AppError::Validation(format!(
+                "{}:{} is already bound by another forward on this session",
+                spec.bind_addr, spec.bind_port,
+            )));
+        }
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<Channel<Msg>>();
+    dispatch.write().expect("dispatch poisoned").insert(key.clone(), tx);
 
     // Request the forward on the server side. If the server rejects
     // (AllowTcpForwarding=no, port-in-use on remote, etc.), back out
     // the dispatch entry and surface the error to the command layer.
-    let req = {
-        let h = handle.lock().await;
-        h.tcpip_forward(spec.bind_addr.clone(), spec.bind_port as u32).await
-    };
-    if let Err(e) = req {
-        dispatch.write().await.remove(&key);
+    if let Err(e) = handle
+        .tcpip_forward(spec.bind_addr.clone(), spec.bind_port as u32)
+        .await
+    {
+        dispatch.write().expect("dispatch poisoned").remove(&key);
         return Err(AppError::Ssh(format!(
             "tcpip_forward {}:{}: {e}",
             spec.bind_addr, spec.bind_port,
@@ -75,28 +86,30 @@ pub async fn start(
                         ).await {
                             Ok(t) => t,
                             Err(e) => {
-                                tracing::warn!(
-                                    "remote forward dest connect {dest_addr}:{dest_port} failed: {e}",
+                                tracing::debug!(
+                                    "remote forward dest connect failed: {e}",
                                 );
                                 return;
                             }
                         };
                         let mut stream = channel.into_stream();
-                        let _ = copy_bidirectional(&mut stream, &mut tcp).await;
+                        let _ = copy_bidirectional_with_sizes(
+                            &mut stream, &mut tcp, COPY_BUF, COPY_BUF,
+                        ).await;
                     });
                 }
             }
         }
-        // Cancel on the server, drop the dispatch entry, then mark stopped.
-        let _ = {
-            let h = handle_task.lock().await;
-            h.cancel_tcpip_forward(spec_task.bind_addr.clone(), spec_task.bind_port as u32).await
-        };
-        dispatch_task.write().await.remove(&key_task);
+        // Drop the dispatch entry BEFORE awaiting cancel_tcpip_forward
+        // so we don't keep accepting channels into a now-dropped mpsc
+        // while waiting for the server's reply.
+        dispatch_task.write().expect("dispatch poisoned").remove(&key_task);
+        let _ = handle_task
+            .cancel_tcpip_forward(spec_task.bind_addr.clone(), spec_task.bind_port as u32)
+            .await;
         rf_task.set_status(ForwardStatus::Stopped);
         on_status_task(rf_task.summary());
     });
 
-    on_status(rf.summary());
     Ok(rf)
 }

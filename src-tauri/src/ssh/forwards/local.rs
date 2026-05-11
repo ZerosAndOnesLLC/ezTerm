@@ -4,13 +4,12 @@
 
 use std::sync::Arc;
 
-use russh::client::{Handle, Msg};
-use russh::Channel;
-use tokio::io::copy_bidirectional;
+use russh::client::Handle;
+use tokio::io::copy_bidirectional_with_sizes;
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, Semaphore};
 
-use super::{ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary};
+use super::{bind_socket, ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary, COPY_BUF, MAX_INFLIGHT_PER_FORWARD};
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
 
@@ -18,15 +17,15 @@ use crate::ssh::client::ClientHandler;
 /// (status = Running on success); bind failures surface as
 /// `AppError::Ssh` so the command layer can emit them as an error event.
 pub async fn start(
-    handle: Arc<Mutex<Handle<ClientHandler>>>,
+    handle: Arc<Handle<ClientHandler>>,
     spec: ForwardSpec,
     runtime_id: u64,
     persistent_id: Option<i64>,
     on_status: Arc<dyn Fn(RuntimeForwardSummary) + Send + Sync>,
 ) -> Result<Arc<RuntimeForward>> {
-    let bind = format!("{}:{}", spec.bind_addr, spec.bind_port);
-    let listener = TcpListener::bind(&bind).await.map_err(|e| {
-        AppError::Ssh(format!("local forward bind {bind}: {e}"))
+    let bind = bind_socket(&spec.bind_addr, spec.bind_port)?;
+    let listener = TcpListener::bind(bind).await.map_err(|e| {
+        AppError::Ssh(super::format_bind_error(&spec.bind_addr, spec.bind_port, &e))
     })?;
 
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
@@ -40,6 +39,7 @@ pub async fn start(
 
     let rf_task = rf.clone();
     let on_status_task = on_status.clone();
+    let inflight = Arc::new(Semaphore::new(MAX_INFLIGHT_PER_FORWARD));
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -56,29 +56,42 @@ pub async fn start(
                             break;
                         }
                     };
+                    // Acquire a permit before spawning. `try_acquire_owned`
+                    // sheds excess load instead of letting tasks pile up.
+                    let permit = match inflight.clone().try_acquire_owned() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            tracing::warn!(
+                                "local forward {}:{} dropping accept — {} in-flight",
+                                spec.bind_addr, spec.bind_port, MAX_INFLIGHT_PER_FORWARD,
+                            );
+                            continue;
+                        }
+                    };
                     let handle = handle.clone();
-                    let spec = spec.clone();
+                    let dest_addr = spec.dest_addr.clone();
+                    let dest_port = spec.dest_port;
                     tokio::spawn(async move {
-                        let chan = {
-                            let h = handle.lock().await;
-                            h.channel_open_direct_tcpip(
-                                spec.dest_addr.clone(),
-                                spec.dest_port as u32,
-                                peer.ip().to_string(),
-                                peer.port() as u32,
-                            ).await
-                        };
+                        let _p = permit;
+                        let chan = handle.channel_open_direct_tcpip(
+                            dest_addr.clone(),
+                            dest_port as u32,
+                            peer.ip().to_string(),
+                            peer.port() as u32,
+                        ).await;
                         let channel = match chan {
                             Ok(c) => c,
                             Err(e) => {
-                                tracing::warn!(
-                                    "local forward direct-tcpip {}:{} failed: {e}",
-                                    spec.dest_addr, spec.dest_port,
+                                tracing::debug!(
+                                    "local forward direct-tcpip open failed: {e}",
                                 );
                                 return;
                             }
                         };
-                        pump(channel, &mut tcp).await;
+                        let mut stream = channel.into_stream();
+                        let _ = copy_bidirectional_with_sizes(
+                            &mut stream, &mut tcp, COPY_BUF, COPY_BUF,
+                        ).await;
                     });
                 }
             }
@@ -87,11 +100,8 @@ pub async fn start(
         on_status_task(rf_task.summary());
     });
 
-    on_status(rf.summary());
+    // Note: do NOT emit Running here — the command layer's awaited
+    // return value already carries the same summary, and emitting both
+    // makes the UI render the row twice for every Start.
     Ok(rf)
-}
-
-async fn pump(channel: Channel<Msg>, tcp: &mut tokio::net::TcpStream) {
-    let mut stream = channel.into_stream();
-    let _ = copy_bidirectional(&mut stream, tcp).await;
 }

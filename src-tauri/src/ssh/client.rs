@@ -7,7 +7,7 @@ use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::Channel;
 use tauri::AppHandle;
 use tauri::Emitter;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
 use crate::db;
@@ -59,8 +59,13 @@ pub struct ClientHandler {
     /// and shoves the inbound russh channel onto the matching sender.
     /// Same `Arc` is held on the owning `Connection`'s `Forwards` so
     /// the russh callback never has to reach back through `AppState`.
-    forwarded_tcpip_dispatch: std::sync::Arc<tokio::sync::RwLock<
-        std::collections::HashMap<(String, u32), tokio::sync::mpsc::Sender<russh::Channel<Msg>>>
+    ///
+    /// Uses `std::sync::RwLock` (not tokio's) because the callback only
+    /// holds the read lock long enough to clone an `mpsc::UnboundedSender`
+    /// out — no awaits while held — and the russh event loop benefits
+    /// from a non-blocking read path.
+    forwarded_tcpip_dispatch: std::sync::Arc<std::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>
     >>,
 }
 
@@ -135,14 +140,17 @@ impl client::Handler for ClientHandler {
     ) -> std::result::Result<(), Self::Error> {
         let key = (connected_address.to_string(), connected_port);
         let tx = {
-            let map = self.forwarded_tcpip_dispatch.read().await;
+            let map = self.forwarded_tcpip_dispatch
+                .read()
+                .expect("forwarded_tcpip_dispatch poisoned");
             map.get(&key).cloned()
         };
+        // Unbounded sender — backpressure is already enforced by the
+        // SSH channel window. `send` only fails if the receiver was
+        // dropped, in which case the forward was cancelled mid-flight
+        // and dropping the channel is the right move.
         if let Some(tx) = tx {
-            // try_send so we never block russh's event loop. If the
-            // forward task is wedged, drop the channel — pragmatic
-            // backpressure for what should be a low-volume inflow.
-            let _ = tx.try_send(channel);
+            let _ = tx.send(channel);
         }
         Ok(())
     }
@@ -247,11 +255,11 @@ async fn connect_impl(
     // Shared dispatch table for Remote forwards. Same `Arc` lives on
     // both the handler (read by the russh callback) and on the
     // `Connection.forwards.dispatch` (written by `remote::start` /
-    // `remote::stop`). No lock contention between the two — writes only
-    // happen from forward setup/teardown; reads only from the callback.
-    let forwarded_tcpip_dispatch: Arc<tokio::sync::RwLock<
-        std::collections::HashMap<(String, u32), tokio::sync::mpsc::Sender<russh::Channel<Msg>>>,
-    >> = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+    // `remote::stop`). Reads run sync inside the russh event loop;
+    // writes are rare (forward setup/teardown only).
+    let forwarded_tcpip_dispatch: Arc<std::sync::RwLock<
+        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>,
+    >> = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
     let handler = ClientHandler {
         server_key: server_key.clone(),
         x11_display,
@@ -435,10 +443,12 @@ async fn connect_impl(
     // 6. Allocate connection id + mpsc + registry insert.
     let id = deps.ssh.alloc_id();
     let (tx, rx) = mpsc::unbounded_channel::<ConnectionInput>();
-    // Wrap the russh Handle in Arc<Mutex<..>> before ownership branches: the
-    // driver task needs it for the Close-branch disconnect, and SFTP (Plan 3)
-    // needs it to open a second session channel on demand.
-    let handle_mutex = Arc::new(Mutex::new(handle));
+    // Wrap the russh Handle in Arc<...> (no Mutex) before ownership
+    // branches: the driver task needs it for the Close-branch
+    // disconnect, SFTP opens session channels on it, and port-forwards
+    // open direct-tcpip / tcpip_forward on it. All those methods take
+    // `&self`, so a Mutex would only serialize concurrent channel opens.
+    let handle_arc = Arc::new(handle);
     let forwards = Arc::new(crate::ssh::forwards::Forwards::with_dispatch(
         forwarded_tcpip_dispatch.clone(),
     ));
@@ -450,7 +460,7 @@ async fn connect_impl(
             port: session.port,
             user: session.username.clone(),
             stdin: tx,
-            ssh_handle: handle_mutex.clone(),
+            ssh_handle: handle_arc.clone(),
             x11_display,
             forwards,
         })
@@ -462,7 +472,7 @@ async fn connect_impl(
     // row shows red, plus a tracing::warn for the log.
     let db_for_scan = deps.db.clone();
     let app_for_scan = app.clone();
-    let handle_for_scan = handle_mutex.clone();
+    let handle_for_scan = handle_arc.clone();
     let session_id_for_scan = session.id;
     tokio::spawn(async move {
         let auto = crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan)
@@ -512,7 +522,7 @@ async fn connect_impl(
     tokio::spawn(drive_channel(
         app,
         id,
-        handle_mutex,
+        handle_arc,
         channel,
         rx,
         ssh_reg,
@@ -723,7 +733,7 @@ async fn check_known_host(
 async fn drive_channel(
     app: AppHandle,
     id: u64,
-    handle: Arc<Mutex<Handle<ClientHandler>>>,
+    handle: Arc<Handle<ClientHandler>>,
     mut channel: Channel<Msg>,
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
     ssh_reg: Arc<ConnectionRegistry>,
@@ -771,8 +781,6 @@ async fn drive_channel(
                     Some(ConnectionInput::Close) | None => {
                         let _ = channel.eof().await;
                         let _ = handle
-                            .lock()
-                            .await
                             .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
                             .await;
                         let _ = app.emit(&ev_close, serde_json::Value::Null);
