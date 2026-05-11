@@ -136,10 +136,8 @@ export interface ForwardInput {
 }
 
 export type ForwardStatus =
-  | { status: 'starting'   }
-  | { status: 'running'    }
-  | { status: 'restarting' }
-  | { status: 'stopped'    }
+  | { status: 'running' }
+  | { status: 'stopped' }
   | { status: 'error'; message: string };
 
 export interface RuntimeForward {

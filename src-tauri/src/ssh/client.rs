@@ -475,9 +475,34 @@ async fn connect_impl(
     let handle_for_scan = handle_arc.clone();
     let session_id_for_scan = session.id;
     tokio::spawn(async move {
-        let auto = crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan)
-            .await
-            .unwrap_or_default();
+        let auto = match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("auto-start db query failed: {e}");
+                // Synthesize a status-event so the pane can show that
+                // auto-start was attempted but the DB scan blew up.
+                // persistent_id=0 + a sentinel spec is the agreed shape
+                // for "scan-level" errors (per-row failures have their
+                // own emit below carrying the real id).
+                let _ = app_for_scan.emit(
+                    &format!("forwards:status:{id}"),
+                    &serde_json::json!({
+                        "runtime_id":    0,
+                        "persistent_id": null,
+                        "spec":          {
+                            "name": "auto-start",
+                            "kind": "local",
+                            "bind_addr": "",
+                            "bind_port": 0,
+                            "dest_addr": "",
+                            "dest_port": 0,
+                        },
+                        "status":        { "status": "error", "message": format!("auto-start db query: {e}") },
+                    }),
+                );
+                return;
+            }
+        };
         for f in auto {
             let spec = match crate::commands::forwards::spec_from_db(&f) {
                 Ok(s) => s,

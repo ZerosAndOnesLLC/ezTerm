@@ -90,18 +90,15 @@ pub struct ForwardSpec {
     pub dest_port: u16,      //  0 for Dynamic
 }
 
-/// `Starting` and `Restarting` cross the JSON boundary as part of the
-/// status-event payload but aren't (yet) emitted by Rust — the runtime
-/// jumps straight to `Running` on a successful bind. They stay in the
-/// enum so the frontend's exhaustive `ForwardStatus` discriminator
-/// covers every payload it may need to render during edit-in-place.
+/// Forward lifecycle states. The runtime emits `Running` (after a
+/// successful bind / `tcpip_forward`), `Stopped` (after the listener
+/// task exits cleanly), and `Error { message }` (bind failure, accept
+/// failure, server-side reject). Edit-while-running is implemented as
+/// stop + re-start, surfacing as a `Stopped → Running` transition.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
-#[allow(dead_code)]
 pub enum ForwardStatus {
-    Starting,
     Running,
-    Restarting,
     Stopped,
     Error { message: String },
 }

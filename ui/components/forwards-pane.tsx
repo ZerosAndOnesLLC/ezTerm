@@ -22,12 +22,11 @@ function autoLabelSpec(p: { name: string; kind: ForwardKind; bind_addr: string;
   return `${p.bind_addr}:${p.bind_port} → ${p.dest_addr}:${p.dest_port}`;
 }
 
-type RowStatus = 'idle' | 'running' | 'pending' | 'error';
+type RowStatus = 'idle' | 'running' | 'error';
 
 function statusClasses(s: RowStatus): string {
   switch (s) {
     case 'running': return 'bg-success';
-    case 'pending': return 'bg-warning animate-pulse';
     case 'error':   return 'bg-danger';
     default:        return 'bg-muted/60';
   }
@@ -36,11 +35,9 @@ function statusClasses(s: RowStatus): string {
 function rfStatus(rf: RuntimeForward | undefined): RowStatus {
   if (!rf) return 'idle';
   switch (rf.status.status) {
-    case 'running':    return 'running';
-    case 'starting':
-    case 'restarting': return 'pending';
-    case 'error':      return 'error';
-    default:           return 'idle';
+    case 'running': return 'running';
+    case 'error':   return 'error';
+    default:        return 'idle';
   }
 }
 
@@ -67,6 +64,18 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
     let unsub: (() => void) | undefined;
     api.forwardRuntimeList(connectionId).then(setRuntime).catch(() => {});
     subscribeForwardEvents(connectionId, (rf) => {
+      // Errors emitted from the runtime (bind, server reject,
+      // auto-start scan failure) are async — the user isn't standing
+      // at a command await. Surface them as a toast as well as in the
+      // pane row so they don't get missed.
+      if (rf.status.status === 'error') {
+        const labelSrc = rf.spec.name
+          ? rf.spec.name
+          : rf.spec.kind === 'dynamic'
+              ? `SOCKS5 @ ${rf.spec.bind_addr}:${rf.spec.bind_port}`
+              : `${rf.spec.bind_addr}:${rf.spec.bind_port} → ${rf.spec.dest_addr}:${rf.spec.dest_port}`;
+        toast.danger(`Forward failed — ${labelSrc}`, rf.status.message);
+      }
       setRuntime((cur) => {
         const idx = cur.findIndex((x) => x.runtime_id === rf.runtime_id);
         if (rf.status.status === 'stopped') {
