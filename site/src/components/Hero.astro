@@ -8,7 +8,7 @@ const VERSION = 'v1.3.4'; // bump per release; see plan §commit convention
   <div class="absolute inset-0 pointer-events-none dark-glow" aria-hidden="true"></div>
 
   <div class="relative max-w-5xl mx-auto px-6 pt-24 pb-20">
-    <p class="text-sm font-medium text-site-accent font-mono mb-4">// open-source ssh client for windows</p>
+    <p class="text-sm font-medium text-site-accent font-mono mb-4">// open-source ssh client — windows, linux, macos</p>
     <h1 class="text-5xl md:text-6xl font-bold tracking-tight leading-tight mb-5">
       An SSH client that<br />respects your terminal.
     </h1>
@@ -17,14 +17,17 @@ const VERSION = 'v1.3.4'; // bump per release; see plan §commit convention
       port forwarding, and an encrypted credential vault — all in one tabbed client.
     </p>
 
-    <div class="flex flex-wrap gap-3 items-center">
-      <a
-        href={RELEASES_LATEST}
-        class="inline-flex items-center gap-2 bg-site-accent text-black font-semibold px-5 py-2.5 rounded text-sm hover:brightness-110 transition"
-      >
-        Download for Windows
-        <span class="opacity-60 font-normal">{VERSION}</span>
-      </a>
+    <div class="flex flex-wrap gap-3 items-start">
+      <div class="flex flex-col gap-1">
+        <a
+          href={RELEASES_LATEST}
+          class="inline-flex items-center gap-2 bg-site-accent text-black font-semibold px-5 py-2.5 rounded text-sm hover:brightness-110 transition"
+        >
+          Download
+          <span class="opacity-60 font-normal">{VERSION}</span>
+        </a>
+        <span class="text-xs text-site-fg-muted px-1">Windows · Linux · macOS</span>
+      </div>
       <a
         href={REPO}
         class="inline-flex items-center gap-2 border border-site-border text-site-fg px-5 py-2.5 rounded text-sm hover:bg-site-bg-elevated transition"
