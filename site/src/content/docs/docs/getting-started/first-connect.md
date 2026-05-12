@@ -22,7 +22,7 @@ The session appears in the sidebar.
 
 Double-click the saved session (or right-click → Connect). A new tab opens.
 
-- On **first connect**, ezTerm shows the server's host-key fingerprint. Verify it matches what your server admin published, then click **Trust**. Subsequent connects use the stored key — a mismatch is a hard failure (see [SSH docs](/docs/features/ssh/) for TOFU details).
+- On **first connect**, ezTerm shows the server's host-key fingerprint. Verify it matches what your server admin published, then click **Trust**. Subsequent connects use the stored key — a mismatch is a hard failure (see [SSH docs](../features/ssh/) for TOFU details).
 - If auth fails, an inline overlay appears in the tab — fix the credentials there without closing the tab.
 
 ## What you can do now

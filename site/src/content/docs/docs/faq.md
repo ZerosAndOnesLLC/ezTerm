@@ -17,7 +17,7 @@ Smaller binary (~20 MB vs ~150 MB), lower memory, and the Rust backend handles a
 
 ## Can I run my own X server instead of the bundled VcXsrv?
 
-Yes — install VcXsrv at `%ProgramFiles%\VcXsrv\` and delete the `vcxsrv/` folder next to `ezterm.exe`. See [X11 forwarding](/docs/features/x11-forwarding/).
+Yes — install VcXsrv at `%ProgramFiles%\VcXsrv\` and delete the `vcxsrv/` folder next to `ezterm.exe`. See [X11 forwarding](./features/x11-forwarding/).
 
 ## Does it support Telnet / RDP / serial?
 
@@ -25,7 +25,7 @@ No, and not planned. ezTerm is SSH-focused. Out of scope: Telnet, RDP, serial, X
 
 ## How do I import existing sessions?
 
-From MobaXterm — see [Import from MobaXterm](/docs/getting-started/importing-from-mobaxterm/). Importers for PuTTY / SecureCRT are not in v1 but tracked on the issue board.
+From MobaXterm — see [Import from MobaXterm](./getting-started/importing-from-mobaxterm/). Importers for PuTTY / SecureCRT are not in v1 but tracked on the issue board.
 
 ## Where does ezTerm store data?
 

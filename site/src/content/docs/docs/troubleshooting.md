@@ -25,7 +25,7 @@ Check:
 
 ## Vault won't unlock after upgrade
 
-ezTerm's vault format is stable — upgrades don't invalidate it. If unlock fails after an upgrade, the master password is wrong. There's no recovery (see [Vault docs](/docs/features/vault/)).
+ezTerm's vault format is stable — upgrades don't invalidate it. If unlock fails after an upgrade, the master password is wrong. There's no recovery (see [Vault docs](./features/vault/)).
 
 ## Linux: `error while loading shared libraries: libwebkit2gtk-4.1.so.0`
 

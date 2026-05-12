@@ -10,7 +10,7 @@ Each SSH tab can optionally open an **SFTP side-pane** — a file browser docked
 ## Opening the pane
 
 - Click the **SFTP toggle** on the active tab's right-edge, or
-- Use the keyboard shortcut (see [keybinds](/docs/troubleshooting/)).
+- Use the keyboard shortcut (see [keybinds](../troubleshooting/)).
 
 ## What you can do
 

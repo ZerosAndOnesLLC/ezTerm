@@ -33,6 +33,6 @@ Apple Silicon only at present. No extra deps.
 
 ## First run
 
-Launch the binary. You'll be prompted to set a master password — this unlocks the encrypted credential vault. Pick something memorable; there's no recovery path (see [vault docs](/docs/features/vault/)).
+Launch the binary. You'll be prompted to set a master password — this unlocks the encrypted credential vault. Pick something memorable; there's no recovery path (see [vault docs](../features/vault/)).
 
 After that, the [first-connect walkthrough](./first-connect/) covers creating your first SSH session.
