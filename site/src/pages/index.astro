@@ -1,0 +1,57 @@
+---
+// site/src/pages/index.astro
+import Hero from '../components/Hero.astro';
+import MockupFrame from '../components/MockupFrame.astro';
+import FeatureGrid from '../components/FeatureGrid.astro';
+import WhyEzterm from '../components/WhyEzterm.astro';
+import InstallTabs from '../components/InstallTabs.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+const BASE = import.meta.env.BASE_URL;
+---
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ezTerm — free, open-source SSH client for Windows</title>
+    <meta name="description" content="MobaXterm-style sessions, modern Rust core. SSH, SFTP, WSL, X11 forwarding, port forwarding, encrypted vault." />
+    <meta property="og:title" content="ezTerm" />
+    <meta property="og:description" content="Free, open-source SSH client. MobaXterm-style, modern Rust core." />
+    <meta property="og:image" content={`${BASE}og-image.png`} />
+    <link rel="icon" type="image/svg+xml" href={`${BASE}favicon.svg`} />
+  </head>
+  <body class="bg-site-bg text-site-fg">
+    <!-- Top nav -->
+    <header class="border-b border-site-border">
+      <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <a href={BASE} class="flex items-center gap-2 font-bold tracking-tight">
+          <span class="text-site-accent" aria-hidden="true">▲</span>
+          <span>ezTerm</span>
+        </a>
+        <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
+          <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>
+          <a href={`${BASE}screenshots/`} class="hover:text-site-fg">Screenshots</a>
+          <a href={`${BASE}changelog/`} class="hover:text-site-fg">Changelog</a>
+          <a href="https://github.com/ZerosAndOnesLLC/ezTerm" class="hover:text-site-fg">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <Hero />
+
+      <div class="max-w-5xl mx-auto px-6 -mt-8 mb-4">
+        <MockupFrame
+          src={`${BASE}screenshots/hero.png`}
+          alt="ezTerm with sessions sidebar, tabbed terminals, and SFTP side-pane"
+        />
+      </div>
+
+      <FeatureGrid />
+      <WhyEzterm />
+      <InstallTabs />
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>
