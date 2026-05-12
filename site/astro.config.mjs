@@ -45,7 +45,7 @@ export default defineConfig({
         },
         {
           label: 'Features',
-          autogenerate: { directory: 'features' },
+          autogenerate: { directory: 'docs/features' },
         },
         { label: 'Troubleshooting', link: '/docs/troubleshooting/' },
         { label: 'FAQ', link: '/docs/faq/' },
