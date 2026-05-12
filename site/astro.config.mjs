@@ -19,9 +19,9 @@ export default defineConfig({
         './src/styles/global.css',
         './src/styles/starlight-overrides.css',
       ],
-      social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/ZerosAndOnesLLC/ezTerm' },
-      ],
+      social: {
+        github: 'https://github.com/ZerosAndOnesLLC/ezTerm',
+      },
       sidebar: [
         {
           label: 'Getting started',
