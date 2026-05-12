@@ -1,0 +1,38 @@
+/* site/src/styles/global.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light theme (Starlight applies these on <html data-theme="light">) */
+  --site-bg:           #fafafa;
+  --site-bg-elevated:  #ffffff;
+  --site-fg:           #111111;
+  --site-fg-muted:     #666666;
+  --site-accent:       #2a7fd0;
+  --site-border:       #e5e7eb;
+  --site-code-comment: #2a7fd0;
+}
+
+:root[data-theme='dark'] {
+  --site-bg:           #0a0a0a;
+  --site-bg-elevated:  #141414;
+  --site-fg:           #e8e8e8;
+  --site-fg-muted:     #888888;
+  --site-accent:       #78c8ff;
+  --site-border:       #1f1f1f;
+  --site-code-comment: #78c8ff;
+}
+
+html, body {
+  background: var(--site-bg);
+  color: var(--site-fg);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .mono {
+  font-family: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
+}
