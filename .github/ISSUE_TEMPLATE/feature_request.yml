@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a new capability or improvement.
+title: "[feat] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Before submitting, please check
+        [open issues](https://github.com/ZerosAndOnesLLC/ezTerm/issues?q=is%3Aissue+label%3Aenhancement)
+        for an existing request.
+
+        For usage questions or open-ended ideas, prefer
+        [Discussions](https://github.com/ZerosAndOnesLLC/ezTerm/discussions).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the pain point, not the proposed solution. "I want X" works
+        better than "Add a button that does X."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you'd like ezTerm to behave. UI mockups welcome.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, or other tools that do this well.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Rough scope
+      options:
+        - Small (single dialog, single feature flag, etc.)
+        - Medium (touches multiple subsystems)
+        - Large (new subsystem, e.g. like SSH port forwarding was)
+        - Not sure
+    validations:
+      required: false
