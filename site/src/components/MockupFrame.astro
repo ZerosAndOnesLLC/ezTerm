@@ -1,0 +1,22 @@
+---
+// site/src/components/MockupFrame.astro
+//
+// Renders an image inside a Mac-window-style frame so screenshots feel
+// "framed" rather than just dumped on the page. Used on the landing page
+// and the screenshots gallery.
+interface Props {
+  src: string;
+  alt: string;
+  caption?: string;
+}
+const { src, alt, caption } = Astro.props;
+---
+<figure class="rounded-lg overflow-hidden border border-site-border bg-site-bg-elevated shadow-2xl">
+  <div class="flex items-center gap-1.5 px-3 py-2 border-b border-site-border bg-site-bg">
+    <span class="w-2.5 h-2.5 rounded-full bg-[#ff5f57]"></span>
+    <span class="w-2.5 h-2.5 rounded-full bg-[#febc2e]"></span>
+    <span class="w-2.5 h-2.5 rounded-full bg-[#28c840]"></span>
+  </div>
+  <img src={src} alt={alt} loading="lazy" decoding="async" class="block w-full h-auto" />
+  {caption && <figcaption class="px-4 py-3 text-sm text-site-fg-muted border-t border-site-border">{caption}</figcaption>}
+</figure>
