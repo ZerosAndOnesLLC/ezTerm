@@ -1,0 +1,82 @@
+name: Bug report
+description: Something broke or behaved unexpectedly.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Before submitting, please check
+        [open issues](https://github.com/ZerosAndOnesLLC/ezTerm/issues) for an
+        existing report.
+
+        **Security issue?** Don't post here — see [SECURITY.md](https://github.com/ZerosAndOnesLLC/ezTerm/blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: ezTerm version
+      description: From Help → About, or `ezterm --version`.
+      placeholder: "v1.3.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (specify in details)
+        - macOS (specify version in details)
+        - Other (specify in details)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: session-kind
+    attributes:
+      label: Session kind (if relevant)
+      options:
+        - SSH
+        - SFTP
+        - WSL
+        - Local shell
+        - Vault / credentials
+        - UI / sessions sidebar
+        - Other / N/A
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what actually happened.
+      placeholder: |
+        1. Created an SSH session to ...
+        2. Connected and ran ...
+        3. Expected ... but got ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste any relevant output from `%LOCALAPPDATA%\ezterm\logs\` (Windows)
+        or `~/.local/share/ezterm/logs/` (Linux/macOS). Redact hostnames,
+        usernames, or other sensitive info before pasting.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, repro repos, related issues, suspected cause.
+    validations:
+      required: false
