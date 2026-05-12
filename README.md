@@ -68,6 +68,22 @@ on those platforms.
 - **Redacted logging** — host / user / fingerprint are the only identifiers
   that appear in traces; secrets never touch logs.
 
+## Website
+
+Project site: <https://zerosandoneslc.github.io/ezTerm/> — landing page, docs,
+screenshots, and changelog. Source lives in [`site/`](site/).
+
+Develop locally:
+
+```bash
+npm --prefix site install     # one-time
+npm --prefix site run dev     # http://localhost:4321/ezTerm/
+npm --prefix site run build   # → site/dist/
+```
+
+The site auto-deploys on every push to `main` that touches `site/**` or
+`docs/release-notes/**` (see `.github/workflows/site.yml`).
+
 ## Install
 
 Pre-built binaries live on the

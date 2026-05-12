@@ -1,0 +1,45 @@
+---
+// site/src/components/Hero.astro
+const RELEASES_LATEST = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest';
+const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
+const VERSION = 'v1.3.4'; // bump per release; see plan §commit convention
+---
+<section class="relative overflow-hidden">
+  <div class="absolute inset-0 pointer-events-none dark-glow" aria-hidden="true"></div>
+
+  <div class="relative max-w-5xl mx-auto px-6 pt-24 pb-20">
+    <p class="text-sm font-medium text-site-accent font-mono mb-4">// open-source ssh client for windows</p>
+    <h1 class="text-5xl md:text-6xl font-bold tracking-tight leading-tight mb-5">
+      An SSH client that<br />respects your terminal.
+    </h1>
+    <p class="text-lg text-site-fg-muted max-w-xl mb-9">
+      MobaXterm-style sessions, modern Rust core. SSH, SFTP, WSL, X11 forwarding,
+      port forwarding, and an encrypted credential vault — all in one tabbed client.
+    </p>
+
+    <div class="flex flex-wrap gap-3 items-center">
+      <a
+        href={RELEASES_LATEST}
+        class="inline-flex items-center gap-2 bg-site-accent text-black font-semibold px-5 py-2.5 rounded text-sm hover:brightness-110 transition"
+      >
+        Download for Windows
+        <span class="opacity-60 font-normal">{VERSION}</span>
+      </a>
+      <a
+        href={REPO}
+        class="inline-flex items-center gap-2 border border-site-border text-site-fg px-5 py-2.5 rounded text-sm hover:bg-site-bg-elevated transition"
+      >
+        View on GitHub <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .dark-glow {
+    background: radial-gradient(circle at 20% 0%, rgba(120, 200, 255, 0.08), transparent 50%);
+  }
+  :root[data-theme='light'] .dark-glow {
+    display: none;
+  }
+</style>

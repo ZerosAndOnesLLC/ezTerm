@@ -1,0 +1,18 @@
+---
+// site/src/components/SiteFooter.astro
+const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
+---
+<footer class="border-t border-site-border mt-12">
+  <div class="max-w-5xl mx-auto px-6 py-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-sm text-site-fg-muted">
+    <div>
+      <p class="text-site-fg font-semibold mb-1">ezTerm</p>
+      <p>Made with Rust + Tauri. Licensed under GPLv3.</p>
+    </div>
+    <nav class="flex flex-wrap gap-5">
+      <a href={REPO} class="hover:text-site-accent transition">GitHub</a>
+      <a href={`${REPO}/issues`} class="hover:text-site-accent transition">Issues</a>
+      <a href={`${REPO}/blob/main/SECURITY.md`} class="hover:text-site-accent transition">Security</a>
+      <a href={`${REPO}/blob/main/LICENSE`} class="hover:text-site-accent transition">Licence</a>
+    </nav>
+  </div>
+</footer>

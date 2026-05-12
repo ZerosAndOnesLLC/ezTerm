@@ -1,0 +1,20 @@
+---
+// site/src/pages/download.astro
+//
+// GitHub Pages can't do real HTTP redirects, so we use a meta-refresh.
+// /download/ is a stable URL we can advertise even if the GH releases page
+// moves; it also gives us a place to add per-platform download buttons later.
+const TARGET = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest';
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content={`0; url=${TARGET}`} />
+    <link rel="canonical" href={TARGET} />
+    <title>Download ezTerm</title>
+  </head>
+  <body>
+    <p>Redirecting to the latest release… If you aren't redirected, <a href={TARGET}>click here</a>.</p>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+/* site/src/styles/starlight-overrides.css
+ * Map Starlight's CSS custom properties to ours so docs pages
+ * inherit the same dark-default theme as the landing.
+ */
+:root {
+  --sl-color-accent:        var(--site-accent);
+  --sl-color-accent-low:    rgba(42, 127, 208, 0.12);
+  --sl-color-accent-high:   var(--site-accent);
+  --sl-color-text-accent:   var(--site-accent);
+  --sl-font:                'Inter', system-ui, -apple-system, sans-serif;
+  --sl-font-mono:           'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
+}
+
+:root[data-theme='dark'] {
+  --sl-color-bg:            var(--site-bg);
+  --sl-color-bg-nav:        var(--site-bg);
+  --sl-color-bg-sidebar:    var(--site-bg);
+  --sl-color-text:          var(--site-fg);
+  --sl-color-text-muted:    var(--site-fg-muted);
+  --sl-color-hairline:      var(--site-border);
+  --sl-color-accent-low:    rgba(120, 200, 255, 0.12);
+}

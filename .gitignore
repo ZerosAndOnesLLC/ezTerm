@@ -70,3 +70,4 @@ yarn-error.log*
 # ---------- Release staging scratch (gh release download) ----------
 tmp-release-hashes/
 .release-notes-*.md
+.superpowers/

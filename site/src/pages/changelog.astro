@@ -1,0 +1,74 @@
+---
+// site/src/pages/changelog.astro
+import { compareVersionsDesc } from '../lib/version';
+import SiteFooter from '../components/SiteFooter.astro';
+import { marked } from 'marked';
+
+// Vite globs are relative to the source file. `../../docs/release-notes/`
+// resolves to <repo>/docs/release-notes/.
+const modules = import.meta.glob('../../../docs/release-notes/*.md', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+interface Entry {
+  filename: string;
+  rawMarkdown: string;
+}
+
+const entries: Entry[] = Object.entries(modules)
+  .map(([path, rawMarkdown]) => ({
+    filename: path.split('/').pop()!,
+    rawMarkdown: rawMarkdown as string,
+  }))
+  .sort((a, b) => compareVersionsDesc(a.filename, b.filename));
+
+// Render Markdown manually with a tiny processor so we don't need to set
+// up MDX integration just for this page. The release notes use only
+// headings, paragraphs, lists, and code blocks.
+const rendered = entries.map((e) => ({
+  filename: e.filename,
+  html: marked.parse(e.rawMarkdown, { gfm: true, breaks: false }) as string,
+}));
+
+const BASE = import.meta.env.BASE_URL;
+---
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Changelog — ezTerm</title>
+    <meta name="description" content="Release history for ezTerm." />
+    <link rel="icon" type="image/svg+xml" href={`${BASE}favicon.svg`} />
+  </head>
+  <body class="bg-site-bg text-site-fg">
+    <header class="border-b border-site-border">
+      <div class="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <a href={BASE} class="flex items-center gap-2 font-bold tracking-tight">
+          <span class="text-site-accent">▲</span><span>ezTerm</span>
+        </a>
+        <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
+          <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>
+          <a href={`${BASE}screenshots/`} class="hover:text-site-fg">Screenshots</a>
+          <a href={`${BASE}changelog/`} class="text-site-fg">Changelog</a>
+          <a href="https://github.com/ZerosAndOnesLLC/ezTerm" class="hover:text-site-fg">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-6 py-12">
+      <h1 class="text-4xl font-bold tracking-tight mb-2">Changelog</h1>
+      <p class="text-site-fg-muted mb-10">Newest releases first. Sourced from <code>docs/release-notes/</code> in the repo.</p>
+
+      {rendered.map((e) => (
+        <article class="prose prose-invert max-w-none mb-12 pb-12 border-b border-site-border last:border-b-0">
+          <div set:html={e.html} />
+        </article>
+      ))}
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>
