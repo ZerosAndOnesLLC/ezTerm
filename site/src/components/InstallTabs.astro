@@ -1,0 +1,68 @@
+---
+// site/src/components/InstallTabs.astro
+//
+// Three-tab code block: Windows, Linux, macOS. Pure CSS using
+// `:has(:checked)` so there's no client JS.
+const tabs = [
+  {
+    id: 'win',
+    label: 'Windows',
+    snippet: `# Download ezterm-windows-x86_64.tar.xz from the latest release
+# https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest
+
+tar -xf ezterm-windows-x86_64.tar.xz
+cd ezterm-windows-x86_64
+./ezterm.exe`,
+  },
+  {
+    id: 'linux',
+    label: 'Linux',
+    snippet: `# Install deps: webkit2gtk-4.1, libssl
+# Then download ezterm-linux-x86_64.tar.xz (or -aarch64) from:
+# https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest
+
+tar -xf ezterm-linux-x86_64.tar.xz
+cd ezterm-linux-x86_64
+./ezterm`,
+  },
+  {
+    id: 'mac',
+    label: 'macOS',
+    snippet: `# Apple Silicon only for now
+# Download ezterm-macos-aarch64.tar.xz from:
+# https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest
+
+tar -xf ezterm-macos-aarch64.tar.xz
+cd ezterm-macos-aarch64
+./ezterm`,
+  },
+];
+---
+<section class="max-w-5xl mx-auto px-6 py-16">
+  <h2 class="text-3xl font-bold tracking-tight mb-2">Install in 30 seconds.</h2>
+  <p class="text-site-fg-muted mb-8">Self-contained binary. No installer, no admin prompts.</p>
+
+  <div class="install-tabs rounded-lg border border-site-border bg-site-bg-elevated overflow-hidden">
+    <div class="flex border-b border-site-border" role="tablist">
+      {tabs.map((t, i) => (
+        <>
+          <input type="radio" name="install-tab" id={`tab-${t.id}`} class="sr-only peer" checked={i === 0} />
+          <label
+            for={`tab-${t.id}`}
+            class="cursor-pointer px-5 py-3 text-sm font-medium text-site-fg-muted hover:text-site-fg peer-checked:text-site-accent peer-checked:border-b-2 peer-checked:border-site-accent -mb-px"
+          >{t.label}</label>
+        </>
+      ))}
+    </div>
+    {tabs.map((t) => (
+      <pre class={`install-pane-${t.id} p-6 font-mono text-sm overflow-x-auto`}><code>{t.snippet}</code></pre>
+    ))}
+  </div>
+</section>
+
+<style>
+  .install-tabs pre { display: none; }
+  .install-tabs:has(#tab-win:checked)   .install-pane-win   { display: block; }
+  .install-tabs:has(#tab-linux:checked) .install-pane-linux { display: block; }
+  .install-tabs:has(#tab-mac:checked)   .install-pane-mac   { display: block; }
+</style>
