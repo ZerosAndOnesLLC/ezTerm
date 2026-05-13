@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a polished marketing + docs site for ezTerm at `https://zerosandoneslc.github.io/ezTerm/`, built with Astro 5 + Starlight under `site/` and auto-deployed via GitHub Actions on every push to `main`.
+**Goal:** Ship a polished marketing + docs site for ezTerm at `https://zerosandonesllc.github.io/ezTerm/`, built with Astro 5 + Starlight under `site/` and auto-deployed via GitHub Actions on every push to `main`.
 
 **Architecture:** A new `site/` Astro project sits parallel to `ui/` and `src-tauri/`. A custom `index.astro` is the landing page (overrides Starlight's default home); Starlight handles all `/docs/*` routes with sidebar nav and Pagefind search; one custom page each for `/screenshots/`, `/changelog/`, and `/download/`. The changelog reads `../docs/release-notes/*.md` via an Astro content collection with a glob loader, parses semver from the filename, and sorts numerically (so `v1.10.0` ranks above `v1.3.4`). A new `.github/workflows/site.yml` builds and deploys via `actions/upload-pages-artifact@v3` + `actions/deploy-pages@v4`.
 
@@ -192,7 +192,7 @@ import starlight from '@astrojs/starlight';
 import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
-  site: 'https://zerosandoneslc.github.io',
+  site: 'https://zerosandonesllc.github.io',
   base: '/ezTerm/',
   trailingSlash: 'ignore',
   integrations: [
@@ -1932,7 +1932,7 @@ Open `/home/mack/dev/ezTerm/README.md`. Find the existing "Install" heading. Ins
 ```markdown
 ## Website
 
-Project site: <https://zerosandoneslc.github.io/ezTerm/> — landing page, docs,
+Project site: <https://zerosandonesllc.github.io/ezTerm/> — landing page, docs,
 screenshots, and changelog. Source lives in [`site/`](site/).
 
 Develop locally:
@@ -2046,7 +2046,7 @@ Add a note to the rollout PR / release announcement so a maintainer knows to do 
 > 2. Under **Build and deployment → Source**, select **GitHub Actions**.
 > 3. Trigger the workflow once via **Actions → Deploy site to Pages → Run workflow** (or push a doc change).
 > 4. After the first successful deploy, the site is live at
->    <https://zerosandoneslc.github.io/ezTerm/>.
+>    <https://zerosandonesllc.github.io/ezTerm/>.
 
 This step is not automatable from a PR — it requires admin access to repo settings.
 

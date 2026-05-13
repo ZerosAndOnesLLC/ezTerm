@@ -70,7 +70,7 @@ on those platforms.
 
 ## Website
 
-Project site: <https://zerosandoneslc.github.io/ezTerm/> — landing page, docs,
+Project site: <https://zerosandonesllc.github.io/ezTerm/> — landing page, docs,
 screenshots, and changelog. Source lives in [`site/`](site/).
 
 Develop locally:

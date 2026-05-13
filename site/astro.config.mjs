@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 export default defineConfig({
-  site: 'https://zerosandoneslc.github.io',
+  site: 'https://zerosandonesllc.github.io',
   base: '/ezTerm/',
   trailingSlash: 'ignore',
   vite: {
