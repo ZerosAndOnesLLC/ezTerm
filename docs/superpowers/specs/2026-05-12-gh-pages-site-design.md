@@ -7,7 +7,7 @@ Actions, and replaces the README as the canonical user-facing landing page.
 ## Goal
 
 Give ezTerm a polished public presence at
-`https://zerosandoneslc.github.io/ezTerm/` that:
+`https://zerosandonesllc.github.io/ezTerm/` that:
 
 1. Pitches the product to first-time visitors (hero + screenshots + download).
 2. Walks new users through install and first connect.
@@ -28,7 +28,7 @@ versioned docs for old releases.
 | Stack                | Astro 5 + Starlight + Tailwind CSS.                                                     |
 | Visual direction     | Direction "B" — developer/terminal aesthetic. Deep black, cyan-blue accent, mono motifs.|
 | Theme                | Dark default with light-mode toggle (Starlight default).                                |
-| URL                  | GitHub Pages default `zerosandoneslc.github.io/ezTerm/`. Custom domain deferred.        |
+| URL                  | GitHub Pages default `zerosandonesllc.github.io/ezTerm/`. Custom domain deferred.        |
 | Pages source         | "GitHub Actions" mode (modern path; no `gh-pages` branch).                              |
 | Source location      | `site/` at repo root, parallel to `ui/` and `src-tauri/`.                               |
 | Fonts                | Inter (body) + JetBrains Mono (code/terminal). Self-hosted via `@fontsource`.           |
@@ -179,7 +179,7 @@ import starlight from '@astrojs/starlight';
 import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
-  site: 'https://zerosandoneslc.github.io',
+  site: 'https://zerosandonesllc.github.io',
   base: '/ezTerm/',
   trailingSlash: 'ignore',
   integrations: [
