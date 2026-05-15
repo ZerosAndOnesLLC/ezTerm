@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build && cp dist/sitemap-0.xml dist/sitemap.xml",
+    "build": "astro build && cp dist/sitemap-0.xml dist/sitemap2026.xml",
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run"
