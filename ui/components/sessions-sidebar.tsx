@@ -52,6 +52,8 @@ import { BackupDialog } from './backup-dialog';
 import { RestoreDialog } from './restore-dialog';
 import { SyncDialog } from './sync-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
+import { ChangePasswordDialog } from './change-password-dialog';
+import { RecoveryCodeDialog } from './recovery-code-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -336,6 +338,8 @@ export function SessionsSidebar() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const [recoveryCodeOpen, setRecoveryCodeOpen] = useState(false);
   const [moveSession, setMoveSession] = useState<Session | null>(null);
   const [moveFolder, setMoveFolder] = useState<TFolder | null>(null);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
@@ -424,6 +428,9 @@ export function SessionsSidebar() {
         { label: 'Restore\u2026', onClick: pickRestoreFile },
         { separator: true },
         { label: 'Cloud sync\u2026', onClick: () => setSyncOpen(true) },
+        { separator: true },
+        { label: 'Change master password\u2026', onClick: () => setChangePwOpen(true) },
+        { label: 'Recovery code\u2026', onClick: () => setRecoveryCodeOpen(true) },
       );
     }
     setMenu({ x: e.clientX, y: e.clientY, items });
@@ -961,6 +968,24 @@ export function SessionsSidebar() {
             setRestorePath(tempPath);
           }}
         />
+      )}
+
+      {changePwOpen && (
+        <ChangePasswordDialog
+          onClose={() => setChangePwOpen(false)}
+          onChanged={async () => {
+            setChangePwOpen(false);
+            // change_password locks the vault on success; force the
+            // page to re-render the unlock screen so the user can
+            // re-enter the new password they just set.
+            try { await api.vaultLock(); } catch { /* already locked */ }
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {recoveryCodeOpen && (
+        <RecoveryCodeDialog onClose={() => setRecoveryCodeOpen(false)} />
       )}
 
       {backupOpen && (

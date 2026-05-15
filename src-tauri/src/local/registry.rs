@@ -72,6 +72,12 @@ impl LocalRegistry {
         }
     }
 
+    /// All currently-registered local PTY ids. Used by vault rotation
+    /// flows that need to tear every active local shell down.
+    pub async fn list_ids(&self) -> Vec<u64> {
+        self.inner.read().await.keys().copied().collect()
+    }
+
     /// Signals the reader thread to start emitting data. Called by the
     /// `local_ready` command once the frontend has its `ssh:data:<id>`
     /// listener installed. Idempotent — subsequent calls are no-ops.
