@@ -1,7 +1,18 @@
 /* site/src/styles/global.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-site-bg:          var(--site-bg);
+  --color-site-bg-elevated: var(--site-bg-elevated);
+  --color-site-fg:          var(--site-fg);
+  --color-site-fg-muted:    var(--site-fg-muted);
+  --color-site-accent:      var(--site-accent);
+  --color-site-border:      var(--site-border);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
+}
 
 :root {
   /* Light theme (Starlight applies these on <html data-theme="light">) */

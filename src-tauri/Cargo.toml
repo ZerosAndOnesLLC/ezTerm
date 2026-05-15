@@ -28,7 +28,7 @@ chrono = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
 rand = "0.10"
-zeroize = { version = "1.7", features = ["derive"] }
+zeroize = { version = "1.8", features = ["derive"] }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -53,7 +53,7 @@ rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustl
 # pulled in transitively by tauri-plugin-updater; listing it directly
 # keeps the version pin visible. rustls-tls matches the rest of our
 # TLS stack (no OpenSSL dep).
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3"

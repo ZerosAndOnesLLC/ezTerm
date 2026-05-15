@@ -1,7 +1,7 @@
 // site/astro.config.mjs
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import tailwind from '@astrojs/tailwind';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,6 +13,7 @@ export default defineConfig({
   base: '/ezTerm/',
   trailingSlash: 'ignore',
   vite: {
+    plugins: [tailwindcss()],
     server: {
       fs: {
         allow: [repoRoot],
@@ -31,9 +32,9 @@ export default defineConfig({
         './src/styles/global.css',
         './src/styles/starlight-overrides.css',
       ],
-      social: {
-        github: 'https://github.com/ZerosAndOnesLLC/ezTerm',
-      },
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/ZerosAndOnesLLC/ezTerm' },
+      ],
       sidebar: [
         {
           label: 'Getting started',
@@ -45,12 +46,11 @@ export default defineConfig({
         },
         {
           label: 'Features',
-          autogenerate: { directory: 'docs/features' },
+          items: [{ autogenerate: { directory: 'docs/features' } }],
         },
         { label: 'Troubleshooting', link: '/docs/troubleshooting/' },
         { label: 'FAQ', link: '/docs/faq/' },
       ],
     }),
-    tailwind({ applyBaseStyles: false }),
   ],
 });
