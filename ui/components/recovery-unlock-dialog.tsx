@@ -98,8 +98,8 @@ export function RecoveryUnlockDialog({ onClose, onUnlocked }: Props) {
           </div>
 
           <p className="text-[11px] text-warning">
-            After unlocking, set a new master password right away &mdash; the recovery code
-            is single-use only after a password change.
+            The recovery code is <strong>single-use</strong>: a successful unlock invalidates it.
+            Set a new master password (or generate a fresh recovery code) right after.
           </p>
         </form>
       </div>

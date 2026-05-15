@@ -30,12 +30,23 @@ export const api = {
     invoke<{ snapshot_path: string }>('vault_change_password', { oldPassword, newPassword }),
   vaultRecoveryStatus: () =>
     invoke<{ provisioned: boolean }>('vault_recovery_status'),
-  vaultGenerateRecoveryCode: () =>
-    invoke<string>('vault_generate_recovery_code'),
+  /** Generates a new recovery code, requires master-password re-verify.
+   *  snapshot_path is non-null when a prior recovery code was being
+   *  overwritten (the backend takes a snapshot first). */
+  vaultGenerateRecoveryCode: (password: string) =>
+    invoke<{ code: string; snapshot_path: string | null }>(
+      'vault_generate_recovery_code',
+      { password },
+    ),
   vaultUnlockWithRecovery: (code: string) =>
     invoke<void>('vault_unlock_with_recovery', { code }),
+  /** Destructive — wipes all vault-encrypted data. Server validates
+   *  the sentinel "DELETE-MY-VAULT"; the UI maps the user's typed
+   *  "DELETE" to this value on submit. */
   vaultReset: () =>
-    invoke<{ snapshot_path: string }>('vault_reset'),
+    invoke<{ snapshot_path: string }>('vault_reset', {
+      confirmation: 'DELETE-MY-VAULT',
+    }),
 
   // Folders
   folderList:   () => invoke<Folder[]>('folder_list'),

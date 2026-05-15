@@ -6,8 +6,8 @@ import { scorePassword, STRENGTH_COPY, STRENGTH_BAR } from '@/lib/password-stren
 
 interface Props {
   onClose:   () => void;
-  /// Vault is locked on success; caller should bounce the user back to
-  /// the unlock screen so they re-enter the new password.
+  /** Vault is locked on success; caller should bounce the user back to
+   *  the unlock screen so they re-enter the new password. */
   onChanged: () => void;
 }
 
@@ -24,11 +24,18 @@ export function ChangePasswordDialog({ onClose, onChanged }: Props) {
   useEffect(() => { firstFieldRef.current?.focus(); }, []);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose(); }
+      // In the success state, Escape would trigger a destructive
+      // window.location.reload() via onChanged — gate it so a
+      // reflex keypress can't blow away open sidebar state without
+      // the user clicking the explicit button.
+      if (e.key === 'Escape' && !busy && !done) {
+        e.preventDefault();
+        onClose();
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
+  }, [busy, done, onClose]);
 
   const score = useMemo(() => scorePassword(newPw), [newPw]);
 
@@ -51,21 +58,25 @@ export function ChangePasswordDialog({ onClose, onChanged }: Props) {
 
   if (done) {
     return (
-      <DialogShell title="Master password changed" onClose={onChanged}>
+      // Empty onClose: backdrop click is intentionally inert in the
+      // success state to match the gated Escape — the user must
+      // click the explicit "Unlock" button to proceed.
+      <DialogShell title="Master password changed" onClose={() => {}}>
         <div className="p-4 flex gap-3">
           <div className="shrink-0 text-success"><CheckCircle2 size={22} /></div>
           <div className="min-w-0 flex-1 space-y-2">
             <p className="text-xs text-muted">
               All credentials and sync passphrases were re-encrypted under the new key.
+              Active SSH/SFTP sessions and cloud sync were closed.
               The vault is now locked &mdash; unlock with your new password to continue.
             </p>
             <p className="text-xs text-muted">
               A snapshot of the previous vault was written to{' '}
               <code className="font-mono text-[11px] break-all bg-surface2/60 px-1 py-0.5 rounded">{done.snapshot}</code>.
-              The five most-recent snapshots are kept; older ones are removed automatically.
+              The five most-recent snapshots are kept (and pruned after 30 days). To roll back manually, close ezTerm and replace the active database with this file.
             </p>
             <p className="text-xs text-warning">
-              Any previously generated recovery code is now invalid &mdash; generate a new one after unlocking.
+              Any previously generated recovery code is now invalid. We recommend generating a new one right after unlocking.
             </p>
           </div>
         </div>

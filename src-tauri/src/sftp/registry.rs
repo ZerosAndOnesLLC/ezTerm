@@ -30,4 +30,10 @@ impl SftpRegistry {
     pub async fn remove(&self, connection_id: u64) {
         self.inner.write().await.remove(&connection_id);
     }
+
+    /// All currently-registered connection ids. Used by vault rotation
+    /// flows that need to tear every active SFTP session down.
+    pub async fn list_ids(&self) -> Vec<u64> {
+        self.inner.read().await.keys().copied().collect()
+    }
 }

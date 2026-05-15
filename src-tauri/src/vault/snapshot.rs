@@ -1,9 +1,21 @@
 //! Pre-change SQLite snapshots. Before `change_password` or `reset`
 //! mutates the vault we copy the current DB file to
 //! `<data_local>/backups/vault-<timestamp>.sqlite` using SQLite's
-//! `VACUUM INTO`, which produces a transactionally consistent copy even
-//! while a writer is active. The most recent five snapshots are kept;
-//! older ones are deleted on a best-effort basis.
+//! `VACUUM INTO`, which produces a transactionally consistent copy
+//! even while a writer is active.
+//!
+//! Retention: at most `KEEP` files (count cap) AND nothing older than
+//! `MAX_AGE_DAYS` (time cap). Snapshots leak the encrypted vault at
+//! the previous KDF parameters — useful as a rollback target, but a
+//! standing offline-cracking surface for an attacker who later gains
+//! local file access. The double cap keeps the standing exposure
+//! bounded.
+//!
+//! On unix the snapshot file's permission bits are tightened to 0600
+//! after `VACUUM INTO` finishes (which inherits umask). The project
+//! ships on Windows, but cargo-built dev/test artefacts run on Linux,
+//! and a multi-user Linux host with the default 0644 umask would leak
+//! every snapshot to anyone on the box.
 
 use std::path::{Path, PathBuf};
 
@@ -12,6 +24,7 @@ use sqlx::SqlitePool;
 use crate::error::{AppError, Result};
 
 const KEEP: usize = 5;
+const MAX_AGE_DAYS: u64 = 30;
 const SNAPSHOT_PREFIX: &str = "vault-";
 const SNAPSHOT_SUFFIX: &str = ".sqlite";
 
@@ -24,29 +37,50 @@ pub fn backups_dir() -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Take a consistent snapshot of the live SQLite DB. Returns the path
-/// the snapshot was written to. After writing, rotates older snapshots
-/// down to `KEEP` files.
+/// Take a consistent snapshot of the live SQLite DB. Returns the
+/// path the snapshot was written to. After writing, rotates older
+/// snapshots down to `KEEP` files AND deletes anything older than
+/// `MAX_AGE_DAYS` regardless of count.
 pub async fn take(pool: &SqlitePool, label: &str) -> Result<PathBuf> {
+    // Defense-in-depth: `label` is interpolated into a SQL string
+    // literal (sqlite refuses to bind a parameter inside `VACUUM
+    // INTO`). All current callers pass a hardcoded string; reject
+    // anything else so a future caller passing user input can't
+    // silently introduce SQL injection.
+    if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::Validation("snapshot label must be [A-Za-z0-9_-]".into()));
+    }
+
     let dir = backups_dir()?;
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
     let filename = format!("{SNAPSHOT_PREFIX}{label}-{stamp}{SNAPSHOT_SUFFIX}");
     let target = dir.join(&filename);
-    // sqlx interpolates path arguments via parameter binding, but
-    // VACUUM INTO won't accept a bound parameter — it has to be a
-    // literal. We quote with single quotes and escape any embedded
-    // quotes (paranoid; the path is built from a timestamp).
     let escaped = target.to_string_lossy().replace('\'', "''");
     sqlx::query(&format!("VACUUM INTO '{escaped}'"))
         .execute(pool).await?;
-    rotate(&dir).ok();
+
+    // Lock the snapshot down on unix so it can't be read by other
+    // users on a shared machine. No-op on Windows where data_local_dir
+    // is already per-user.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&target) {
+            let mut p = meta.permissions();
+            p.set_mode(0o600);
+            let _ = std::fs::set_permissions(&target, p);
+        }
+    }
+
+    if let Err(e) = rotate(&dir) {
+        tracing::warn!("vault snapshot rotation failed: {e}");
+    }
     Ok(target)
 }
 
-/// Delete older snapshots until at most `KEEP` remain. Failures are
-/// non-fatal — a snapshot still being written by another tool, a
-/// permission glitch, etc. shouldn't block the password change.
 fn rotate(dir: &Path) -> std::io::Result<()> {
+    let max_age = std::time::Duration::from_secs(MAX_AGE_DAYS * 86_400);
+    let now = std::time::SystemTime::now();
     let mut entries: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
@@ -61,8 +95,19 @@ fn rotate(dir: &Path) -> std::io::Result<()> {
         })
         .collect();
     entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
-    for (_, path) in entries.into_iter().skip(KEEP) {
+
+    // Drop by count cap.
+    for (_, path) in entries.iter().skip(KEEP) {
         let _ = std::fs::remove_file(path);
+    }
+    // Drop by age cap — survives the count cap if KEEP itself was
+    // raised; keeps the offline-cracking exposure window bounded.
+    for (when, path) in entries.iter().take(KEEP) {
+        if let Ok(age) = now.duration_since(*when) {
+            if age > max_age {
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
     Ok(())
 }
@@ -73,9 +118,6 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_creates_a_file() {
-        // Use a tempfile-backed sqlite so VACUUM INTO has somewhere
-        // real to copy to. In-memory DBs don't support VACUUM INTO
-        // across attached files reliably.
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("src.sqlite");
         let url = format!("sqlite://{}?mode=rwc", db_path.display());
@@ -85,11 +127,41 @@ mod tests {
         sqlx::query("CREATE TABLE t (x INTEGER)")
             .execute(&pool).await.unwrap();
 
-        // Target our own temp dir, not the platform data dir.
         let target = tmp.path().join("snap.sqlite");
         let escaped = target.to_string_lossy().replace('\'', "''");
         sqlx::query(&format!("VACUUM INTO '{escaped}'"))
             .execute(&pool).await.unwrap();
         assert!(target.exists());
+    }
+
+    #[test]
+    fn snapshot_rotation_keeps_recent_and_drops_old() {
+        // Write 8 fake snapshots in sequence. Each takes long enough
+        // for mtimes to differ by at least filesystem resolution
+        // (ext4/NTFS are nanosecond; APFS is one-second). After
+        // rotate(), only KEEP=5 should remain (none are >30 days).
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for i in 0..8 {
+            let p = dir.join(format!(
+                "{}{}.sqlite",
+                super::SNAPSHOT_PREFIX,
+                format!("test-{i:03}")
+            ));
+            std::fs::write(&p, b"").unwrap();
+            // Force ordering by sleeping briefly so even coarse-mtime
+            // filesystems give a stable sort.
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        super::rotate(dir).unwrap();
+        let remaining = std::fs::read_dir(dir).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let s = n.to_string_lossy();
+                s.starts_with(super::SNAPSHOT_PREFIX) && s.ends_with(super::SNAPSHOT_SUFFIX)
+            })
+            .count();
+        assert_eq!(remaining, 5);
     }
 }
