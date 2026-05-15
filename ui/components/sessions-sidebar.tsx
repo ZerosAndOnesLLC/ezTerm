@@ -51,6 +51,7 @@ import { ImportMobaxtermDialog } from './import-mobaxterm-dialog';
 import { BackupDialog } from './backup-dialog';
 import { RestoreDialog } from './restore-dialog';
 import { SyncDialog } from './sync-dialog';
+import { MoveToFolderDialog } from './move-to-folder-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -141,6 +142,8 @@ export function SessionsSidebar() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [moveSession, setMoveSession] = useState<Session | null>(null);
+  const [moveFolder, setMoveFolder] = useState<TFolder | null>(null);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
   // source); `dragTarget` is the hovered drop slot — see `DropSlot` below.
   // null when nothing is being dragged-over. Slots describe *where* the
@@ -200,17 +203,27 @@ export function SessionsSidebar() {
   function openFolderMenu(e: React.MouseEvent, f: TFolder | null) {
     e.preventDefault();
     const id = f?.id ?? null;
+    const hasChildrenToSort =
+      folders.filter((x) => x.parent_id === id).length
+      + sessions.filter((s) => s.folder_id === id).length
+      > 1;
     const items: MenuItem[] = [
       { label: 'New Session', onClick: () => setDialog({ mode: 'create', folderId: id }) },
       { label: 'New Folder', onClick: () => setPrompt({ kind: 'new-folder', parentId: id }) },
+      { separator: true },
+      { label: 'Sort A \u2192 Z', disabled: !hasChildrenToSort, onClick: () => sortChildren(id, 'asc') },
+      { label: 'Sort Z \u2192 A', disabled: !hasChildrenToSort, onClick: () => sortChildren(id, 'desc') },
     ];
     if (f) {
       items.push(
+        { separator: true },
+        { label: 'Move to folder\u2026', onClick: () => setMoveFolder(f) },
         { label: 'Rename', onClick: () => setPrompt({ kind: 'rename-folder', folder: f }) },
         { label: 'Delete', danger: true, onClick: () => setConfirm({ kind: 'delete-folder', folder: f }) },
       );
     } else {
       items.push(
+        { separator: true },
         { label: 'Import from MobaXterm\u2026', onClick: pickMobaXtermFile },
         { separator: true },
         { label: 'Backup\u2026',  onClick: () => setBackupOpen(true) },
@@ -220,6 +233,59 @@ export function SessionsSidebar() {
       );
     }
     setMenu({ x: e.clientX, y: e.clientY, items });
+  }
+
+  /** Sort a folder's *immediate* children alphabetically. Folders and
+   *  sessions are sorted independently \u2014 folders stay rendered above
+   *  sessions per the existing tree layout. `null` parent = root. */
+  async function sortChildren(parentId: number | null, dir: 'asc' | 'desc') {
+    const cmp = (a: string, b: string) => {
+      const c = a.localeCompare(b, undefined, { sensitivity: 'base' });
+      return dir === 'asc' ? c : -c;
+    };
+    const childFolders = folders
+      .filter((x) => x.parent_id === parentId)
+      .slice()
+      .sort((a, b) => cmp(a.name, b.name));
+    const childSessions = sessions
+      .filter((s) => s.folder_id === parentId)
+      .slice()
+      .sort((a, b) => cmp(a.name, b.name));
+    if (childFolders.length <= 1 && childSessions.length <= 1) return;
+
+    await run(async () => {
+      const ops: Promise<void>[] = [];
+      if (childFolders.length > 1) {
+        ops.push(api.folderReorder(parentId, childFolders.map((f) => f.id)));
+      }
+      if (childSessions.length > 1) {
+        ops.push(api.sessionReorder(parentId, childSessions.map((s) => s.id)));
+      }
+      await Promise.all(ops);
+    });
+    reload();
+    toast.success('Sorted', dir === 'asc' ? 'A \u2192 Z' : 'Z \u2192 A');
+  }
+
+  /** Folder ids that would create a cycle if used as `f`'s new parent \u2014
+   *  i.e. `f` itself plus every descendant. Used by the move-folder
+   *  picker to disable invalid destinations. */
+  function descendantFolderIds(f: TFolder): Set<number> {
+    const out = new Set<number>([f.id]);
+    let frontier = [f.id];
+    while (frontier.length > 0) {
+      const next: number[] = [];
+      for (const pid of frontier) {
+        for (const child of folders) {
+          if (child.parent_id === pid && !out.has(child.id)) {
+            out.add(child.id);
+            next.push(child.id);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return out;
   }
 
   async function pickRestoreFile() {
@@ -291,9 +357,18 @@ export function SessionsSidebar() {
     if (!slotsEqual(dragTarget, next)) setDragTarget(next);
   }
 
-  /** Compute the slot for a row-aware drag: sessions split 50/50 above/below,
-   *  folder rows split 25% / 50% / 25% into above / into / below so users
-   *  can both reorder siblings *and* drop into a folder from the same row. */
+  /** Compute the slot for a row-aware drag.
+   *
+   *  Sessions split 50/50 above/below for sibling reorder.
+   *
+   *  Folder rows depend on the drag source:
+   *  - **Folder source**: split 25 / 50 / 25 (above / into / below) so a
+   *    user can both nest one folder inside another *and* reorder folders
+   *    from the same row.
+   *  - **Session source**: the entire row is `into-folder`. Reordering a
+   *    folder by dropping a session next to it isn't a real use case, and
+   *    the narrow ~14px middle band (25% of a 28px row) made dropping a
+   *    session *into* a folder feel broken — see #72. */
   function slotForRow(
     e: React.DragEvent,
     row: 'session' | 'folder',
@@ -306,6 +381,9 @@ export function SessionsSidebar() {
       return ratio < 0.5
         ? { kind: 'before-session', sessionId: id }
         : { kind: 'after-session', sessionId: id };
+    }
+    if (dragSourceRef.current?.kind === 'session') {
+      return { kind: 'into-folder', folderId: id };
     }
     if (ratio < 0.25) return { kind: 'before-folder', folderId: id };
     if (ratio > 0.75) return { kind: 'after-folder', folderId: id };
@@ -507,6 +585,9 @@ export function SessionsSidebar() {
             reload();
           },
         },
+        { separator: true },
+        { label: 'Move to folder…', onClick: () => setMoveSession(s) },
+        { separator: true },
         { label: 'Delete', danger: true, onClick: () => setConfirm({ kind: 'delete-session', session: s }) },
       ],
     });
@@ -894,6 +975,45 @@ export function SessionsSidebar() {
             } else {
               toast.success('Import complete', body);
             }
+          }}
+        />
+      )}
+
+      {moveSession && (
+        <MoveToFolderDialog
+          title={`Move "${moveSession.name}" to…`}
+          folders={folders}
+          currentFolderId={moveSession.folder_id}
+          onCancel={() => setMoveSession(null)}
+          onConfirm={async (folderId) => {
+            const s = moveSession;
+            await run(() => api.sessionMove(s.id, folderId, 0));
+            setMoveSession(null);
+            if (folderId !== null) {
+              setExpanded((prev) => new Set(prev).add(folderId));
+            }
+            reload();
+            toast.success('Session moved', s.name);
+          }}
+        />
+      )}
+
+      {moveFolder && (
+        <MoveToFolderDialog
+          title={`Move folder "${moveFolder.name}" to…`}
+          folders={folders}
+          currentFolderId={moveFolder.parent_id}
+          excludedIds={descendantFolderIds(moveFolder)}
+          onCancel={() => setMoveFolder(null)}
+          onConfirm={async (parentId) => {
+            const f = moveFolder;
+            await run(() => api.folderMove(f.id, parentId, 0));
+            setMoveFolder(null);
+            if (parentId !== null) {
+              setExpanded((prev) => new Set(prev).add(parentId));
+            }
+            reload();
+            toast.success('Folder moved', f.name);
           }}
         />
       )}
