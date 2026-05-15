@@ -3,6 +3,7 @@
 import '../styles/global.css';
 import MockupFrame from '../components/MockupFrame.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 
 const BASE = import.meta.env.BASE_URL;
 const shots = [
@@ -20,6 +21,7 @@ const shots = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Screenshots — ezTerm</title>
     <link rel="icon" type="image/png" href={`${BASE}ezterm.png`} />
+    <GoogleAnalytics />
   </head>
   <body class="bg-site-bg text-site-fg">
     <header class="border-b border-site-border">

@@ -26,6 +26,23 @@ export default defineConfig({
         src: './src/assets/ezterm.png',
         replacesTitle: true,
       },
+      head: [
+        {
+          tag: 'script',
+          attrs: {
+            async: true,
+            src: 'https://www.googletagmanager.com/gtag/js?id=G-19V4705C82',
+          },
+        },
+        {
+          tag: 'script',
+          content:
+            "window.dataLayer = window.dataLayer || [];" +
+            "function gtag(){dataLayer.push(arguments);}" +
+            "gtag('js', new Date());" +
+            "gtag('config', 'G-19V4705C82');",
+        },
+      ],
       customCss: [
         '@fontsource/inter/400.css',
         '@fontsource/inter/600.css',

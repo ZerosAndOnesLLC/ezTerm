@@ -3,6 +3,7 @@
 import '../styles/global.css';
 import { compareVersionsDesc } from '../lib/version';
 import SiteFooter from '../components/SiteFooter.astro';
+import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 import { marked } from 'marked';
 
 // Vite globs are relative to the source file. `../../docs/release-notes/`
@@ -43,6 +44,7 @@ const BASE = import.meta.env.BASE_URL;
     <title>Changelog — ezTerm</title>
     <meta name="description" content="Release history for ezTerm." />
     <link rel="icon" type="image/png" href={`${BASE}ezterm.png`} />
+    <GoogleAnalytics />
   </head>
   <body class="bg-site-bg text-site-fg">
     <header class="border-b border-site-border">
