@@ -1,8 +1,9 @@
 use std::sync::atomic::Ordering;
 
 use chrono::Utc;
+use serde::Serialize;
 use tauri::State;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::{AppError, Result};
 use crate::state::AppState;
@@ -136,4 +137,183 @@ pub async fn vault_verify_password(state: State<'_, AppState>, password: String)
         Ok(ok) => Ok(ok),
         Err(e) => Err(e),
     }
+}
+
+#[derive(Serialize)]
+pub struct ChangePasswordResult {
+    /// Where the pre-change snapshot was written.
+    pub snapshot_path: String,
+}
+
+/// Change the master password. Requires the vault to be unlocked AND
+/// the old password to verify — being unlocked alone isn't enough,
+/// otherwise anyone with access to a momentarily unattended laptop
+/// could rotate the password and lock the real user out.
+///
+/// Re-encrypts every credential row and every sync passphrase blob
+/// under the new key in a single transaction. Takes a snapshot of the
+/// SQLite file first so the user can recover if something goes wrong.
+/// On success the vault is locked — the caller must re-enter the new
+/// password to continue.
+#[tauri::command]
+pub async fn vault_change_password(
+    state: State<'_, AppState>,
+    old_password: String,
+    new_password: String,
+) -> Result<ChangePasswordResult> {
+    let mut old_password = old_password;
+    let mut new_password = new_password;
+    let result = vault_change_password_inner(&state, &old_password, &new_password).await;
+    old_password.zeroize();
+    new_password.zeroize();
+    result
+}
+
+async fn vault_change_password_inner(
+    state: &State<'_, AppState>,
+    old_password: &str,
+    new_password: &str,
+) -> Result<ChangePasswordResult> {
+    super::require_unlocked(state).await?;
+    if old_password.len() > MAX_PASSWORD_LEN {
+        return Err(AppError::Validation("old password too long".into()));
+    }
+    if new_password.len() < 8 {
+        return Err(AppError::Validation(
+            "new master password must be at least 8 chars".into(),
+        ));
+    }
+    if new_password.len() > MAX_PASSWORD_LEN {
+        return Err(AppError::Validation("new password too long".into()));
+    }
+    if old_password == new_password {
+        return Err(AppError::Validation(
+            "new password must differ from old password".into(),
+        ));
+    }
+
+    // Snapshot the DB before we mutate anything. If this fails we don't
+    // proceed — the snapshot is the user's escape hatch.
+    let snapshot = vault::snapshot::take(&state.db, "change-password").await?;
+
+    // change_password verifies the old password internally (BadPassword
+    // surfaces here if it's wrong) and re-encrypts everything under the
+    // new key in one transaction.
+    let new_key: Zeroizing<[u8; 32]> =
+        vault::change_password(&state.db, old_password, new_password).await?;
+
+    // Drop the new key — we lock the vault and require re-unlock to
+    // confirm the user can type the password they just set.
+    drop(new_key);
+    *state.vault.write().await = vault::VaultState::Locked;
+    state.unlock_failures.store(0, Ordering::Release);
+    state.unlock_locked_until_unix.store(0, Ordering::Release);
+
+    Ok(ChangePasswordResult {
+        snapshot_path: snapshot.to_string_lossy().into_owned(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct RecoveryStatus {
+    pub provisioned: bool,
+}
+
+#[tauri::command]
+pub async fn vault_recovery_status(state: State<'_, AppState>) -> Result<RecoveryStatus> {
+    let provisioned = vault::recovery::is_provisioned(&state.db).await?;
+    Ok(RecoveryStatus { provisioned })
+}
+
+/// Generate (or regenerate) a one-time recovery code. Requires the
+/// vault to be unlocked; the code wraps the in-memory vault key so we
+/// must have one. Caller MUST display the returned code to the user
+/// exactly once — it is never persisted in plaintext anywhere.
+#[tauri::command]
+pub async fn vault_generate_recovery_code(state: State<'_, AppState>) -> Result<String> {
+    super::require_unlocked(&state).await?;
+    let vs = state.vault.read().await;
+    vault::recovery::generate(&state.db, &vs).await
+}
+
+#[tauri::command]
+pub async fn vault_unlock_with_recovery(
+    state: State<'_, AppState>,
+    code: String,
+) -> Result<()> {
+    let mut code = code;
+    let result = vault_unlock_with_recovery_inner(&state, &code).await;
+    code.zeroize();
+    result
+}
+
+async fn vault_unlock_with_recovery_inner(
+    state: &State<'_, AppState>,
+    code: &str,
+) -> Result<()> {
+    // Apply the same lockout/cooldown the password path uses. Recovery
+    // codes have 120 bits of entropy, but cooldown still costs nothing
+    // legitimate users will hit and slows offline-key spray attacks if
+    // an attacker somehow got the DB and is racing against a network
+    // interactive guess.
+    let now = Utc::now().timestamp();
+    let locked_until = state.unlock_locked_until_unix.load(Ordering::Acquire);
+    if locked_until > now {
+        let remaining = locked_until - now;
+        return Err(AppError::Validation(format!(
+            "too many attempts; try again in {remaining}s"
+        )));
+    }
+    match vault::recovery::unlock_with_code(&state.db, code).await {
+        Ok(key) => {
+            *state.vault.write().await = vault::VaultState::Unlocked { key };
+            state.unlock_failures.store(0, Ordering::Release);
+            state.unlock_locked_until_unix.store(0, Ordering::Release);
+            let vs = state.vault.read().await;
+            if let Err(e) = state.sync.reload_from_db(&state.db, &vs).await {
+                tracing::warn!("sync reload_from_db failed after recovery unlock: {e}");
+            }
+            Ok(())
+        }
+        Err(AppError::BadPassword) => {
+            let failures = state.unlock_failures.fetch_add(1, Ordering::AcqRel) + 1;
+            if failures >= UNLOCK_FAILURE_THRESHOLD {
+                let exp = failures - UNLOCK_FAILURE_THRESHOLD;
+                let shift = exp.min(24);
+                let cooldown = UNLOCK_BASE_COOLDOWN_SECS
+                    .saturating_mul(1_i64 << shift)
+                    .min(UNLOCK_MAX_COOLDOWN_SECS);
+                state.unlock_locked_until_unix.store(now + cooldown, Ordering::Release);
+            }
+            Err(AppError::BadPassword)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[derive(Serialize)]
+pub struct ResetResult {
+    pub snapshot_path: String,
+}
+
+/// Forgotten-password escape hatch. Wipes every vault-protected row
+/// and returns the vault to the uninitialized state, leaving the
+/// sessions list intact (minus their credential references). Snapshots
+/// the DB first so a user who panic-clicks can pull their data back
+/// from the file we wrote.
+///
+/// Deliberately does NOT require any password — premise is the user
+/// has lost theirs. Anyone with local file access can already read the
+/// raw DB; resetting it just wipes the encrypted blobs (which they
+/// couldn't decrypt anyway without the password or recovery code).
+#[tauri::command]
+pub async fn vault_reset(state: State<'_, AppState>) -> Result<ResetResult> {
+    let snapshot = vault::snapshot::take(&state.db, "reset").await?;
+    vault::reset(&state.db).await?;
+    *state.vault.write().await = vault::VaultState::Uninitialized;
+    state.unlock_failures.store(0, Ordering::Release);
+    state.unlock_locked_until_unix.store(0, Ordering::Release);
+    Ok(ResetResult {
+        snapshot_path: snapshot.to_string_lossy().into_owned(),
+    })
 }

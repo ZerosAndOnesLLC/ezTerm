@@ -34,6 +34,12 @@ export default function Page() {
 
   if (status === null)    return <main className="h-full flex items-center justify-center text-muted">Loading…</main>;
   if (status !== 'unlocked')
-    return <UnlockScreen status={status} onUnlocked={async () => setStatus(await api.vaultStatus())} />;
+    return (
+      <UnlockScreen
+        status={status}
+        onUnlocked={async () => setStatus(await api.vaultStatus())}
+        onStatusChanged={async () => setStatus(await api.vaultStatus())}
+      />
+    );
   return <MainShell onLock={async () => { await api.vaultLock(); setStatus('locked'); }} />;
 }

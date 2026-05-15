@@ -26,6 +26,16 @@ export const api = {
   vaultLock:   () => invoke<void>('vault_lock'),
   vaultVerifyPassword: (password: string) =>
     invoke<boolean>('vault_verify_password', { password }),
+  vaultChangePassword: (oldPassword: string, newPassword: string) =>
+    invoke<{ snapshot_path: string }>('vault_change_password', { oldPassword, newPassword }),
+  vaultRecoveryStatus: () =>
+    invoke<{ provisioned: boolean }>('vault_recovery_status'),
+  vaultGenerateRecoveryCode: () =>
+    invoke<string>('vault_generate_recovery_code'),
+  vaultUnlockWithRecovery: (code: string) =>
+    invoke<void>('vault_unlock_with_recovery', { code }),
+  vaultReset: () =>
+    invoke<{ snapshot_path: string }>('vault_reset'),
 
   // Folders
   folderList:   () => invoke<Folder[]>('folder_list'),

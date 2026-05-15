@@ -1,42 +1,42 @@
 'use client';
-import { useMemo, useState } from 'react';
-import { AlertCircle, Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Eye, EyeOff, KeyRound, Lock, ShieldCheck, Trash2 } from 'lucide-react';
 import { api, errMessage } from '@/lib/tauri';
+import { scorePassword, STRENGTH_COPY, STRENGTH_BAR } from '@/lib/password-strength';
 import type { VaultStatus } from '@/lib/types';
+import { RecoveryUnlockDialog } from './recovery-unlock-dialog';
+import { ResetVaultDialog } from './reset-vault-dialog';
 
 interface Props {
   status: Exclude<VaultStatus, 'unlocked'>;
   onUnlocked: () => void;
+  /// Bumped after a destructive vault_reset so the parent re-fetches
+  /// status and we transition from 'locked' → 'uninitialized'.
+  onStatusChanged?: () => void;
 }
 
-/// Simple strength heuristic: length weight + character-class diversity.
-/// Returns 0..4. Not a replacement for zxcvbn, but enough to nudge users
-/// away from "password" without pulling in another dep.
-function scorePassword(pw: string): number {
-  if (!pw) return 0;
-  let score = 0;
-  if (pw.length >= 8)  score++;
-  if (pw.length >= 12) score++;
-  if (pw.length >= 16) score++;
-  const classes =
-    Number(/[a-z]/.test(pw)) +
-    Number(/[A-Z]/.test(pw)) +
-    Number(/[0-9]/.test(pw)) +
-    Number(/[^a-zA-Z0-9]/.test(pw));
-  if (classes >= 3) score++;
-  return Math.min(score, 4);
-}
-
-const STRENGTH_COPY = ['Too short', 'Weak', 'Fair', 'Strong', 'Very strong'];
-const STRENGTH_BAR  = ['bg-danger', 'bg-danger', 'bg-warning', 'bg-success', 'bg-success'];
-
-export function UnlockScreen({ status, onUnlocked }: Props) {
+export function UnlockScreen({ status, onUnlocked, onStatusChanged }: Props) {
   const firstRun = status === 'uninitialized';
   const [pw, setPw]   = useState('');
   const [pw2, setPw2] = useState('');
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [resetOpen, setResetOpen]       = useState(false);
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+
+  // Probe whether the locked vault has a recovery code provisioned so
+  // we only show the "Use recovery code" link when it'd actually work.
+  // Skipped on first-run (no vault yet) and any other status.
+  useEffect(() => {
+    if (status !== 'locked') return;
+    let cancelled = false;
+    api.vaultRecoveryStatus()
+      .then((s) => { if (!cancelled) setRecoveryAvailable(s.provisioned); })
+      .catch(() => { if (!cancelled) setRecoveryAvailable(false); });
+    return () => { cancelled = true; };
+  }, [status]);
 
   const score = useMemo(() => scorePassword(pw), [pw]);
 
@@ -147,7 +147,46 @@ export function UnlockScreen({ status, onUnlocked }: Props) {
         >
           {firstRun ? 'Create vault' : 'Unlock'}
         </button>
+
+        {!firstRun && (
+          <div className="flex items-center justify-between text-[11px] text-muted pt-1">
+            {recoveryAvailable ? (
+              <button
+                type="button"
+                onClick={() => setRecoveryOpen(true)}
+                className="inline-flex items-center gap-1 hover:text-fg focus-ring rounded px-1"
+              >
+                <KeyRound size={11} /> Use recovery code
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={() => setResetOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-danger focus-ring rounded px-1"
+            >
+              <Trash2 size={11} /> Forgot password?
+            </button>
+          </div>
+        )}
       </form>
+
+      {recoveryOpen && (
+        <RecoveryUnlockDialog
+          onClose={() => setRecoveryOpen(false)}
+          onUnlocked={onUnlocked}
+        />
+      )}
+      {resetOpen && (
+        <ResetVaultDialog
+          onClose={() => setResetOpen(false)}
+          onReset={() => {
+            setResetOpen(false);
+            onStatusChanged?.();
+          }}
+        />
+      )}
     </main>
   );
 }
