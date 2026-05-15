@@ -1,3 +1,4 @@
+pub mod drag;
 pub mod registry;
 pub mod session;
 pub mod transfer;

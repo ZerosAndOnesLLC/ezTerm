@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { api } from '@/lib/tauri';
+import { api, exposeDevApi } from '@/lib/tauri';
 import type { VaultStatus } from '@/lib/types';
 import { applyTheme, loadTheme } from '@/lib/theme';
 import { UnlockScreen } from '@/components/unlock-screen';
@@ -11,6 +11,7 @@ export default function Page() {
   const [status, setStatus] = useState<VaultStatus | null>(null);
 
   useEffect(() => {
+    exposeDevApi();
     (async () => {
       applyTheme(await loadTheme());
       setStatus(await api.vaultStatus());

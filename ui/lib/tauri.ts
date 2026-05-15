@@ -18,6 +18,21 @@ export function errMessage(e: unknown): string {
   return String(e);
 }
 
+/** Exposed on `window.__ezterm` in development builds (and via a
+ *  `localStorage.ezterm_dev=1` opt-in in production) so the user can
+ *  invoke `await __ezterm.dragTestFile('hello.txt', 'hi')` from the
+ *  devtools console to validate the phase-B1 drag plumbing without a
+ *  UI hookup. Drag-out integration with the SFTP rows arrives in B2
+ *  of issue #28; until then the test command is the only path. */
+export function exposeDevApi() {
+  if (typeof window === 'undefined') return;
+  const dev =
+    process.env.NODE_ENV !== 'production'
+    || (typeof localStorage !== 'undefined' && localStorage.getItem('ezterm_dev') === '1');
+  if (!dev) return;
+  (window as unknown as { __ezterm: typeof api }).__ezterm = api;
+}
+
 export const api = {
   // Vault
   vaultStatus: () => invoke<VaultStatus>('vault_status'),
@@ -118,6 +133,12 @@ export const api = {
     invoke<TransferTicket>('sftp_upload_bytes', { connectionId, remotePath, bytes }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
+  /** Phase B1 of issue #28: starts an OS-native OLE drag with a
+   *  hardcoded `body` payload exposed as a virtual file named `name`.
+   *  Windows-only today; macOS/Linux surface an "unsupported" error.
+   *  Returns 'dropped' or 'cancelled' depending on user action. */
+  dragTestFile: (name: string, body: string) =>
+    invoke<'dropped' | 'cancelled'>('drag_test_file', { name, body }),
 
   // Local PTY (WSL / cmd / pwsh)
   localConnect:    (sessionId: number, cols: number, rows: number) =>
