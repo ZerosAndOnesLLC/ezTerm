@@ -23,6 +23,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'ezTerm',
+      logo: {
+        src: './src/assets/ezterm.png',
+        replacesTitle: true,
+      },
       customCss: [
         '@fontsource/inter/400.css',
         '@fontsource/inter/600.css',

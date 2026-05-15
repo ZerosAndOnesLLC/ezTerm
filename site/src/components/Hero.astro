@@ -3,11 +3,17 @@
 const RELEASES_LATEST = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest';
 const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
 const VERSION = 'v1.3.4'; // bump per release; see plan §commit convention
+const BASE = import.meta.env.BASE_URL;
 ---
 <section class="relative overflow-hidden">
   <div class="absolute inset-0 pointer-events-none dark-glow" aria-hidden="true"></div>
 
-  <div class="relative max-w-5xl mx-auto px-6 pt-24 pb-20">
+  <div class="relative max-w-5xl mx-auto px-6 pt-20 pb-20">
+    <img
+      src={`${BASE}ezterm.png`}
+      alt="ezTerm"
+      class="h-32 w-auto mb-8"
+    />
     <p class="text-sm font-medium text-site-accent font-mono mb-4">// open-source ssh client — windows, linux, macos</p>
     <h1 class="text-5xl md:text-6xl font-bold tracking-tight leading-tight mb-5">
       An SSH client that<br />respects your terminal.
