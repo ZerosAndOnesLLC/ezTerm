@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://zerosandonesllc.github.io/ezTerm/sitemap-v2.xml
+Sitemap: https://ezterm.zerosandones.us/sitemap.xml

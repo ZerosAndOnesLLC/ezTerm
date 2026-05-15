@@ -70,14 +70,14 @@ on those platforms.
 
 ## Website
 
-Project site: <https://zerosandonesllc.github.io/ezTerm/> — landing page, docs,
+Project site: <https://ezterm.zerosandones.us/> — landing page, docs,
 screenshots, and changelog. Source lives in [`site/`](site/).
 
 Develop locally:
 
 ```bash
 npm --prefix site install     # one-time
-npm --prefix site run dev     # http://localhost:4321/ezTerm/
+npm --prefix site run dev     # http://localhost:4321/
 npm --prefix site run build   # → site/dist/
 ```
 

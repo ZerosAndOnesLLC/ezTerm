@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/ZerosAndOnesLLC/ezTerm/blob/main/SECURITY.md
     about: Please follow SECURITY.md — do not file public issues for security bugs.
   - name: Documentation
-    url: https://zerosandonesllc.github.io/ezTerm/docs/
+    url: https://ezterm.zerosandones.us/docs/
     about: Docs site — install guide, feature walkthroughs, troubleshooting.
