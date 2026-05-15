@@ -131,6 +131,19 @@ export const api = {
     invoke<TransferTicket>('sftp_upload', { connectionId, localPath, remotePath }),
   sftpUploadBytes: (connectionId: number, remotePath: string, bytes: number[]) =>
     invoke<TransferTicket>('sftp_upload_bytes', { connectionId, remotePath, bytes }),
+  /** Streaming upload — phase A3 of issue #28. Begin returns an
+   *  upload_id; push chunks via sftpUploadChunk until the file is
+   *  drained, then sftpUploadFinish (or sftpUploadAbort on cancel).
+   *  Each chunk is acked by the writer so per-chunk remote errors
+   *  (disk full, permission denied) surface immediately. */
+  sftpUploadBegin:  (connectionId: number, remotePath: string) =>
+    invoke<number>('sftp_upload_begin', { connectionId, remotePath }),
+  sftpUploadChunk:  (uploadId: number, bytes: number[]) =>
+    invoke<void>('sftp_upload_chunk', { uploadId, bytes }),
+  sftpUploadFinish: (uploadId: number) =>
+    invoke<void>('sftp_upload_finish', { uploadId }),
+  sftpUploadAbort:  (uploadId: number) =>
+    invoke<void>('sftp_upload_abort', { uploadId }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
   /** Phase B1 of issue #28: starts an OS-native OLE drag with a
@@ -139,6 +152,12 @@ export const api = {
    *  Returns 'dropped' or 'cancelled' depending on user action. */
   dragTestFile: (name: string, body: string) =>
     invoke<'dropped' | 'cancelled'>('drag_test_file', { name, body }),
+  /** Phases B2 + B3 + B4 of issue #28: streaming OS-native drag of
+   *  one or more remote SFTP files. Each file streams independently
+   *  on demand — no in-memory buffer, no size cap. Windows-only;
+   *  macOS / Linux pending B5/B6. Returns 'dropped' or 'cancelled'. */
+  sftpDrag: (connectionId: number, remotePaths: string[]) =>
+    invoke<'dropped' | 'cancelled'>('sftp_drag', { connectionId, remotePaths }),
 
   // Local PTY (WSL / cmd / pwsh)
   localConnect:    (sessionId: number, cols: number, rows: number) =>

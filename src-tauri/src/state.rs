@@ -6,6 +6,7 @@ use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
 use crate::local::LocalRegistry;
+use crate::sftp::upload_stream::UploadStreamRegistry;
 use crate::sftp::SftpRegistry;
 use crate::ssh::ConnectionRegistry;
 use crate::sync::SyncManager;
@@ -28,6 +29,11 @@ pub struct AppState {
     /// the SSH driver task must be able to drop SFTP state when the underlying
     /// transport dies, otherwise `SftpHandle`s leak past connection teardown.
     pub sftp: Arc<SftpRegistry>,
+    /// In-flight streaming uploads. One entry per concurrent
+    /// `sftp_upload_begin` call; chunks are pushed via
+    /// `sftp_upload_chunk` until `sftp_upload_finish` or
+    /// `sftp_upload_abort`. See `sftp::upload_stream`.
+    pub upload_streams: Arc<UploadStreamRegistry>,
     /// Local PTY connection registry — WSL distros and local shells. Uses
     /// its own id space (offset ≥ 2⁴⁸) so ids never collide with SSH.
     pub local: Arc<LocalRegistry>,
@@ -56,6 +62,7 @@ impl AppState {
             unlock_locked_until_unix: AtomicI64::new(0),
             ssh: Arc::new(ConnectionRegistry::new()),
             sftp: Arc::new(SftpRegistry::new()),
+            upload_streams: Arc::new(UploadStreamRegistry::new()),
             local: Arc::new(LocalRegistry::new()),
             xserver: Arc::new(XServerManager::new()),
             sync,
