@@ -129,6 +129,200 @@ function slotsEqual(a: DropSlot | null, b: DropSlot | null): boolean {
   }
 }
 
+interface NodeViewCtx {
+  expanded:            Set<number>;
+  drag:                { kind: 'session' | 'folder'; id: number } | null;
+  dragTarget:          DropSlot | null;
+  selectedId:          number | null;
+  connectedSessionIds: Set<number>;
+  handleDragStart:     (e: React.DragEvent, kind: 'session' | 'folder', id: number) => void;
+  handleDragEnd:       () => void;
+  handleDragOver:      (e: React.DragEvent, slot: DropSlot) => void;
+  handleDrop:          (e: React.DragEvent, slot: DropSlot) => Promise<void>;
+  slotForRow:          (e: React.DragEvent, row: 'session' | 'folder', id: number) => DropSlot;
+  toggleFolder:        (id: number) => void;
+  openFolderMenu:      (e: React.MouseEvent, f: TFolder | null) => void;
+  openSessionMenu:     (e: React.MouseEvent, s: Session) => void;
+  setConfirm:          React.Dispatch<React.SetStateAction<PendingConfirm | null>>;
+  setSelectedId:       React.Dispatch<React.SetStateAction<number | null>>;
+  openTabAction:       (s: Session) => void;
+}
+
+// Top-level so the function identity is stable across SessionsSidebar
+// re-renders. If NodeView were defined inside SessionsSidebar, every
+// setState would give it a new identity and React would unmount + remount
+// the whole tree — which aborts in-flight HTML5 drags by ripping the
+// source DOM out from under the browser.
+function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeViewCtx }) {
+  const isOpen = node.folder ? ctx.expanded.has(node.folder.id) : true;
+  const FolderIcon = isOpen ? FolderOpen : Folder;
+  const isDragSource = !!(
+    node.folder && ctx.drag?.kind === 'folder' && ctx.drag.id === node.folder.id
+  );
+  const isIntoTarget =
+    node.folder != null
+    && ctx.dragTarget?.kind === 'into-folder'
+    && ctx.dragTarget.folderId === node.folder.id;
+  const hasBeforeEdge =
+    node.folder != null
+    && ctx.dragTarget?.kind === 'before-folder'
+    && ctx.dragTarget.folderId === node.folder.id;
+  const hasAfterEdge =
+    node.folder != null
+    && ctx.dragTarget?.kind === 'after-folder'
+    && ctx.dragTarget.folderId === node.folder.id;
+  const sessionCount = countDescendantSessions(node);
+  return (
+    <div>
+      {node.folder && (
+        <div
+          draggable
+          onDragStart={(e) => ctx.handleDragStart(e, 'folder', node.folder!.id)}
+          onDragEnd={ctx.handleDragEnd}
+          onDragOver={(e) => ctx.handleDragOver(e, ctx.slotForRow(e, 'folder', node.folder!.id))}
+          onDrop={(e) => ctx.handleDrop(e, ctx.slotForRow(e, 'folder', node.folder!.id))}
+          onClick={() => ctx.toggleFolder(node.folder!.id)}
+          onContextMenu={(e) => ctx.openFolderMenu(e, node.folder!)}
+          className={`group relative h-7 flex items-center gap-1.5 cursor-default select-none pr-2 transition-colors ${
+            isIntoTarget
+              ? 'bg-accent/20 outline outline-1 outline-accent/60 text-fg'
+              : 'text-fg/80 hover:text-fg hover:bg-surface2/70'
+          } ${isDragSource ? 'opacity-50' : ''}`}
+          style={{ paddingLeft: 6 + depth * 12 }}
+          role="treeitem"
+          aria-expanded={isOpen}
+          aria-selected={false}
+        >
+          {hasBeforeEdge && <DropLine edge="top" />}
+          {hasAfterEdge  && <DropLine edge="bottom" />}
+          <span className="w-3 h-3 flex items-center justify-center text-muted/80 shrink-0">
+            {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </span>
+          <FolderIcon
+            size={14}
+            className={`shrink-0 ${isOpen ? 'text-accent' : 'text-accent/70'}`}
+            strokeWidth={2}
+          />
+          <span className="truncate text-xs font-medium flex-1">{node.folder.name}</span>
+          {sessionCount > 0 && (
+            <span
+              className="shrink-0 text-[10px] font-mono tabular-nums px-1.5 py-[1px] rounded-sm bg-surface2/80 text-muted group-hover:bg-surface2 group-hover:text-fg/80"
+              title={`${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
+            >
+              {sessionCount}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              ctx.setConfirm({ kind: 'delete-folder', folder: node.folder! });
+            }}
+            aria-label={`Delete folder ${node.folder.name}`}
+            title="Delete folder"
+            className="shrink-0 w-5 h-5 flex items-center justify-center rounded-sm opacity-0 group-hover:opacity-100 text-muted hover:text-danger hover:bg-danger/10"
+          >
+            <Trash2 size={11} />
+          </button>
+        </div>
+      )}
+      {isOpen && (
+        <>
+          {/* Folders BEFORE sessions at every depth (implementation-notes §2). */}
+          {node.folders.map((child) => (
+            <NodeView key={child.folder!.id} node={child} depth={depth + 1} ctx={ctx} />
+          ))}
+          {node.sessions.map((s) => {
+            const isSelected  = ctx.selectedId === s.id;
+            const isConnected = ctx.connectedSessionIds.has(s.id);
+            const isSrc = ctx.drag?.kind === 'session' && ctx.drag.id === s.id;
+            const sessionHasBefore = ctx.dragTarget?.kind === 'before-session' && ctx.dragTarget.sessionId === s.id;
+            const sessionHasAfter  = ctx.dragTarget?.kind === 'after-session'  && ctx.dragTarget.sessionId === s.id;
+            // Left-rail colour priority: connected green > selected accent
+            // > session's own colour > transparent.
+            const rail = isConnected
+              ? 'rgb(var(--success))'
+              : isSelected
+                ? 'rgb(var(--accent))'
+                : s.color ?? 'transparent';
+            return (
+              <div
+                key={s.id}
+                draggable
+                onDragStart={(e) => ctx.handleDragStart(e, 'session', s.id)}
+                onDragEnd={ctx.handleDragEnd}
+                onClick={() => ctx.setSelectedId(s.id)}
+                onContextMenu={(e) => ctx.openSessionMenu(e, s)}
+                onDoubleClick={() => ctx.openTabAction(s)}
+                onDragOver={(e) => {
+                  if (!ctx.drag) return;
+                  // Split the row 50/50: top half places the dragged item
+                  // *before* this session, bottom half *after*. Works for
+                  // both same-folder reordering and cross-folder moves
+                  // (the drop handler resolves destFolderId from the
+                  // anchor session's folder).
+                  ctx.handleDragOver(e, ctx.slotForRow(e, 'session', s.id));
+                }}
+                onDrop={(e) => {
+                  if (!ctx.drag) return;
+                  ctx.handleDrop(e, ctx.slotForRow(e, 'session', s.id));
+                }}
+                className={`group relative h-7 flex items-center gap-2 cursor-default select-none pr-2 transition-colors ${
+                  isSelected
+                    ? 'bg-accent/18 text-fg'
+                    : 'hover:bg-surface2/70 text-fg/90 hover:text-fg'
+                } ${isSrc ? 'opacity-50' : ''}`}
+                style={{ paddingLeft: 6 + (depth + 1) * 12 }}
+                role="treeitem"
+                aria-selected={isSelected}
+                title={`${s.username}@${s.host}${s.port !== 22 ? `:${s.port}` : ''}`}
+              >
+                {sessionHasBefore && <DropLine edge="top" />}
+                {sessionHasAfter  && <DropLine edge="bottom" />}
+                <span
+                  className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm ${
+                    isConnected ? 'animate-pulse' : ''
+                  }`}
+                  style={{ background: rail }}
+                  aria-hidden
+                />
+                {(() => {
+                  const KindIcon =
+                    s.session_kind === 'wsl' ? SquareTerminal :
+                    s.session_kind === 'local' ? MonitorDot :
+                    Server;
+                  // Tile priority: connected green > per-session colour >
+                  // kind default. Keeps user branding visible when idle,
+                  // flips to a clear "live" signal while connected.
+                  const tileBg = isConnected
+                    ? 'rgb(var(--success))'
+                    : (s.color ?? KIND_DEFAULT_TILE[s.session_kind]);
+                  return (
+                    <span
+                      className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center"
+                      style={{ background: tileBg }}
+                      aria-hidden
+                    >
+                      <KindIcon
+                        size={11}
+                        className="text-white"
+                        strokeWidth={2.25}
+                      />
+                    </span>
+                  );
+                })()}
+                <span className={`truncate text-xs flex-1 ${isSelected ? 'font-medium' : ''}`}>
+                  {s.name}
+                </span>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SessionsSidebar() {
   const [folders, setFolders] = useState<TFolder[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -593,176 +787,30 @@ export function SessionsSidebar() {
     });
   }
 
-  function NodeView({ node, depth }: { node: TreeNode; depth: number }) {
-    const isOpen = node.folder ? expanded.has(node.folder.id) : true;
-    const FolderIcon = isOpen ? FolderOpen : Folder;
-    const folderId = node.folder?.id ?? null;
-    const isDragSource = !!(
-      node.folder && drag?.kind === 'folder' && drag.id === node.folder.id
-    );
-    const isIntoTarget =
-      node.folder != null
-      && dragTarget?.kind === 'into-folder'
-      && dragTarget.folderId === node.folder.id;
-    const hasBeforeEdge =
-      node.folder != null
-      && dragTarget?.kind === 'before-folder'
-      && dragTarget.folderId === node.folder.id;
-    const hasAfterEdge =
-      node.folder != null
-      && dragTarget?.kind === 'after-folder'
-      && dragTarget.folderId === node.folder.id;
-    const sessionCount = countDescendantSessions(node);
-    return (
-      <div>
-        {node.folder && (
-          <div
-            draggable
-            onDragStart={(e) => handleDragStart(e, 'folder', node.folder!.id)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleDragOver(e, slotForRow(e, 'folder', node.folder!.id))}
-            onDrop={(e) => handleDrop(e, slotForRow(e, 'folder', node.folder!.id))}
-            onClick={() => toggleFolder(node.folder!.id)}
-            onContextMenu={(e) => openFolderMenu(e, node.folder!)}
-            className={`group relative h-7 flex items-center gap-1.5 cursor-default select-none pr-2 transition-colors ${
-              isIntoTarget
-                ? 'bg-accent/20 outline outline-1 outline-accent/60 text-fg'
-                : 'text-fg/80 hover:text-fg hover:bg-surface2/70'
-            } ${isDragSource ? 'opacity-50' : ''}`}
-            style={{ paddingLeft: 6 + depth * 12 }}
-            role="treeitem"
-            aria-expanded={isOpen}
-            aria-selected={false}
-          >
-            {hasBeforeEdge && <DropLine edge="top" />}
-            {hasAfterEdge  && <DropLine edge="bottom" />}
-            <span className="w-3 h-3 flex items-center justify-center text-muted/80 shrink-0">
-              {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            </span>
-            <FolderIcon
-              size={14}
-              className={`shrink-0 ${isOpen ? 'text-accent' : 'text-accent/70'}`}
-              strokeWidth={2}
-            />
-            <span className="truncate text-xs font-medium flex-1">{node.folder.name}</span>
-            {sessionCount > 0 && (
-              <span
-                className="shrink-0 text-[10px] font-mono tabular-nums px-1.5 py-[1px] rounded-sm bg-surface2/80 text-muted group-hover:bg-surface2 group-hover:text-fg/80"
-                title={`${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
-              >
-                {sessionCount}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirm({ kind: 'delete-folder', folder: node.folder! });
-              }}
-              aria-label={`Delete folder ${node.folder.name}`}
-              title="Delete folder"
-              className="shrink-0 w-5 h-5 flex items-center justify-center rounded-sm opacity-0 group-hover:opacity-100 text-muted hover:text-danger hover:bg-danger/10"
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        )}
-        {isOpen && (
-          <>
-            {/* Folders BEFORE sessions at every depth (implementation-notes §2). */}
-            {node.folders.map((child) => (
-              <NodeView key={child.folder!.id} node={child} depth={depth + 1} />
-            ))}
-            {node.sessions.map((s) => {
-              const isSelected  = selectedId === s.id;
-              const isConnected = connectedSessionIds.has(s.id);
-              const isSrc = drag?.kind === 'session' && drag.id === s.id;
-              const sessionHasBefore = dragTarget?.kind === 'before-session' && dragTarget.sessionId === s.id;
-              const sessionHasAfter  = dragTarget?.kind === 'after-session'  && dragTarget.sessionId === s.id;
-              // Left-rail colour priority: connected green > selected accent
-              // > session's own colour > transparent.
-              const rail = isConnected
-                ? 'rgb(var(--success))'
-                : isSelected
-                  ? 'rgb(var(--accent))'
-                  : s.color ?? 'transparent';
-              return (
-                <div
-                  key={s.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, 'session', s.id)}
-                  onDragEnd={handleDragEnd}
-                  onClick={() => setSelectedId(s.id)}
-                  onContextMenu={(e) => openSessionMenu(e, s)}
-                  onDoubleClick={() => openTabAction(s)}
-                  onDragOver={(e) => {
-                    if (!drag) return;
-                    // Split the row 50/50: top half places the dragged item
-                    // *before* this session, bottom half *after*. Works for
-                    // both same-folder reordering and cross-folder moves
-                    // (the drop handler resolves destFolderId from the
-                    // anchor session's folder).
-                    handleDragOver(e, slotForRow(e, 'session', s.id));
-                  }}
-                  onDrop={(e) => {
-                    if (!drag) return;
-                    handleDrop(e, slotForRow(e, 'session', s.id));
-                  }}
-                  className={`group relative h-7 flex items-center gap-2 cursor-default select-none pr-2 transition-colors ${
-                    isSelected
-                      ? 'bg-accent/18 text-fg'
-                      : 'hover:bg-surface2/70 text-fg/90 hover:text-fg'
-                  } ${isSrc ? 'opacity-50' : ''}`}
-                  style={{ paddingLeft: 6 + (depth + 1) * 12 }}
-                  role="treeitem"
-                  aria-selected={isSelected}
-                  title={`${s.username}@${s.host}${s.port !== 22 ? `:${s.port}` : ''}`}
-                >
-                  {sessionHasBefore && <DropLine edge="top" />}
-                  {sessionHasAfter  && <DropLine edge="bottom" />}
-                  <span
-                    className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm ${
-                      isConnected ? 'animate-pulse' : ''
-                    }`}
-                    style={{ background: rail }}
-                    aria-hidden
-                  />
-                  {(() => {
-                    const KindIcon =
-                      s.session_kind === 'wsl' ? SquareTerminal :
-                      s.session_kind === 'local' ? MonitorDot :
-                      Server;
-                    // Tile priority: connected green > per-session colour >
-                    // kind default. Keeps user branding visible when idle,
-                    // flips to a clear "live" signal while connected.
-                    const tileBg = isConnected
-                      ? 'rgb(var(--success))'
-                      : (s.color ?? KIND_DEFAULT_TILE[s.session_kind]);
-                    return (
-                      <span
-                        className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center"
-                        style={{ background: tileBg }}
-                        aria-hidden
-                      >
-                        <KindIcon
-                          size={11}
-                          className="text-white"
-                          strokeWidth={2.25}
-                        />
-                      </span>
-                    );
-                  })()}
-                  <span className={`truncate text-xs flex-1 ${isSelected ? 'font-medium' : ''}`}>
-                    {s.name}
-                  </span>
-                </div>
-              );
-            })}
-          </>
-        )}
-      </div>
-    );
-  }
+  // Bundle everything NodeView needs from this component's scope. NodeView
+  // itself is hoisted to module scope (below SessionsSidebar) so its
+  // function identity stays stable across renders — defining it inline
+  // would cause React to unmount + remount the entire tree on every
+  // setState (e.g. dragover → setDragTarget), which aborts in-flight
+  // HTML5 drags by ripping the source DOM out from under the browser.
+  const nodeViewCtx: NodeViewCtx = {
+    expanded,
+    drag,
+    dragTarget,
+    selectedId,
+    connectedSessionIds,
+    handleDragStart,
+    handleDragEnd,
+    handleDragOver,
+    handleDrop,
+    slotForRow,
+    toggleFolder,
+    openFolderMenu,
+    openSessionMenu,
+    setConfirm,
+    setSelectedId,
+    openTabAction,
+  };
 
   const empty = folders.length === 0 && sessions.length === 0;
 
@@ -834,7 +882,7 @@ export function SessionsSidebar() {
             compact
           />
         ) : (
-          <NodeView node={tree} depth={0} />
+          <NodeView node={tree} depth={0} ctx={nodeViewCtx} />
         )}
       </div>
 
