@@ -93,6 +93,7 @@ async fn main() {
             commands::sftp::sftp_upload,
             commands::sftp::sftp_upload_bytes,
             commands::sftp::sftp_download,
+            commands::sftp::drag_test_file,
             commands::scp::scp_upload,
             commands::scp::scp_download,
             commands::local::local_connect,

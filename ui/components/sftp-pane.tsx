@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderPlus, Inbox, Loader2, RefreshCw, Upload, UploadCloud } from 'lucide-react';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
@@ -13,6 +13,53 @@ import { TransferStatus, type TrackedTransfer } from './transfer-status';
 import { ConfirmDialog } from './confirm-dialog';
 import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
+
+const UPLOAD_CAP_BYTES = 256 * 1024 * 1024;
+
+/** Tracks an in-progress directory upload (one job per dropped tree).
+ *  Files inside the tree still surface as individual transfers via the
+ *  existing TransferStatus strip; this job tracks the parent walk so
+ *  the user sees "uploading directory X (12/87 files)" while we mkdir
+ *  and enqueue each leaf. */
+interface DirJob {
+  id: number;
+  rootName: string;
+  total: number;
+  done: number;
+  failed: number;
+  finished: boolean;
+}
+
+/** Pluck the FileSystemEntry off a DataTransferItem — supports both
+ *  the modern `getAsEntry()` (TC39 file-system access) and the legacy
+ *  `webkitGetAsEntry()` that Chromium-based webviews still expose. */
+function entryFromItem(item: DataTransferItem): FileSystemEntry | null {
+  // Modern API isn't typed in stock lib.dom yet; fall back to the
+  // ubiquitous Chromium one.
+  type WithEntry = DataTransferItem & {
+    getAsEntry?: () => FileSystemEntry | null;
+    webkitGetAsEntry?: () => FileSystemEntry | null;
+  };
+  const i = item as WithEntry;
+  return i.webkitGetAsEntry?.() ?? i.getAsEntry?.() ?? null;
+}
+
+async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  // readEntries returns at most ~100 entries per call; loop until it
+  // returns empty.
+  const out: FileSystemEntry[] = [];
+  for (;;) {
+    const batch: FileSystemEntry[] = await new Promise((resolve, reject) =>
+      reader.readEntries((entries) => resolve(entries as FileSystemEntry[]), reject),
+    );
+    if (batch.length === 0) return out;
+    out.push(...batch);
+  }
+}
+
+function getFile(entry: FileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
 
 /// Join a parent dir and a filename while keeping root (`/`) tidy.
 function joinRemote(dir: string, name: string): string {
@@ -36,6 +83,8 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const [dragOver, setDragOver] = useState(false);
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
+  const [dirJobs, setDirJobs] = useState<DirJob[]>([]);
+  const nextDirJobId = useRef(1);
   const setCwd = useTabs((s) => s.setCwd);
 
   const refresh = useCallback(async () => {
@@ -107,39 +156,153 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     setMenu({ x, y, items });
   }
 
-  /// Drag-drop upload. Chromium webviews don't expose a source file path
-  /// on HTML5 drops (security), so we read each File's bytes via
-  /// FileReader and ship them to `sftp_upload_bytes`, which streams the
-  /// buffer into the remote SFTP session. This works regardless of the
-  /// host OS — path separators, drive letters, and POSIX roots are all
-  /// handled by the backend's `normalise_remote_path` on the target side.
-  async function handleDrop(ev: React.DragEvent) {
-    ev.preventDefault();
-    setDragOver(false);
-    const cid = tab.connectionId;
-    if (cid == null) return;
-    const files = Array.from(ev.dataTransfer?.files ?? []) as File[];
-    if (files.length === 0) return;
-    for (const f of files) {
-      try {
-        if (f.size > 256 * 1024 * 1024) {
-          toast.danger(
-            'File too large',
-            `${f.name} is ${(f.size / (1024 * 1024)).toFixed(1)} MB — drag-drop cap is 256 MB. Use the Upload button.`,
-          );
-          continue;
-        }
-        // `File.name` is just the base name in every browser — perfect
-        // for joining with the remote cwd; no need to strip separators.
-        const remote = joinRemote(tab.cwd, f.name || 'upload');
-        const bytes = Array.from(new Uint8Array(await f.arrayBuffer()));
-        const t = await api.sftpUploadBytes(cid, remote, bytes);
-        setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${f.name}` }]);
-      } catch (er) {
-        toast.danger(`Upload failed: ${f.name}`, errMessage(er));
+  /// Single-file upload over SFTP. Chromium webviews don't expose a
+  /// source file path on HTML5 drops (security), so we read each File's
+  /// bytes via FileReader and ship them to `sftp_upload_bytes`, which
+  /// streams the buffer into the remote SFTP session.
+  async function uploadOneFile(cid: number, f: File, remotePath: string): Promise<boolean> {
+    if (f.size > UPLOAD_CAP_BYTES) {
+      toast.danger(
+        'File too large',
+        `${f.name} is ${(f.size / (1024 * 1024)).toFixed(1)} MB — drag-drop cap is 256 MB. Use the Upload button.`,
+      );
+      return false;
+    }
+    try {
+      const bytes = Array.from(new Uint8Array(await f.arrayBuffer()));
+      const t = await api.sftpUploadBytes(cid, remotePath, bytes);
+      setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${f.name}` }]);
+      return true;
+    } catch (er) {
+      toast.danger(`Upload failed: ${f.name}`, errMessage(er));
+      return false;
+    }
+  }
+
+  /// Idempotent mkdir: best-effort, swallows "exists" errors so a
+  /// directory tree can be re-uploaded over itself. We don't list
+  /// first because that's a round-trip; trying to create and tolerating
+  /// the failure is one IPC.
+  async function ensureRemoteDir(cid: number, path: string): Promise<void> {
+    try { await api.sftpMkdir(cid, path); } catch { /* assume already exists */ }
+  }
+
+  /// Walk a dropped FileSystemDirectoryEntry, mkdir its descendants on
+  /// the remote and upload each leaf file. Updates the supplied DirJob
+  /// as we go so the in-pane progress strip shows total / done counts.
+  async function uploadDirectoryEntry(
+    cid: number,
+    dirEntry: FileSystemDirectoryEntry,
+    remoteRoot: string,
+    jobId: number,
+  ): Promise<void> {
+    const reader = dirEntry.createReader();
+    const children = await readAllEntries(reader);
+    for (const child of children) {
+      const childRemote = joinRemote(remoteRoot, child.name);
+      if (child.isDirectory) {
+        await ensureRemoteDir(cid, childRemote);
+        setDirJobs((js) =>
+          js.map((j) => (j.id === jobId ? { ...j, total: j.total + 1, done: j.done + 1 } : j)),
+        );
+        await uploadDirectoryEntry(cid, child as FileSystemDirectoryEntry, childRemote, jobId);
+      } else {
+        const f = await getFile(child as FileSystemFileEntry).catch(() => null);
+        setDirJobs((js) =>
+          js.map((j) => (j.id === jobId ? { ...j, total: j.total + 1 } : j)),
+        );
+        const ok = f ? await uploadOneFile(cid, f, childRemote) : false;
+        setDirJobs((js) =>
+          js.map((j) => (j.id === jobId
+            ? { ...j, done: j.done + (ok ? 1 : 0), failed: j.failed + (ok ? 0 : 1) }
+            : j),
+          ),
+        );
       }
     }
+  }
+
+  /// Shared drop handler used by both the pane-wide drop zone and the
+  /// per-folder drop targets. Mixes single files (legacy
+  /// dataTransfer.files path) with full directory walks via
+  /// webkitGetAsEntry. We don't `await` the file/directory uploads in
+  /// sequence here — Promise.all lets the parallel uploads race, which
+  /// is fine because each `sftpUploadBytes` opens its own write handle.
+  async function uploadDataTransfer(targetDir: string, dt: DataTransfer | null) {
+    const cid = tab.connectionId;
+    if (cid == null || !dt) return;
+
+    // Prefer the items API so we can detect directories. Fall back to
+    // the `files` collection on browsers that don't expose entries
+    // (none of our supported webviews, but cheap defensive code).
+    const items = Array.from(dt.items ?? []);
+    type Work = { kind: 'file'; file: File; remote: string }
+              | { kind: 'dir';  entry: FileSystemDirectoryEntry; remote: string; rootName: string };
+    const work: Work[] = [];
+
+    if (items.length > 0) {
+      for (const it of items) {
+        if (it.kind !== 'file') continue;
+        const e = entryFromItem(it);
+        if (e?.isDirectory) {
+          work.push({
+            kind: 'dir',
+            entry: e as FileSystemDirectoryEntry,
+            remote: joinRemote(targetDir, e.name),
+            rootName: e.name,
+          });
+        } else if (e?.isFile) {
+          // FileSystemFileEntry.file is async; capture the File now.
+          const f = await getFile(e as FileSystemFileEntry).catch(() => null);
+          if (f) work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
+        } else {
+          // Some weird-shaped DataTransferItem (text, image-data, ...). Skip.
+          const f = it.getAsFile();
+          if (f) work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
+        }
+      }
+    } else {
+      for (const f of Array.from(dt.files ?? [])) {
+        work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
+      }
+    }
+
+    if (work.length === 0) return;
+
+    const dirWork = work.filter((w): w is Extract<Work, { kind: 'dir' }> => w.kind === 'dir');
+    const fileWork = work.filter((w): w is Extract<Work, { kind: 'file' }> => w.kind === 'file');
+
+    for (const f of fileWork) {
+      void uploadOneFile(cid, f.file, f.remote);
+    }
+
+    for (const d of dirWork) {
+      const jobId = nextDirJobId.current++;
+      setDirJobs((js) => [...js, {
+        id: jobId, rootName: d.rootName, total: 1, done: 0, failed: 0, finished: false,
+      }]);
+      await ensureRemoteDir(cid, d.remote);
+      setDirJobs((js) => js.map((j) => (j.id === jobId ? { ...j, done: 1 } : j)));
+      try {
+        await uploadDirectoryEntry(cid, d.entry, d.remote, jobId);
+      } catch (er) {
+        toast.danger(`Directory upload failed: ${d.rootName}`, errMessage(er));
+      }
+      setDirJobs((js) => js.map((j) => (j.id === jobId ? { ...j, finished: true } : j)));
+    }
+
     setTimeout(refresh, 500);
+  }
+
+  function handleDrop(ev: React.DragEvent) {
+    ev.preventDefault();
+    setDragOver(false);
+    void uploadDataTransfer(tab.cwd, ev.dataTransfer);
+  }
+
+  function handleFolderDrop(folder: SftpEntry, ev: React.DragEvent) {
+    // Per-folder drop: upload INTO the folder, not next to it.
+    void uploadDataTransfer(folder.full_path, ev.dataTransfer);
   }
 
   async function handleUploadClick() {
@@ -241,9 +404,18 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           <EmptyState icon={Inbox} title="Empty directory" compact />
         )}
         {entries.map((e) => (
-          <SftpFileRow key={e.full_path} entry={e} onOpen={navigateInto} onContext={openContext} />
+          <SftpFileRow
+            key={e.full_path}
+            entry={e}
+            onOpen={navigateInto}
+            onContext={openContext}
+            onFolderDrop={handleFolderDrop}
+          />
         ))}
       </div>
+      <DirectoryJobs jobs={dirJobs} onClear={(id) =>
+        setDirJobs((js) => js.filter((j) => j.id !== id))
+      } />
       <TransferStatus tracked={transfers} />
 
       {dragOver && (
@@ -317,6 +489,59 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Per-tree upload progress, distinct from the per-file TransferStatus
+ *  strip beneath it. Shows "uploading dir/ N of M" while we walk a
+ *  dropped folder. Finished jobs stick around as a one-line summary
+ *  until the user clicks ×; that's intentional so a user can see at a
+ *  glance whether anything failed. */
+function DirectoryJobs({
+  jobs, onClear,
+}: { jobs: DirJob[]; onClear: (id: number) => void }) {
+  if (jobs.length === 0) return null;
+  return (
+    <div className="border-t border-border bg-surface2/40 text-xs p-2 space-y-1.5">
+      {jobs.map((j) => {
+        const pct = j.total > 0 ? Math.floor((j.done / j.total) * 100) : 0;
+        const statusText = j.finished
+          ? (j.failed > 0
+              ? `done (${j.failed} failed)`
+              : `done (${j.done} files)`)
+          : `${j.done}/${j.total}`;
+        return (
+          <div key={j.id} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-fg/90">
+                {j.finished ? '✓ ' : ''}upload {j.rootName}/
+              </span>
+              <span className={`tabular-nums ${j.failed > 0 ? 'text-danger' : 'text-muted'}`}>
+                {statusText}
+              </span>
+              {j.finished && (
+                <button
+                  type="button"
+                  onClick={() => onClear(j.id)}
+                  aria-label="Dismiss"
+                  className="text-muted hover:text-fg leading-none px-1"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {!j.finished && (
+              <div className="h-1 bg-surface2 rounded-sm overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-[width] duration-fast"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

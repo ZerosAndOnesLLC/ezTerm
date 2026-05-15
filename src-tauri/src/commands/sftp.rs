@@ -346,3 +346,32 @@ pub async fn sftp_download(
     });
     Ok(TransferTicket { transfer_id })
 }
+
+/// Test command for phase B1 of issue #28 — spawns an OS-native drag
+/// source carrying a hardcoded `body` as a single virtual file named
+/// `name`. Returns whether the user dropped or cancelled. Wired up to
+/// validate the COM plumbing end-to-end without needing an SFTP
+/// session: a dev can call this from the browser console (or a
+/// future test menu) and confirm that dropping into Explorer creates
+/// a real file with the expected bytes.
+///
+/// Windows-only today; non-Windows platforms surface a clear
+/// "unsupported" error from `sftp::drag::start_file_drag`.
+#[tauri::command]
+pub async fn drag_test_file(
+    state: State<'_, AppState>,
+    name: String,
+    body: String,
+) -> Result<crate::sftp::drag::DragOutcome> {
+    super::require_unlocked(&state).await?;
+    // DoDragDrop blocks the calling thread — we MUST move it off the
+    // tokio worker pool. `spawn_blocking` does exactly that and joins
+    // the synchronous return back into the async command.
+    let bytes = body.into_bytes();
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::sftp::drag::start_file_drag(name, bytes)
+    })
+    .await
+    .map_err(|e| AppError::Validation(format!("drag task panicked: {e}")))??;
+    Ok(outcome)
+}
