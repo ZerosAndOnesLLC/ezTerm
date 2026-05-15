@@ -347,6 +347,84 @@ pub async fn sftp_download(
     Ok(TransferTicket { transfer_id })
 }
 
+/// Streaming upload — phase A3 of issue #28. Lifts the 256 MB cap by
+/// letting the frontend slice the dropped `File` and ship chunks one
+/// at a time. Returns an `upload_id` the frontend uses to push
+/// chunks; remember to call `sftp_upload_finish` (or
+/// `sftp_upload_abort` on cancel) to release the SFTP session.
+#[tauri::command]
+pub async fn sftp_upload_begin(
+    state: State<'_, AppState>,
+    connection_id: u64,
+    remote_path: String,
+) -> Result<u64> {
+    super::require_unlocked(&state).await?;
+    let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
+    let handle = sftp_handle(&state, connection_id).await?;
+    state.upload_streams.begin(handle, remote_path).await
+}
+
+/// Append one chunk. Returns when the chunk has been acknowledged by
+/// the writer task — surfaces per-chunk remote write errors so the
+/// frontend can stop slicing rather than pushing chunks into a
+/// already-failed upload. Bounded channel depth means this awaits if
+/// the SFTP link is slower than the frontend.
+#[tauri::command]
+pub async fn sftp_upload_chunk(
+    state: State<'_, AppState>,
+    upload_id: u64,
+    bytes: Vec<u8>,
+) -> Result<()> {
+    super::require_unlocked(&state).await?;
+    state.upload_streams.chunk(upload_id, bytes).await
+}
+
+#[tauri::command]
+pub async fn sftp_upload_finish(state: State<'_, AppState>, upload_id: u64) -> Result<()> {
+    super::require_unlocked(&state).await?;
+    state.upload_streams.finish(upload_id).await
+}
+
+#[tauri::command]
+pub async fn sftp_upload_abort(state: State<'_, AppState>, upload_id: u64) -> Result<()> {
+    super::require_unlocked(&state).await?;
+    state.upload_streams.abort(upload_id).await
+}
+
+/// Start a streaming OS-native drag of one or more remote SFTP files
+/// (phases B2 + B3 + B4 of issue #28). Pulls bytes on demand via an
+/// IStream per file backed by a tokio reader task — no in-memory
+/// buffering, no size cap. Returns when the drag finishes (dropped
+/// / cancelled).
+///
+/// Windows-only today; macOS / Linux drag-out lands in phases B5/B6.
+#[tauri::command]
+pub async fn sftp_drag(
+    state: State<'_, AppState>,
+    connection_id: u64,
+    remote_paths: Vec<String>,
+) -> Result<crate::sftp::drag::DragOutcome> {
+    super::require_unlocked(&state).await?;
+    if remote_paths.is_empty() {
+        return Err(AppError::Validation("no paths to drag".into()));
+    }
+    let mut normalised: Vec<String> = Vec::with_capacity(remote_paths.len());
+    for p in remote_paths {
+        normalised.push(crate::sftp::normalise_remote_path(&p)?);
+    }
+    let handle = sftp_handle(&state, connection_id).await?;
+    // Capture the runtime handle BEFORE moving to spawn_blocking: the
+    // dedicated drag thread needs to drive async SFTP reads from a
+    // non-tokio context.
+    let runtime = tokio::runtime::Handle::current();
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::sftp::drag::start_sftp_drag(handle, normalised, runtime)
+    })
+    .await
+    .map_err(|e| AppError::Validation(format!("drag task panicked: {e}")))??;
+    Ok(outcome)
+}
+
 /// Test command for phase B1 of issue #28 — spawns an OS-native drag
 /// source carrying a hardcoded `body` as a single virtual file named
 /// `name`. Returns whether the user dropped or cancelled. Wired up to

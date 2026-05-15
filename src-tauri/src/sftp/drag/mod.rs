@@ -22,16 +22,16 @@ use crate::error::{AppError, Result};
 #[cfg(windows)]
 pub mod win;
 
-/// Start an OS-native drag of `name`'s content payload. Blocks the
-/// current thread until the user drops (or cancels). Spawning a
-/// dedicated thread is the caller's responsibility — `DoDragDrop`
-/// pumps the message loop, which we don't want to do from a tokio
-/// worker.
+/// Start an OS-native drag of `name`'s content payload (in-memory
+/// bytes). Blocks the current thread until the user drops (or
+/// cancels). Spawning a dedicated thread is the caller's
+/// responsibility — `DoDragDrop` pumps the message loop, which we
+/// don't want to do from a tokio worker.
 ///
-/// Phase B1 of issue #28: in-memory `Vec<u8>` only, no streaming yet.
-/// Phase B3 will replace the payload with a streaming `IStream`
-/// backed by SFTP reads.
-#[allow(dead_code)] // wired by drag_test_file; full SFTP integration arrives in B2.
+/// Used by the `drag_test_file` dev command. The real drag-from-SFTP
+/// path goes through `start_sftp_drag`, which uses a streaming
+/// `IStream` instead of buffering the whole file in memory.
+#[allow(dead_code)] // dev-only test path
 pub fn start_file_drag(name: String, bytes: Vec<u8>) -> Result<DragOutcome> {
     #[cfg(windows)]
     {
@@ -40,6 +40,33 @@ pub fn start_file_drag(name: String, bytes: Vec<u8>) -> Result<DragOutcome> {
     #[cfg(not(windows))]
     {
         let _ = (name, bytes);
+        Err(AppError::Validation(
+            "drag-out is not yet implemented on this platform (see issue #28 phases B5/B6)".into(),
+        ))
+    }
+}
+
+/// Start an OS-native drag of one or more remote SFTP files. Each
+/// file is streamed: the COM `IStream` we hand Explorer pulls bytes
+/// from a per-file tokio reader task as the OS reads them, with no
+/// in-memory buffering of file contents.
+///
+/// `remote_paths` lists the paths to drag (one or more). `runtime` is
+/// a tokio handle captured before spawning the drag thread so we can
+/// drive async SFTP reads from a non-tokio context. Blocks until the
+/// user drops or cancels.
+#[cfg_attr(not(windows), allow(unused_variables))]
+pub fn start_sftp_drag(
+    handle: std::sync::Arc<crate::sftp::SftpHandle>,
+    remote_paths: Vec<String>,
+    runtime: tokio::runtime::Handle,
+) -> Result<DragOutcome> {
+    #[cfg(windows)]
+    {
+        win::start_sftp_drag(handle, remote_paths, runtime)
+    }
+    #[cfg(not(windows))]
+    {
         Err(AppError::Validation(
             "drag-out is not yet implemented on this platform (see issue #28 phases B5/B6)".into(),
         ))

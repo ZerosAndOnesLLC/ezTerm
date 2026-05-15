@@ -5,13 +5,29 @@ import type { SftpEntry } from '@/lib/types';
 
 interface Props {
   entry: SftpEntry;
+  selected?: boolean;
   onOpen:    (e: SftpEntry) => void;
   onContext: (e: SftpEntry, cx: number, cy: number) => void;
   /** Drop handler when this row is a folder. The caller routes the OS
    *  drop into a per-folder upload. Called with the row's full path.
    *  Undefined for non-folder rows. */
   onFolderDrop?: (entry: SftpEntry, ev: React.DragEvent) => void;
+  /** Drag-out trigger for non-folder rows. Called once we detect the
+   *  user has moved past a small threshold while holding the mouse
+   *  button — that's the signal to start an OS-native OLE drag.
+   *  Undefined for folder rows; HTML5 drag is deliberately NOT
+   *  enabled on the row (we'd race the native drag init). */
+  onDragOutStart?: (entry: SftpEntry) => void;
+  /** Selection click. Fires on mousedown so the act of selecting can
+   *  also be the start of a drag. The pane handles modifier keys
+   *  (Ctrl, Shift) to compute the new selection set. */
+  onSelectMouseDown?: (entry: SftpEntry, ev: React.MouseEvent) => void;
 }
+
+/** Distance in pixels the cursor must move with the mouse held before
+ *  we commit to initiating a drag. Matches the OS hysteresis used by
+ *  Explorer / native file managers; 5 px is the de-facto standard. */
+const DRAG_THRESHOLD_PX = 5;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -33,8 +49,42 @@ function formatMode(mode: number): string {
   return out;
 }
 
-export function SftpFileRow({ entry, onOpen, onContext, onFolderDrop }: Props) {
+export function SftpFileRow({
+  entry, selected, onOpen, onContext, onFolderDrop, onDragOutStart, onSelectMouseDown,
+}: Props) {
   const [dragOver, setDragOver] = useState(false);
+
+  // mousedown does two things: notifies the pane about selection
+  // (immediately, so a subsequent drag carries the new selection) and
+  // arms a hysteresis-threshold mousemove listener to detect drag-out.
+  // The drag arming only fires for non-folder rows (folders can be
+  // navigated by double-click and accept drops; dragging them out
+  // would need recursive remote listing, which is a separate phase).
+  function handleMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    onSelectMouseDown?.(entry, e);
+    if (entry.is_dir || entry.is_symlink) return;
+    if (!onDragOutStart) return;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let armed = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!armed) return;
+      const dx = ev.clientX - x0;
+      const dy = ev.clientY - y0;
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+      armed = false;
+      cleanup();
+      onDragOutStart(entry);
+    };
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', onUp, true);
+    };
+    const onUp = () => { armed = false; cleanup(); };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
+  }
 
   let Icon = File;
   let iconCls = 'text-muted';
@@ -65,9 +115,14 @@ export function SftpFileRow({ entry, onOpen, onContext, onFolderDrop }: Props) {
       role="row"
       onDoubleClick={() => onOpen(entry)}
       onContextMenu={(e) => { e.preventDefault(); onContext(entry, e.clientX, e.clientY); }}
+      onMouseDown={handleMouseDown}
       {...folderDnD}
       className={`grid grid-cols-[1fr_70px_72px] gap-2 px-2 h-6 items-center text-xs cursor-default select-none ${
-        dragOver ? 'bg-accent/20 ring-1 ring-accent ring-inset' : 'hover:bg-surface2/60'
+        dragOver
+          ? 'bg-accent/20 ring-1 ring-accent ring-inset'
+          : selected
+            ? 'bg-accent/15'
+            : 'hover:bg-surface2/60'
       }`}
     >
       <span className="truncate flex items-center gap-1.5 min-w-0">

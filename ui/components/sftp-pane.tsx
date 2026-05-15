@@ -14,7 +14,16 @@ import { ConfirmDialog } from './confirm-dialog';
 import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
 
-const UPLOAD_CAP_BYTES = 256 * 1024 * 1024;
+/** Hard upper bound on per-file streaming upload. SFTP itself has no
+ *  meaningful limit; this is purely a "you probably meant to use a
+ *  different tool" guardrail against runaway drops. Tune freely. */
+const UPLOAD_CAP_BYTES = 16 * 1024 * 1024 * 1024; // 16 GB
+
+/** Chunk size for streaming uploads. 1 MB amortises Tauri IPC cost
+ *  without blowing webview memory (we hold at most CHANNEL_DEPTH ≈ 4
+ *  chunks per upload from the backend's bounded mpsc, plus whatever
+ *  the JS side is staging — keep this modest). */
+const UPLOAD_CHUNK_BYTES = 1 * 1024 * 1024;
 
 /** Tracks an in-progress directory upload (one job per dropped tree).
  *  Files inside the tree still surface as individual transfers via the
@@ -28,6 +37,20 @@ interface DirJob {
   done: number;
   failed: number;
   finished: boolean;
+}
+
+/** Per-file progress for streaming uploads (phase A3). The frontend
+ *  drives the progress here directly — the backend doesn't emit
+ *  `sftp:transfer:{id}` events for the streaming path; chunks ack on
+ *  success and each ack advances `sent`. Distinguished from the
+ *  legacy `TrackedTransfer` model that wraps Rust-emitted progress. */
+interface StreamingUpload {
+  uploadId: number;
+  name: string;
+  sent: number;
+  total: number;
+  done: boolean;
+  error: string | null;
 }
 
 /** Pluck the FileSystemEntry off a DataTransferItem — supports both
@@ -84,6 +107,12 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const [dirJobs, setDirJobs] = useState<DirJob[]>([]);
+  const [streamingUploads, setStreamingUploads] = useState<StreamingUpload[]>([]);
+  // Selection state for multi-file drag-out. Set of `full_path`
+  // values that are currently selected. `anchor` is the last
+  // plain-clicked row, used as the start of a shift+click range.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
   const nextDirJobId = useRef(1);
   const setCwd = useTabs((s) => s.setCwd);
 
@@ -127,6 +156,17 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   // Reload on cwd change (post-open).
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Clear multi-selection when the cwd changes — selected paths
+  // belong to a different directory and shouldn't survive navigation.
+  // cwd lives in a zustand store mutated from many places
+  // (breadcrumb clicks, double-click on a folder, restore from
+  // tab-store), so doing this in an effect is cleaner than clearing
+  // at every cwd-mutation site.
+  useEffect(() => {
+    setSelected(new Set());
+    setAnchor(null);
+  }, [tab.cwd]);
+
   function navigateInto(e: SftpEntry) {
     if (e.is_dir) setCwd(tab.tabId, e.full_path);
   }
@@ -156,25 +196,65 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     setMenu({ x, y, items });
   }
 
-  /// Single-file upload over SFTP. Chromium webviews don't expose a
-  /// source file path on HTML5 drops (security), so we read each File's
-  /// bytes via FileReader and ship them to `sftp_upload_bytes`, which
-  /// streams the buffer into the remote SFTP session.
+  /// Single-file upload over SFTP. Streams the File in 1 MB chunks
+  /// via begin/chunk/finish so we don't have to fit the whole thing
+  /// in webview memory (the old `sftp_upload_bytes` path effectively
+  /// capped at 256 MB for that reason). Errors surface per-chunk
+  /// because each chunk acks individually — disk-full or permission
+  /// failures stop the upload immediately rather than after the last
+  /// byte is shipped.
   async function uploadOneFile(cid: number, f: File, remotePath: string): Promise<boolean> {
     if (f.size > UPLOAD_CAP_BYTES) {
+      const cap_gb = (UPLOAD_CAP_BYTES / (1024 ** 3)).toFixed(0);
       toast.danger(
         'File too large',
-        `${f.name} is ${(f.size / (1024 * 1024)).toFixed(1)} MB — drag-drop cap is 256 MB. Use the Upload button.`,
+        `${f.name} is ${(f.size / (1024 ** 3)).toFixed(1)} GB — drag-drop cap is ${cap_gb} GB.`,
       );
       return false;
     }
+
+    let uploadId: number | null = null;
     try {
-      const bytes = Array.from(new Uint8Array(await f.arrayBuffer()));
-      const t = await api.sftpUploadBytes(cid, remotePath, bytes);
-      setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${f.name}` }]);
+      uploadId = await api.sftpUploadBegin(cid, remotePath);
+      const id = uploadId;
+      setStreamingUploads((prev) => [
+        ...prev,
+        { uploadId: id, name: f.name, sent: 0, total: f.size, done: false, error: null },
+      ]);
+      for (let off = 0; off < f.size; off += UPLOAD_CHUNK_BYTES) {
+        const end = Math.min(off + UPLOAD_CHUNK_BYTES, f.size);
+        const buf = new Uint8Array(await f.slice(off, end).arrayBuffer());
+        // Array.from on a Uint8Array is the path Tauri's JSON-IPC
+        // expects for `Vec<u8>` — slow but the alternative (binary
+        // IPC) isn't wired in our build yet.
+        await api.sftpUploadChunk(id, Array.from(buf));
+        setStreamingUploads((prev) =>
+          prev.map((u) => (u.uploadId === id ? { ...u, sent: end } : u)),
+        );
+      }
+      await api.sftpUploadFinish(id);
+      setStreamingUploads((prev) =>
+        prev.map((u) => (u.uploadId === id ? { ...u, done: true } : u)),
+      );
+      // Self-clear the entry after a moment so finished uploads
+      // don't accumulate forever in the strip.
+      setTimeout(() => {
+        setStreamingUploads((prev) => prev.filter((u) => u.uploadId !== id));
+      }, 1500);
       return true;
     } catch (er) {
-      toast.danger(`Upload failed: ${f.name}`, errMessage(er));
+      const msg = errMessage(er);
+      toast.danger(`Upload failed: ${f.name}`, msg);
+      if (uploadId != null) {
+        const id = uploadId;
+        setStreamingUploads((prev) =>
+          prev.map((u) => (u.uploadId === id ? { ...u, done: true, error: msg } : u)),
+        );
+        try { await api.sftpUploadAbort(id); } catch { /* best effort */ }
+        setTimeout(() => {
+          setStreamingUploads((prev) => prev.filter((u) => u.uploadId !== id));
+        }, 4000);
+      }
       return false;
     }
   }
@@ -305,6 +385,66 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     void uploadDataTransfer(folder.full_path, ev.dataTransfer);
   }
 
+  /// Row mousedown handler. Updates selection per the standard
+  /// file-manager idiom: plain click replaces, Ctrl/Cmd toggles,
+  /// Shift extends a range from the last plain-clicked row. The
+  /// drag-out start (`onDragOutStart`) fires SEPARATELY once the
+  /// mouse has moved past the threshold, so by the time the drag
+  /// runs the selection already reflects the user's intent.
+  function handleRowMouseDown(entry: SftpEntry, ev: React.MouseEvent) {
+    if (ev.button !== 0) return;
+    const path = entry.full_path;
+    if (ev.ctrlKey || ev.metaKey) {
+      setSelected((cur) => {
+        const next = new Set(cur);
+        if (next.has(path)) next.delete(path); else next.add(path);
+        return next;
+      });
+      setAnchor(path);
+      return;
+    }
+    if (ev.shiftKey && anchor) {
+      const ai = entries.findIndex((e) => e.full_path === anchor);
+      const bi = entries.findIndex((e) => e.full_path === path);
+      if (ai >= 0 && bi >= 0) {
+        const [lo, hi] = ai <= bi ? [ai, bi] : [bi, ai];
+        setSelected(new Set(entries.slice(lo, hi + 1).map((e) => e.full_path)));
+      }
+      return;
+    }
+    // Plain click. If the row is already part of a multi-selection,
+    // leave selection intact so a subsequent drag carries everything.
+    // Otherwise reset to just this row.
+    if (!selected.has(path)) {
+      setSelected(new Set([path]));
+    }
+    setAnchor(path);
+  }
+
+  /// Drag-out trigger from a file row. Computes the set of paths to
+  /// drag (selection-aware) and invokes the OS-native drag
+  /// (`sftp_drag`), which blocks until the user drops or cancels.
+  /// Folders are silently filtered out — directory drag-out is a
+  /// separate phase (recursive remote listing).
+  function handleDragOutStart(entry: SftpEntry) {
+    const cid = tab.connectionId;
+    if (cid == null) return;
+    const inSelection = selected.has(entry.full_path);
+    const candidates = inSelection
+      ? entries.filter((e) => selected.has(e.full_path))
+      : [entry];
+    const paths = candidates.filter((e) => !e.is_dir).map((e) => e.full_path);
+    if (paths.length === 0) return;
+    api.sftpDrag(cid, paths).catch((er) => {
+      const msg = errMessage(er);
+      // The "drag-out not yet implemented on this platform" error
+      // shouldn't surface as a scary toast — it's an expected limit
+      // on macOS / Linux until phases B5/B6 land. Filter it.
+      if (/not yet implemented on this platform/i.test(msg)) return;
+      toast.danger('Drag failed', msg);
+    });
+  }
+
   async function handleUploadClick() {
     const cid = tab.connectionId;
     if (cid == null) return;
@@ -407,15 +547,19 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           <SftpFileRow
             key={e.full_path}
             entry={e}
+            selected={selected.has(e.full_path)}
             onOpen={navigateInto}
             onContext={openContext}
             onFolderDrop={handleFolderDrop}
+            onDragOutStart={handleDragOutStart}
+            onSelectMouseDown={handleRowMouseDown}
           />
         ))}
       </div>
       <DirectoryJobs jobs={dirJobs} onClear={(id) =>
         setDirJobs((js) => js.filter((j) => j.id !== id))
       } />
+      <StreamingUploadStatus uploads={streamingUploads} />
       <TransferStatus tracked={transfers} />
 
       {dragOver && (
@@ -489,6 +633,41 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Per-file streaming upload progress (phase A3). Frontend-driven —
+ *  each chunk ack advances `sent`. Auto-clears finished entries via
+ *  a setTimeout in the parent, but renders nothing if the list is
+ *  empty, so the strip collapses when idle. */
+function StreamingUploadStatus({ uploads }: { uploads: StreamingUpload[] }) {
+  if (uploads.length === 0) return null;
+  return (
+    <div className="border-t border-border bg-surface2/40 text-xs p-2 space-y-1.5">
+      {uploads.map((u) => {
+        const pct = u.total > 0 ? Math.floor((u.sent / u.total) * 100) : 0;
+        return (
+          <div key={u.uploadId} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-fg/90">
+                {u.error ? '✗ ' : u.done ? '✓ ' : ''}upload {u.name}
+              </span>
+              <span className={`tabular-nums ${u.error ? 'text-danger' : 'text-muted'}`}>
+                {u.error ? 'failed' : u.done ? 'done' : `${pct}%`}
+              </span>
+            </div>
+            {!u.done && (
+              <div className="h-1 bg-surface2 rounded-sm overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-[width] duration-fast"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
