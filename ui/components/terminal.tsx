@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2, PlugZap } from 'lucide-react';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, errMessage } from '@/lib/tauri';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { subscribeSshEvents } from '@/lib/ssh';
@@ -347,6 +348,11 @@ export function TerminalView({ tab, visible }: Props) {
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
+    // If the user right-clicks while ezTerm is in the background (common when
+    // copying from another app and pasting here), pull the window forward so
+    // the subsequent action — and any keystrokes after it — land in the
+    // terminal without an extra left-click.
+    getCurrentWindow().setFocus().catch(() => {});
     setMenu({ x: e.clientX, y: e.clientY });
   }
 
@@ -443,6 +449,12 @@ export function TerminalView({ tab, visible }: Props) {
     if (!txt || !tab.connectionId) return;
     const bytes = new TextEncoder().encode(txt);
     await termApiRef.current.write(tab.connectionId, Array.from(bytes)).catch(() => {});
+    // Ensure the window is foregrounded and xterm has focus so the user can
+    // keep typing immediately after pasting — otherwise right-click → Paste
+    // from a background ezTerm requires an extra left-click before keys go
+    // through.
+    getCurrentWindow().setFocus().catch(() => {});
+    bundleRef.current?.terminal.focus();
   }
 
   const showOverlay = tab.status !== 'connected' && !prompt && !authFix && !xserverMissing;
