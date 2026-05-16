@@ -30,6 +30,16 @@ await sharp(SRC)
   .toFile('public/ezterm-icon.png');
 console.log('wrote public/ezterm-icon.png (96×96)');
 
+// PWA / manifest icon sizes
+for (const size of [192, 512]) {
+  await sharp(SRC)
+    .extract(CROP)
+    .resize(size, size)
+    .png({ compressionLevel: 9 })
+    .toFile(`public/ezterm-icon-${size}.png`);
+  console.log(`wrote public/ezterm-icon-${size}.png (${size}×${size})`);
+}
+
 // OG / social-share card: splash centered on a dark canvas.
 const splashSize = 500;
 const splash = await sharp(SRC).resize(splashSize, splashSize).toBuffer();

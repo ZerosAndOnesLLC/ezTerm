@@ -1,0 +1,14 @@
+{
+  "name": "ezTerm",
+  "short_name": "ezTerm",
+  "description": "Free, open-source SSH client. MobaXterm-style sessions, Rust-native protocol stack, encrypted vault. Cross-platform.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#050708",
+  "theme_color": "#050708",
+  "icons": [
+    { "src": "/ezterm-icon.png",     "sizes": "96x96",   "type": "image/png" },
+    { "src": "/ezterm-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/ezterm-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

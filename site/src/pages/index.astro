@@ -51,7 +51,8 @@ const jsonLd = {
     <meta name="twitter:description" content={DESC} />
     <meta name="twitter:image" content={`${SITE}/og.png`} />
     <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
-    <link rel="apple-touch-icon" href={`${BASE}ezterm-icon.png`} />
+    <link rel="apple-touch-icon" href={`${BASE}ezterm-icon-192.png`} />
+    <link rel="manifest" href={`${BASE}manifest.json`} />
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
     <GoogleAnalytics />
   </head>
@@ -346,6 +347,8 @@ const jsonLd = {
   }
   .brand img {
     height: 34px; width: 34px;
+    /* No filter:drop-shadow here — sticky nav repaints on every scroll
+       and a per-frame filter is expensive. */
   }
   .brand .name {
     background: var(--grad);

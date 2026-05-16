@@ -6,6 +6,10 @@
 // idle — whichever comes first — so it never competes with critical
 // resources for cold-load bandwidth.
 //
+// Privacy posture: anonymized IPs, no ad-personalization / Google signals,
+// page-view-only telemetry. No banner; this is the minimum-friction middle
+// ground for a marketing site that markets "no telemetry" elsewhere.
+//
 // Single source of truth: this file is imported by custom pages directly
 // AND by the Starlight Head override (src/components/starlight/Head.astro).
 const GA_ID = 'G-19V4705C82';
@@ -24,7 +28,11 @@ const GA_ID = 'G-19V4705C82';
     s.async = true;
     s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
     document.head.appendChild(s);
-    gtag('config', GA_ID);
+    gtag('config', GA_ID, {
+      anonymize_ip: true,
+      allow_google_signals: false,
+      allow_ad_personalization_signals: false,
+    });
   }
 
   ['scroll', 'mousemove', 'touchstart', 'keydown', 'click'].forEach(function (ev) {

@@ -18,6 +18,12 @@ export default defineConfig({
         allow: [repoRoot],
       },
     },
+    build: {
+      // Don't inline assets as data: URIs — @fontsource ships small woff
+      // fallbacks that get base64-embedded under the default 4KB threshold,
+      // which defeats HTTP caching and bloats the page CSS by 4–8 KB each.
+      assetsInlineLimit: 0,
+    },
   },
   integrations: [
     starlight({
