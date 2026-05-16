@@ -5,6 +5,7 @@ import { compareVersionsDesc } from '../lib/version';
 import SiteFooter from '../components/SiteFooter.astro';
 import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 import { marked } from 'marked';
+import DOMPurify from 'isomorphic-dompurify';
 
 // Vite globs are relative to the source file. `../../docs/release-notes/`
 // resolves to <repo>/docs/release-notes/.
@@ -26,31 +27,56 @@ const entries: Entry[] = Object.entries(modules)
   }))
   .sort((a, b) => compareVersionsDesc(a.filename, b.filename));
 
-// Render Markdown manually with a tiny processor so we don't need to set
-// up MDX integration just for this page. The release notes use only
-// headings, paragraphs, lists, and code blocks.
-const rendered = entries.map((e) => ({
-  filename: e.filename,
-  html: marked.parse(e.rawMarkdown, { gfm: true, breaks: false }) as string,
-}));
+// Each release note starts with `# vX.Y.Z` — that gives the page 20+ h1s
+// which dilutes the topical signal. Shift every heading down one level so
+// the page-level <h1>Changelog</h1> stays the only h1.
+function demoteHeadings(html: string): string {
+  return html.replace(/<(\/?)(h[1-5])(\s|>)/gi, (_m, slash, tag, rest) => {
+    const n = parseInt(tag.slice(1), 10);
+    return `<${slash}h${n + 1}${rest}`;
+  });
+}
+
+const rendered = entries.map((e) => {
+  const raw = marked.parse(e.rawMarkdown, { gfm: true, breaks: false }) as string;
+  const demoted = demoteHeadings(raw);
+  // Sanitize: strip <script>, on* handlers, javascript: hrefs, etc. Release
+  // notes are author-controlled markdown so this is a defense-in-depth pass.
+  const safe = DOMPurify.sanitize(demoted, { USE_PROFILES: { html: true } });
+  return { filename: e.filename, html: safe };
+});
 
 const BASE = import.meta.env.BASE_URL;
+const SITE = 'https://ezterm.zerosandones.us';
 ---
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>Changelog — ezTerm</title>
-    <meta name="description" content="Release history for ezTerm." />
-    <link rel="icon" type="image/png" href={`${BASE}ezterm.png`} />
+    <meta name="description" content="Release history for ezTerm — the free, open-source SSH client. New features, fixes, and breaking changes per version." />
+    <link rel="canonical" href={`${SITE}/changelog/`} />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="ezTerm Changelog" />
+    <meta property="og:description" content="Release history for ezTerm — new features, fixes, and breaking changes per version." />
+    <meta property="og:url" content={`${SITE}/changelog/`} />
+    <meta property="og:image" content={`${SITE}/og.png`} />
+    <meta property="og:site_name" content="ezTerm" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ezTerm Changelog" />
+    <meta name="twitter:description" content="Release history for ezTerm." />
+    <meta name="twitter:image" content={`${SITE}/og.png`} />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
     <GoogleAnalytics />
   </head>
   <body class="bg-site-bg text-site-fg">
     <header class="border-b border-site-border">
       <div class="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
         <a href={BASE} class="flex items-center font-bold tracking-tight">
-          <img src={`${BASE}ezterm.png`} alt="ezTerm" class="h-10 w-auto" />
+          <img src={`${BASE}ezterm-icon.png`} alt="ezTerm" width="40" height="40" class="h-10 w-auto" />
         </a>
         <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
           <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>

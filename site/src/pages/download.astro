@@ -1,20 +1,65 @@
 ---
 // site/src/pages/download.astro
 //
-// GitHub Pages can't do real HTTP redirects, so we use a meta-refresh.
-// /download/ is a stable URL we can advertise even if the GH releases page
-// moves; it also gives us a place to add per-platform download buttons later.
+// /download/ is a stable, advertise-able URL that bounces visitors to the
+// latest GitHub release. We use JavaScript + a tiny delay (rather than
+// meta-refresh) so we can fire a GA event before navigating. The page is
+// noindexed so Google doesn't try to merge it with the GitHub releases page.
 const TARGET = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest';
+const SITE = 'https://ezterm.zerosandones.us';
+const BASE = import.meta.env.BASE_URL;
+const GA_ID = 'G-19V4705C82';
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="refresh" content={`0; url=${TARGET}`} />
-    <link rel="canonical" href={TARGET} />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="robots" content="noindex" />
     <title>Download ezTerm</title>
+    <link rel="canonical" href={`${SITE}/download/`} />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
+    <!--
+      Eager GA load (not the deferred component) — this page redirects in
+      <500ms, so the deferred load would never fire and we'd lose every
+      /download/ conversion. The full gtag.js load is acceptable on a page
+      with no other content.
+    -->
+    <script async src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}></script>
+    <script is:inline define:vars={{ GA_ID, TARGET }}>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', GA_ID, { transport_type: 'beacon' });
+      gtag('event', 'download_click', {
+        event_category: 'engagement',
+        event_label: 'github_releases_latest',
+        transport_type: 'beacon',
+      });
+      // Give the beacon a moment to fire (browsers prioritize beacons even
+      // through unload, but a tiny delay makes it robust on slow networks).
+      setTimeout(function () { window.location.replace(TARGET); }, 400);
+    </script>
+    <style>
+      body {
+        background: #050708;
+        color: #f0f5ff;
+        font-family: 'Inter', system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 32px;
+      }
+      a { color: #78c8ff; }
+    </style>
   </head>
   <body>
+    <noscript>
+      <meta http-equiv="refresh" content={`0; url=${TARGET}`} />
+    </noscript>
     <p>Redirecting to the latest release… If you aren't redirected, <a href={TARGET}>click here</a>.</p>
   </body>
 </html>

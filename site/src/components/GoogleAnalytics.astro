@@ -1,11 +1,38 @@
 ---
 // site/src/components/GoogleAnalytics.astro
-// GA4 tag for ezterm.zerosandones.us
+//
+// GA4 for ezterm.zerosandones.us. The 161KB gtag.js bundle is deferred
+// until either first user interaction (scroll/click/touch/key) or browser
+// idle — whichever comes first — so it never competes with critical
+// resources for cold-load bandwidth.
+//
+// Single source of truth: this file is imported by custom pages directly
+// AND by the Starlight Head override (src/components/starlight/Head.astro).
+const GA_ID = 'G-19V4705C82';
 ---
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-19V4705C82"></script>
-<script is:inline>
+<script is:inline define:vars={{ GA_ID }}>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
+  window.gtag = gtag;
   gtag('js', new Date());
-  gtag('config', 'G-19V4705C82');
+
+  let loaded = false;
+  function loadGA() {
+    if (loaded) return;
+    loaded = true;
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+    document.head.appendChild(s);
+    gtag('config', GA_ID);
+  }
+
+  ['scroll', 'mousemove', 'touchstart', 'keydown', 'click'].forEach(function (ev) {
+    addEventListener(ev, loadGA, { once: true, passive: true });
+  });
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(loadGA, { timeout: 4000 });
+  } else {
+    setTimeout(loadGA, 3000);
+  }
 </script>

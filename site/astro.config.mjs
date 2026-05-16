@@ -25,23 +25,9 @@ export default defineConfig({
       logo: {
         src: './src/assets/ezterm-icon.png',
       },
-      head: [
-        {
-          tag: 'script',
-          attrs: {
-            async: true,
-            src: 'https://www.googletagmanager.com/gtag/js?id=G-19V4705C82',
-          },
-        },
-        {
-          tag: 'script',
-          content:
-            "window.dataLayer = window.dataLayer || [];" +
-            "function gtag(){dataLayer.push(arguments);}" +
-            "gtag('js', new Date());" +
-            "gtag('config', 'G-19V4705C82');",
-        },
-      ],
+      components: {
+        Head: './src/components/starlight/Head.astro',
+      },
       customCss: [
         '@fontsource/inter/400.css',
         '@fontsource/inter/600.css',

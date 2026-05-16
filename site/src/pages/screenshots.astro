@@ -6,6 +6,7 @@ import SiteFooter from '../components/SiteFooter.astro';
 import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 
 const BASE = import.meta.env.BASE_URL;
+const SITE = 'https://ezterm.zerosandones.us';
 const shots = [
   {
     src: `${BASE}screenshots/sftp-pane.png`,
@@ -49,15 +50,29 @@ const shots = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>Screenshots — ezTerm</title>
-    <link rel="icon" type="image/png" href={`${BASE}ezterm.png`} />
+    <meta name="description" content="Screenshots of ezTerm — sessions sidebar, tabbed terminals, SFTP side-pane, split panes, session config, and port forwarding." />
+    <link rel="canonical" href={`${SITE}/screenshots/`} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ezTerm Screenshots" />
+    <meta property="og:description" content="Screenshots of ezTerm — sessions sidebar, tabbed terminals, SFTP side-pane, split panes, session config, and port forwarding." />
+    <meta property="og:url" content={`${SITE}/screenshots/`} />
+    <meta property="og:image" content={`${SITE}/og.png`} />
+    <meta property="og:site_name" content="ezTerm" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ezTerm Screenshots" />
+    <meta name="twitter:description" content="Screenshots of ezTerm in action." />
+    <meta name="twitter:image" content={`${SITE}/og.png`} />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
     <GoogleAnalytics />
   </head>
   <body class="bg-site-bg text-site-fg">
     <header class="border-b border-site-border">
       <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
         <a href={BASE} class="flex items-center font-bold tracking-tight">
-          <img src={`${BASE}ezterm.png`} alt="ezTerm" class="h-10 w-auto" />
+          <img src={`${BASE}ezterm-icon.png`} alt="ezTerm" width="40" height="40" class="h-10 w-auto" />
         </a>
         <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
           <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>

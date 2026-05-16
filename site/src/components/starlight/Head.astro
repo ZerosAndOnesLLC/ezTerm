@@ -1,0 +1,9 @@
+---
+// Starlight Head override.
+// Single purpose: include the shared GoogleAnalytics component so docs
+// pages and custom pages both fire GA from one source of truth.
+import Default from '@astrojs/starlight/components/Head.astro';
+import GoogleAnalytics from '../GoogleAnalytics.astro';
+---
+<Default><slot /></Default>
+<GoogleAnalytics />
