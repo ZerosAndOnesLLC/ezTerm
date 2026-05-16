@@ -1,0 +1,147 @@
+---
+// site/src/pages/404.astro — branded 404 matching the landing aesthetic.
+import '@fontsource/space-grotesk/400.css';
+import '@fontsource/space-grotesk/600.css';
+import '@fontsource/space-grotesk/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import GoogleAnalytics from '../components/GoogleAnalytics.astro';
+const BASE = import.meta.env.BASE_URL;
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>404 — ezTerm</title>
+    <meta name="description" content="Page not found." />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm.png`} />
+    <GoogleAnalytics />
+  </head>
+  <body>
+    <main>
+      <a class="brand" href={BASE}>
+        <img src={`${BASE}ezterm.png`} alt="ezTerm" />
+        <span>ezTerm</span>
+      </a>
+      <div class="code">404</div>
+      <h1>Page not found.</h1>
+      <p class="lede">
+        That URL didn't match anything. Try the homepage, the docs, or the GitHub repo.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href={BASE}>← Back to homepage</a>
+        <a class="btn btn-ghost" href={`${BASE}docs/`}><span class="pfx">$</span> docs</a>
+        <a class="btn btn-ghost" href="https://github.com/ZerosAndOnesLLC/ezTerm"><span class="pfx">$</span> github</a>
+      </div>
+    </main>
+
+    <style is:global>
+      :root {
+        --bg: #050708;
+        --bg-2: #0c1014;
+        --fg: #f0f5ff;
+        --fg-2: #aab4c2;
+        --muted: #5e6877;
+        --border: #1c232e;
+        --green: #4ade80;
+        --cyan: #78c8ff;
+        --grad: linear-gradient(135deg, #4ade80 0%, #78c8ff 100%);
+        --sans: 'Space Grotesk', system-ui, sans-serif;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 15% 25%, rgba(74,222,128,0.10), transparent 40%),
+          radial-gradient(circle at 85% 75%, rgba(120,200,255,0.12), transparent 40%),
+          var(--bg);
+        background-attachment: fixed;
+        text-align: center;
+        padding: 32px;
+      }
+      a { color: inherit; text-decoration: none; }
+      main { max-width: 640px; }
+      .brand {
+        display: inline-flex; align-items: center; gap: 12px;
+        margin-bottom: 64px;
+        font-weight: 700; font-size: 18px;
+      }
+      .brand img {
+        height: 30px; width: 30px;
+        filter: drop-shadow(0 0 12px rgba(120,200,255,0.3));
+      }
+      .brand span {
+        background: var(--grad);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .code {
+        font-family: var(--sans);
+        font-size: clamp(96px, 22vw, 220px);
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: -0.05em;
+        background: var(--grad);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(0 0 60px rgba(120,200,255,0.25));
+        margin-bottom: 8px;
+      }
+      h1 {
+        font-size: clamp(24px, 3vw, 32px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin-bottom: 16px;
+      }
+      .lede {
+        color: var(--fg-2);
+        font-size: 17px;
+        max-width: 480px;
+        margin: 0 auto 36px;
+      }
+      .cta-row {
+        display: flex; gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .btn {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 12px 22px;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        font-family: var(--sans);
+        transition: all 0.18s ease;
+      }
+      .btn-primary {
+        background: var(--grad);
+        color: #04140a;
+        box-shadow: 0 10px 30px -10px rgba(74,222,128,0.4);
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 16px 40px -10px rgba(120,200,255,0.45); }
+      .btn-ghost {
+        background: var(--bg-2);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 14px;
+      }
+      .btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); }
+      .btn-ghost .pfx { color: var(--green); }
+    </style>
+  </body>
+</html>

@@ -1,10 +1,21 @@
 /* site/src/styles/starlight-overrides.css
- * Map Starlight's CSS custom properties to ours so docs pages
- * inherit the same dark-default theme as the landing.
+ * Theme tokens for Starlight (/docs/*, /404).
+ * This file is self-contained — it does NOT depend on global.css so Tailwind's
+ * preflight never leaks onto docs pages.
  */
+
 :root {
+  /* Brand palette (matches the landing page) */
+  --site-bg:           #050708;
+  --site-bg-elevated:  #0c1014;
+  --site-fg:           #f0f5ff;
+  --site-fg-muted:     #aab4c2;
+  --site-accent:       #78c8ff;
+  --site-border:       #1c232e;
+
+  /* Starlight global tokens */
   --sl-color-accent:        var(--site-accent);
-  --sl-color-accent-low:    rgba(42, 127, 208, 0.12);
+  --sl-color-accent-low:    rgba(120, 200, 255, 0.12);
   --sl-color-accent-high:   var(--site-accent);
   --sl-color-text-accent:   var(--site-accent);
   --sl-font:                'Inter', system-ui, -apple-system, sans-serif;
@@ -15,8 +26,14 @@
   --sl-color-bg:            var(--site-bg);
   --sl-color-bg-nav:        var(--site-bg);
   --sl-color-bg-sidebar:    var(--site-bg);
+  --sl-color-bg-inline-code: var(--site-bg-elevated);
   --sl-color-text:          var(--site-fg);
   --sl-color-text-muted:    var(--site-fg-muted);
   --sl-color-hairline:      var(--site-border);
-  --sl-color-accent-low:    rgba(120, 200, 255, 0.12);
+  --sl-color-hairline-light: var(--site-border);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent:        #2a7fd0;
+  --sl-color-text-accent:   #2a7fd0;
 }

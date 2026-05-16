@@ -8,9 +8,39 @@ import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 const BASE = import.meta.env.BASE_URL;
 const shots = [
   {
-    src: `${BASE}screenshots/hero.png`,
-    alt: 'Main ezTerm window with sessions sidebar, tabbed terminal, and SFTP side-pane',
-    caption: 'Sessions sidebar, tabbed terminals, SFTP side-pane — the full chrome.',
+    src: `${BASE}screenshots/sftp-pane.png`,
+    alt: 'ezTerm SSH tab with the SFTP side-pane docked, browsing the remote home directory',
+    caption: 'SFTP side-pane — file browser docked beside the active SSH tab.',
+  },
+  {
+    src: `${BASE}screenshots/terminal-grid.png`,
+    alt: 'ezTerm window with four terminal panes arranged in a 2×2 grid layout',
+    caption: 'Split panes — 2×2 grid, same connection or different.',
+  },
+  {
+    src: `${BASE}screenshots/terminal-stacked.png`,
+    alt: 'ezTerm window with four terminal panes stacked horizontally',
+    caption: 'Horizontal stacks — perfect for tailing logs across a fleet.',
+  },
+  {
+    src: `${BASE}screenshots/session-config-general.png`,
+    alt: 'ezTerm session configuration dialog — General tab showing SSH connection details',
+    caption: 'Session setup — one tabbed dialog covers SSH, WSL, and local shells.',
+  },
+  {
+    src: `${BASE}screenshots/session-config-advanced.png`,
+    alt: 'ezTerm session configuration dialog — Advanced tab with keepalive, compression, and X11 forwarding toggle',
+    caption: 'Advanced options — keepalive, compression, X11 forwarding.',
+  },
+  {
+    src: `${BASE}screenshots/port-forwarding.png`,
+    alt: 'ezTerm port forwarding dialog — Local, Remote, and Dynamic SOCKS5 tunnel types',
+    caption: 'Port forwards — Local, Remote, or Dynamic SOCKS5, saved per session.',
+  },
+  {
+    src: `${BASE}screenshots/session-create.png`,
+    alt: 'ezTerm new session dialog — creating a Proxmox-01 SSH session',
+    caption: 'New session — quick capture of host, port, username, and folder.',
   },
 ];
 ---

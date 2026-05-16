@@ -48,7 +48,6 @@ export default defineConfig({
         '@fontsource/inter/700.css',
         '@fontsource/jetbrains-mono/400.css',
         '@fontsource/jetbrains-mono/600.css',
-        './src/styles/global.css',
         './src/styles/starlight-overrides.css',
       ],
       social: [
