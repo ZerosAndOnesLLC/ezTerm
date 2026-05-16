@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ezTerm site mockups</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #0a0c10;
+    color: #e8eef5;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 60px 28px; }
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px; }
+  .sub { color: #8a96a8; margin-bottom: 40px; font-size: 15px; }
+  .grid { display: grid; gap: 16px; }
+  .card {
+    display: block;
+    padding: 26px 28px;
+    background: #11151c;
+    border: 1px solid #1c222c;
+    border-radius: 12px;
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.18s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: #2a3340; }
+  .card .nm { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .card .desc { color: #8a96a8; font-size: 14px; }
+  .card .tag {
+    display: inline-block;
+    font-size: 11px;
+    color: #4ade80;
+    padding: 3px 10px;
+    background: rgba(74,222,128,0.12);
+    border-radius: 4px;
+    margin-bottom: 12px;
+    letter-spacing: 0.06em;
+  }
+  .card.opt1 .tag { color: #4ade80; background: rgba(74,222,128,0.12); }
+  .card.opt2 .tag { color: #6fbfff; background: rgba(111,191,255,0.12); }
+  .card.opt3 .tag { color: #c8f5e0; background: rgba(120,200,255,0.12); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ezTerm — site redesign mockups</h1>
+  <p class="sub">Three directions for the landing page. Click to preview each.</p>
+  <div class="grid">
+    <a class="card opt1" href="option-1-terminal/">
+      <span class="tag">OPTION 1</span>
+      <div class="nm">Terminal-native</div>
+      <div class="desc">Dark, monospace-heavy, animated terminal hero with command-line aesthetic. For a developer-tool, no-marketing-speak vibe.</div>
+    </a>
+    <a class="card opt2" href="option-2-saas/">
+      <span class="tag">OPTION 2</span>
+      <div class="nm">Modern SaaS minimal</div>
+      <div class="desc">Big whitespace, large product screenshot, subtle gradients, Linear/Vercel/Resend energy. Clean and confident.</div>
+    </a>
+    <a class="card opt3" href="option-3-brand/">
+      <span class="tag">OPTION 3</span>
+      <div class="nm">Brand-forward vibrant</div>
+      <div class="desc">Leans hard into the logo's green→cyan gradient. Oversized wordmark, glow effects, grain + grid texture. Confident challenger brand.</div>
+    </a>
+    <a class="card opt3" href="option-mix/" style="border-color: #4ade80;">
+      <span class="tag" style="color: #4ade80; background: rgba(74,222,128,0.15);">MIX · 1 + 3</span>
+      <div class="nm">Vibrant + animated terminal</div>
+      <div class="desc">Option 3's brand-forward foundation (gradient wordmark, glow + grid texture, numbered cards) with option 1's animated terminal log as the hero centerpiece instead of a static screenshot.</div>
+    </a>
+  </div>
+</div>
+</body>
+</html>

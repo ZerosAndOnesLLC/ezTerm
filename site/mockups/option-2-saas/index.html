@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ezTerm — modern SaaS mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-2: #11141a;
+    --bg-3: #161a22;
+    --border: #1d212a;
+    --border-2: #262b36;
+    --fg: #f5f7fa;
+    --fg-2: #b8bfca;
+    --muted: #7a8290;
+    --accent: #6fbfff;
+    --accent-2: #b8e8c8;
+    --grad: linear-gradient(135deg, #6fbfff 0%, #b8e8c8 100%);
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(111,191,255,0.10), transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  a { color: inherit; text-decoration: none; }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  /* Nav */
+  nav.top {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(11,13,16,0.7);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.top .container {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 18px; padding-bottom: 18px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 16px;
+  }
+  .brand img { height: 28px; width: 28px; border-radius: 6px; }
+  nav.top ul { display: flex; gap: 32px; list-style: none; font-size: 14px; color: var(--fg-2); }
+  nav.top ul a:hover { color: var(--fg); }
+  .nav-cta {
+    padding: 8px 16px;
+    background: var(--fg);
+    color: var(--bg);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .nav-cta:hover { opacity: 0.9; }
+  .nav-right { display: flex; align-items: center; gap: 22px; }
+
+  /* Hero */
+  .hero { padding: 120px 0 80px; text-align: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-2);
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--fg-2);
+    margin-bottom: 28px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+  .hero h1 {
+    font-size: clamp(40px, 7vw, 80px);
+    font-weight: 800;
+    line-height: 1.04;
+    letter-spacing: -0.035em;
+    margin-bottom: 24px;
+    max-width: 900px;
+    margin-left: auto; margin-right: auto;
+  }
+  .hero h1 .grad {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lede {
+    color: var(--fg-2);
+    font-size: 20px;
+    max-width: 660px;
+    margin: 0 auto 36px;
+    line-height: 1.5;
+  }
+  .cta-row {
+    display: flex; gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 22px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+  .btn-primary {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -10px rgba(255,255,255,0.2); }
+  .btn-secondary {
+    background: var(--bg-2);
+    color: var(--fg);
+    border: 1px solid var(--border-2);
+  }
+  .btn-secondary:hover { background: var(--bg-3); border-color: var(--muted); }
+  .btn .icon { font-size: 16px; }
+
+  /* Hero screenshot */
+  .hero-shot {
+    margin-top: 72px;
+    position: relative;
+  }
+  .hero-shot .glow {
+    position: absolute; inset: -100px -50px -50px;
+    background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(111,191,255,0.15), transparent 70%);
+    z-index: 0; pointer-events: none;
+  }
+  .shot-frame {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border-2);
+    background: var(--bg-2);
+    box-shadow: 0 50px 100px -30px rgba(0,0,0,0.7), 0 0 0 1px rgba(111,191,255,0.06);
+  }
+  .shot-frame img { width: 100%; height: auto; display: block; }
+
+  /* Logos / trust strip */
+  .trust {
+    padding: 60px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .trust-row {
+    display: flex; flex-wrap: wrap; gap: 36px;
+    justify-content: center;
+    margin-top: 20px;
+    color: var(--fg-2);
+  }
+  .trust-row span { font-weight: 600; font-size: 15px; opacity: 0.7; }
+
+  /* Sections */
+  section { padding: 100px 0; }
+  .eyebrow {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    margin-bottom: 18px;
+    max-width: 720px;
+  }
+  .section-lede {
+    color: var(--fg-2);
+    font-size: 18px;
+    max-width: 620px;
+    margin-bottom: 56px;
+  }
+
+  /* Feature grid */
+  .feat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .feat {
+    padding: 30px 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    transition: all 0.2s ease;
+  }
+  .feat:hover { border-color: var(--border-2); transform: translateY(-2px); }
+  .feat .icn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px;
+    background: var(--bg-3);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    font-size: 20px;
+  }
+  .feat h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+  .feat p { color: var(--fg-2); font-size: 15px; line-height: 1.55; }
+
+  /* Split feature row */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 64px;
+    align-items: center;
+  }
+  @media (max-width: 800px) { .split { grid-template-columns: 1fr; gap: 32px; } }
+  .split h2 { font-size: 36px; margin-bottom: 16px; }
+  .split p { color: var(--fg-2); font-size: 16px; margin-bottom: 16px; }
+  .split ul { list-style: none; margin-top: 12px; }
+  .split ul li {
+    padding: 8px 0;
+    color: var(--fg-2);
+    font-size: 15px;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .split ul li::before {
+    content: "✓";
+    color: var(--accent-2);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .split-shot {
+    border: 1px solid var(--border-2);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.5);
+  }
+  .split-shot img { width: 100%; height: auto; display: block; }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 32px;
+    text-align: left;
+    padding: 50px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat .num {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    line-height: 1;
+  }
+  .stat .lbl {
+    margin-top: 6px;
+    color: var(--fg-2);
+    font-size: 14px;
+  }
+
+  /* CTA block */
+  .cta-block {
+    text-align: center;
+    padding: 80px 40px;
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-3));
+    border: 1px solid var(--border-2);
+    border-radius: 24px;
+    margin: 60px 0;
+  }
+  .cta-block h2 { margin: 0 auto 14px; }
+  .cta-block p { color: var(--fg-2); font-size: 17px; max-width: 540px; margin: 0 auto 28px; }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 50px 0 30px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  footer .container { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 24px; }
+  footer a { color: var(--fg-2); }
+  footer a:hover { color: var(--fg); }
+  footer .fr-links { display: flex; gap: 28px; }
+  code.inline {
+    font-family: var(--mono);
+    background: var(--bg-3);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="container">
+    <a class="brand" href="#">
+      <img src="../../public/ezterm.png" alt="ezTerm">
+      ezTerm
+    </a>
+    <ul>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#sftp">SFTP</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="/docs/">Docs</a></li>
+    </ul>
+    <div class="nav-right">
+      <a href="https://github.com/ZerosAndOnesLLC/ezTerm" style="color: var(--fg-2); font-size: 14px;">GitHub</a>
+      <a class="nav-cta" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <span class="pill"><span class="dot"></span>v0.11 · free, forever · GPLv3</span>
+    <h1>The SSH client that <span class="grad">finally feels modern</span>.</h1>
+    <p class="lede">
+      MobaXterm-style sessions, encrypted vault, SFTP, WSL, X11 forwarding — built on a pure-Rust SSH stack and ~20MB of Tauri. Open source. Cross-platform. No nag screens.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">
+        Download for Windows, Linux, macOS
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/ZerosAndOnesLLC/ezTerm">
+        <span class="icon">★</span> Star on GitHub
+      </a>
+    </div>
+    <div class="hero-shot">
+      <div class="glow"></div>
+      <div class="shot-frame">
+        <img src="../../public/screenshots/sftp-pane.png" alt="ezTerm with SFTP side-pane">
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="trust">
+  <div class="container">
+    <div>Drop-in replacement for</div>
+    <div class="trust-row">
+      <span>MobaXterm</span>
+      <span>PuTTY</span>
+      <span>WinSCP</span>
+      <span>iTerm</span>
+      <span>Termius</span>
+    </div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="container">
+    <div class="eyebrow">What's inside</div>
+    <h2>Everything you need to manage a fleet of remote boxes.</h2>
+    <p class="section-lede">One window. One vault. Every machine, local or remote, at your fingertips.</p>
+    <div class="feat-grid">
+      <div class="feat">
+        <div class="icn">⌬</div>
+        <h3>Pure-Rust SSH</h3>
+        <p>Built on <code class="inline">russh</code> — tokio-native, no OpenSSL FFI, identical on every OS.</p>
+      </div>
+      <div class="feat">
+        <div class="icn">🔒</div>
+        <h3>Encrypted vault</h3>
+        <p>Argon2id KDF and ChaCha20-Poly1305 AEAD on every stored secret. Zeroized in memory on drop.</p>
+      </div>
+      <div class="feat">
+        <div class="icn">⇅</div>
+        <h3>SFTP side-pane</h3>
+        <p>Drag-drop files from Explorer. 32 KiB streaming chunks with live byte-accurate progress.</p>
+      </div>
+      <div class="feat">
+        <div class="icn">⚡</div>
+        <h3>WSL & local shells</h3>
+        <p>Any WSL distro under ConPTY. <code class="inline">cmd</code>, <code class="inline">pwsh</code>, or any absolute path with a starting directory.</p>
+      </div>
+      <div class="feat">
+        <div class="icn">🖥</div>
+        <h3>X11 forwarding</h3>
+        <p>Tick a box. Remote GUI apps render as native windows. VcXsrv bundled on Windows.</p>
+      </div>
+      <div class="feat">
+        <div class="icn">↻</div>
+        <h3>MobaXterm import</h3>
+        <p>Point at your <code class="inline">.mxtsessions</code>. Sessions, folders, and private keys imported cleanly.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="sftp">
+  <div class="container">
+    <div class="split">
+      <div>
+        <div class="eyebrow">SFTP</div>
+        <h2>A file browser that lives on your terminal.</h2>
+        <p>Connect once. The SFTP pane opens a second channel on the same session — no second auth, no second password prompt.</p>
+        <ul>
+          <li>Breadcrumb navigation, right-click context menu (Download, Rename, Delete)</li>
+          <li>Drag from Windows Explorer straight into the remote directory</li>
+          <li>32 KiB streaming chunks with live progress bars</li>
+          <li>Drag <em>out</em> to Explorer to download files locally (Windows)</li>
+        </ul>
+      </div>
+      <div class="split-shot">
+        <img src="../../public/screenshots/sftp-pane.png" alt="SFTP side-pane">
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="split" style="grid-template-columns: 1.4fr 1fr;">
+      <div class="split-shot">
+        <img src="../../public/screenshots/session-config-advanced.png" alt="Session config advanced">
+      </div>
+      <div>
+        <div class="eyebrow">Sessions</div>
+        <h2>Every knob, exactly where you'd expect it.</h2>
+        <p>SSH options live behind a tabbed dialog — General, Terminal, Advanced, Forwards. Sane defaults; deep overrides when you need them.</p>
+        <ul>
+          <li>Per-session keepalive, connect timeout, compression</li>
+          <li>Custom <code class="inline">TERM</code>, env vars, initial command</li>
+          <li>Local, remote, and dynamic SOCKS5 port forwards</li>
+          <li>X11 forwarding toggle (works out of the box on Windows)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="stats">
+      <div class="stat"><div class="num">~20MB</div><div class="lbl">single binary, UI embedded</div></div>
+      <div class="stat"><div class="num">4</div><div class="lbl">platforms supported</div></div>
+      <div class="stat"><div class="num">256+</div><div class="lbl">colors · 24-bit truecolor</div></div>
+      <div class="stat"><div class="num">$0</div><div class="lbl">forever · GPLv3</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="container">
+    <div class="cta-block">
+      <h2 style="text-align:center;">Stop paying for SSH.</h2>
+      <p>Download a single tar.xz, extract, run. No installer, no nag screen, no account. Windows, Linux, or macOS.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">Download v0.11</a>
+        <a class="btn btn-secondary" href="/docs/getting-started/install/">Install guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div>© ezTerm · open source · GPLv3</div>
+    <div class="fr-links">
+      <a href="https://github.com/ZerosAndOnesLLC/ezTerm">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/changelog/">Changelog</a>
+      <a href="https://github.com/ZerosAndOnesLLC/ezTerm/issues">Issues</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

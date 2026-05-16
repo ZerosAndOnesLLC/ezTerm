@@ -23,8 +23,7 @@ export default defineConfig({
     starlight({
       title: 'ezTerm',
       logo: {
-        src: './src/assets/ezterm.png',
-        replacesTitle: true,
+        src: './src/assets/ezterm-icon.png',
       },
       head: [
         {

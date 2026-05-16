@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ezTerm — brand-forward mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050708;
+    --bg-2: #0c1014;
+    --bg-3: #131820;
+    --fg: #f0f5ff;
+    --fg-2: #aab4c2;
+    --muted: #5e6877;
+    --border: #1c232e;
+    --green: #4ade80;
+    --cyan: #78c8ff;
+    --grad: linear-gradient(135deg, #4ade80 0%, #78c8ff 100%);
+    --grad-soft: linear-gradient(135deg, rgba(74,222,128,0.15) 0%, rgba(120,200,255,0.15) 100%);
+    --sans: 'Space Grotesk', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background:
+      radial-gradient(circle at 15% 25%, rgba(74,222,128,0.10), transparent 40%),
+      radial-gradient(circle at 85% 75%, rgba(120,200,255,0.12), transparent 40%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+  /* Grain overlay */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)' opacity='0.18'/></svg>");
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 1;
+    mix-blend-mode: overlay;
+  }
+  /* Grid pattern */
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse at center, black, transparent 70%);
+  }
+  main, nav, footer { position: relative; z-index: 2; }
+  a { color: inherit; text-decoration: none; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+
+  /* Nav */
+  nav.top {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(5,7,8,0.7);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.top .container {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 18px; padding-bottom: 18px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-weight: 700; font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+  .brand img {
+    height: 34px; width: 34px;
+    filter: drop-shadow(0 0 16px rgba(120,200,255,0.4));
+  }
+  .brand .name {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  nav.top ul { display: flex; gap: 28px; list-style: none; font-size: 14px; color: var(--fg-2); font-weight: 500; }
+  nav.top ul a:hover { color: var(--fg); }
+  .nav-cta {
+    padding: 10px 18px;
+    background: var(--grad);
+    color: #04140a;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 700;
+    transition: all 0.15s ease;
+  }
+  .nav-cta:hover { transform: scale(1.04); box-shadow: 0 0 30px rgba(120,200,255,0.4); }
+
+  /* Hero */
+  .hero {
+    padding: 90px 0 60px;
+    position: relative;
+    text-align: center;
+  }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 8px 18px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-2);
+    margin-bottom: 32px;
+  }
+  .hero .badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 12px var(--green);
+  }
+  .wordmark {
+    font-family: var(--sans);
+    font-size: clamp(60px, 14vw, 180px);
+    font-weight: 700;
+    line-height: 0.9;
+    letter-spacing: -0.05em;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 60px rgba(120,200,255,0.3));
+    margin-bottom: 12px;
+  }
+  .tagline {
+    font-family: var(--mono);
+    color: var(--fg-2);
+    font-size: clamp(15px, 1.8vw, 18px);
+    letter-spacing: 0.04em;
+    margin-bottom: 20px;
+  }
+  .tagline .accent { color: var(--green); }
+  .hero h1 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    max-width: 780px;
+    margin: 0 auto 24px;
+  }
+  .hero h1 .grad {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lede {
+    color: var(--fg-2);
+    font-size: 17px;
+    max-width: 580px;
+    margin: 0 auto 36px;
+  }
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: var(--sans);
+  }
+  .btn-primary {
+    background: var(--grad);
+    color: #04140a;
+    box-shadow: 0 10px 30px -10px rgba(74,222,128,0.4);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 20px 50px -10px rgba(120,200,255,0.5); }
+  .btn-ghost {
+    background: var(--bg-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); }
+
+  /* Hero product shot */
+  .hero-shot {
+    margin: 80px auto 0;
+    max-width: 1100px;
+    position: relative;
+  }
+  .hero-shot::before {
+    content: "";
+    position: absolute; inset: -40px -10% -10%;
+    background:
+      radial-gradient(ellipse 70% 60% at 50% 50%, rgba(120,200,255,0.18), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 30% 70%, rgba(74,222,128,0.15), transparent 70%);
+    z-index: 0;
+    pointer-events: none;
+  }
+  .shot-frame {
+    position: relative;
+    border-radius: 18px;
+    padding: 2px;
+    background: var(--grad);
+    box-shadow: 0 60px 120px -30px rgba(0,0,0,0.8), 0 0 50px rgba(120,200,255,0.1);
+  }
+  .shot-frame .inner {
+    background: var(--bg-2);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .shot-frame img { width: 100%; height: auto; display: block; }
+
+  /* Sections */
+  section { padding: 100px 0; position: relative; }
+  .eyebrow {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    background: rgba(74,222,128,0.08);
+    border-radius: 4px;
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-size: clamp(36px, 5vw, 60px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin-bottom: 22px;
+    max-width: 800px;
+  }
+  h2 .grad {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .section-lede {
+    color: var(--fg-2);
+    font-size: 18px;
+    max-width: 620px;
+    margin-bottom: 60px;
+  }
+
+  /* Feature mega-grid */
+  .feat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .feat-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .feat-row { grid-template-columns: 1fr; } }
+  .feat {
+    padding: 32px 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .feat::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--grad);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .feat:hover { transform: translateY(-4px); border-color: var(--cyan); }
+  .feat:hover::before { opacity: 1; }
+  .feat .num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 18px;
+    letter-spacing: 0.1em;
+  }
+  .feat h3 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+  }
+  .feat p { color: var(--fg-2); font-size: 14.5px; line-height: 1.6; }
+  .feat .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--cyan);
+    padding: 3px 8px;
+    background: rgba(120,200,255,0.08);
+    border-radius: 4px;
+    margin-top: 16px;
+    letter-spacing: 0.06em;
+  }
+
+  /* Showcase row */
+  .showcase {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 32px 0;
+  }
+  @media (max-width: 800px) { .showcase { grid-template-columns: 1fr; } }
+  .show-card {
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+  }
+  .show-card:hover { transform: translateY(-3px); border-color: var(--green); }
+  .show-card .img-wrap { background: #000; }
+  .show-card img { width: 100%; height: auto; display: block; }
+  .show-card .body { padding: 22px 24px 26px; }
+  .show-card h4 {
+    font-size: 18px; font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .show-card p { color: var(--fg-2); font-size: 14px; }
+
+  /* Quote / big statement */
+  .statement {
+    padding: 120px 0;
+    text-align: center;
+  }
+  .statement .quote {
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .statement .quote .grad {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .statement .by {
+    margin-top: 32px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  /* CTA block */
+  .cta-block {
+    text-align: center;
+    padding: 80px 40px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 60px;
+  }
+  .cta-block::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 60% 80% at 50% 100%, rgba(74,222,128,0.20), transparent 70%);
+    pointer-events: none;
+  }
+  .cta-block > * { position: relative; }
+  .cta-block h2 { margin: 0 auto 18px; }
+  .cta-block p { color: var(--fg-2); font-size: 18px; max-width: 580px; margin: 0 auto 36px; }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 50px 0 40px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  footer .container { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 20px; align-items: center; }
+  footer a { color: var(--fg-2); }
+  footer a:hover { color: var(--cyan); }
+  footer .links { display: flex; gap: 26px; }
+
+  code.inline {
+    font-family: var(--mono);
+    background: rgba(120,200,255,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    color: var(--cyan);
+  }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="container">
+    <a class="brand" href="#">
+      <img src="../../public/ezterm.png" alt="ezTerm">
+      <span class="name">ezTerm</span>
+    </a>
+    <ul>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#showcase">Screens</a></li>
+      <li><a href="/docs/">Docs</a></li>
+      <li><a href="https://github.com/ZerosAndOnesLLC/ezTerm">GitHub</a></li>
+    </ul>
+    <a class="nav-cta" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">Download</a>
+  </div>
+</nav>
+
+<main>
+
+<header class="hero">
+  <div class="container">
+    <span class="badge"><span class="dot"></span> v0.11 · live now · open source forever</span>
+    <div class="wordmark">ezTerm</div>
+    <div class="tagline"><span class="accent">&gt;</span> ssh · sftp · wsl · x11 · vault</div>
+    <h1>The free, open-source SSH client <span class="grad">built for the next decade.</span></h1>
+    <p class="lede">
+      MobaXterm-style sessions. Rust-native protocol stack. Encrypted vault by default. One binary on Windows, Linux, and macOS — and zero compromises.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">Get ezTerm →</a>
+      <a class="btn btn-ghost" href="https://github.com/ZerosAndOnesLLC/ezTerm">View source</a>
+    </div>
+
+    <div class="hero-shot">
+      <div class="shot-frame">
+        <div class="inner">
+          <img src="../../public/screenshots/sftp-pane.png" alt="ezTerm with SFTP side-pane">
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="container">
+    <span class="eyebrow">// what you get</span>
+    <h2>Every feature you wanted. <span class="grad">None of the bloat.</span></h2>
+    <p class="section-lede">A protocol-correct, vault-backed, cross-platform SSH client in a single 20MB binary. No installer. No nag screens. No subscription.</p>
+
+    <div class="feat-row">
+      <div class="feat">
+        <div class="num">01 / SSH</div>
+        <h3>Pure-Rust protocol stack</h3>
+        <p>Built on russh — tokio-native, no OpenSSL FFI. Password, private-key, and SSH-agent auth. Host-key TOFU; hard-fail on mismatch.</p>
+        <span class="tag">russh · russh-sftp</span>
+      </div>
+      <div class="feat">
+        <div class="num">02 / VAULT</div>
+        <h3>Encrypted by default</h3>
+        <p>Argon2id KDF → ChaCha20-Poly1305 AEAD on every stored secret. Master password unlocks the app. Plaintext zeroized on drop.</p>
+        <span class="tag">argon2id · chacha20-poly1305</span>
+      </div>
+      <div class="feat">
+        <div class="num">03 / SFTP</div>
+        <h3>File transfer that flows</h3>
+        <p>SFTP side-pane docked on the active session. Drag-drop from Explorer with 32 KiB streaming chunks and byte-accurate progress.</p>
+        <span class="tag">streaming · zero-buffer</span>
+      </div>
+      <div class="feat">
+        <div class="num">04 / WSL</div>
+        <h3>WSL & local shells</h3>
+        <p>Any WSL distro under ConPTY. <code class="inline">cmd</code>, <code class="inline">pwsh</code>, or any absolute path with an optional starting directory.</p>
+        <span class="tag">windows · conpty</span>
+      </div>
+      <div class="feat">
+        <div class="num">05 / X11</div>
+        <h3>X11 forwarding, no setup</h3>
+        <p>Tick one box. Remote GUI apps render as native windows. VcXsrv bundled on the Windows release; no separate install.</p>
+        <span class="tag">vcxsrv bundled</span>
+      </div>
+      <div class="feat">
+        <div class="num">06 / FWD</div>
+        <h3>Port forwarding, saved</h3>
+        <p>Local <code class="inline">-L</code>, remote <code class="inline">-R</code>, dynamic SOCKS5 <code class="inline">-D</code> — per session, auto-started on connect.</p>
+        <span class="tag">L · R · D</span>
+      </div>
+      <div class="feat">
+        <div class="num">07 / IMPORT</div>
+        <h3>MobaXterm import</h3>
+        <p>Point at your <code class="inline">.mxtsessions</code> or <code class="inline">MobaXterm.ini</code>. Sessions, folder structure, and private keys come in clean.</p>
+        <span class="tag">migrate in seconds</span>
+      </div>
+      <div class="feat">
+        <div class="num">08 / UX</div>
+        <h3>Workspace you already know</h3>
+        <p>Sessions sidebar with folders + drag-drop. Tabbed terminals, status dots, find, scrollback, font scaling, copy-on-select.</p>
+        <span class="tag">mobaxterm-style</span>
+      </div>
+      <div class="feat">
+        <div class="num">09 / OSS</div>
+        <h3>Free, forever, GPLv3</h3>
+        <p>Open source. Fork it, ship it, sell it (under GPL). Issues + PRs welcome on GitHub. No telemetry, no calls home.</p>
+        <span class="tag">gpl-v3</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="showcase">
+  <div class="container">
+    <span class="eyebrow">// the workspace</span>
+    <h2>Everything in <span class="grad">one window.</span></h2>
+    <p class="section-lede">Sessions, tabs, splits, SFTP, port forwards, X11 — all in the same tabbed UI you already know how to use.</p>
+
+    <div class="showcase">
+      <div class="show-card">
+        <div class="img-wrap"><img src="../../public/screenshots/sftp-pane.png" alt="SFTP pane"></div>
+        <div class="body">
+          <h4>SFTP side-pane</h4>
+          <p>Docked file browser on every SSH tab. Right-click for Download, Rename, Delete.</p>
+        </div>
+      </div>
+      <div class="show-card">
+        <div class="img-wrap"><img src="../../public/screenshots/terminal-grid.png" alt="Grid layout"></div>
+        <div class="body">
+          <h4>Split panes</h4>
+          <p>2×2 grids, horizontal stacks, vertical splits — same connection or different.</p>
+        </div>
+      </div>
+      <div class="show-card">
+        <div class="img-wrap"><img src="../../public/screenshots/session-config-general.png" alt="Session config"></div>
+        <div class="body">
+          <h4>Session setup</h4>
+          <p>One tabbed dialog. SSH, WSL, local shell — same flow, different defaults.</p>
+        </div>
+      </div>
+      <div class="show-card">
+        <div class="img-wrap"><img src="../../public/screenshots/port-forwarding.png" alt="Port forwarding"></div>
+        <div class="body">
+          <h4>Port forwards</h4>
+          <p>Local, remote, dynamic SOCKS5. Saved per session, auto-started on connect.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="statement">
+  <div class="container">
+    <div class="quote">
+      "Every Windows dev has the same conversation: <span class="grad">what SSH client do you use?</span>
+      ezTerm exists to end that conversation."
+    </div>
+    <div class="by">— the readme</div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="cta-block">
+      <h2>Stop paying for <span class="grad">SSH.</span></h2>
+      <p>Download a single tar.xz. Extract. Run. Cross-platform from day one — Windows, Linux, macOS.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest">Download v0.11</a>
+        <a class="btn btn-ghost" href="/docs/getting-started/install/">Install guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="container">
+    <div>© ezTerm · GPLv3 · cross-platform</div>
+    <div class="links">
+      <a href="https://github.com/ZerosAndOnesLLC/ezTerm">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/changelog/">Changelog</a>
+      <a href="https://github.com/ZerosAndOnesLLC/ezTerm/issues">Issues</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
