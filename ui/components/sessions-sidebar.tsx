@@ -136,7 +136,6 @@ interface NodeViewCtx {
   drag:                { kind: 'session' | 'folder'; id: number } | null;
   dragTarget:          DropSlot | null;
   selectedId:          number | null;
-  connectedSessionIds: Set<number>;
   handleDragStart:     (e: React.DragEvent, kind: 'session' | 'folder', id: number) => void;
   handleDragEnd:       () => void;
   handleDragOver:      (e: React.DragEvent, slot: DropSlot) => void;
@@ -236,17 +235,14 @@ function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: No
           ))}
           {node.sessions.map((s) => {
             const isSelected  = ctx.selectedId === s.id;
-            const isConnected = ctx.connectedSessionIds.has(s.id);
             const isSrc = ctx.drag?.kind === 'session' && ctx.drag.id === s.id;
             const sessionHasBefore = ctx.dragTarget?.kind === 'before-session' && ctx.dragTarget.sessionId === s.id;
             const sessionHasAfter  = ctx.dragTarget?.kind === 'after-session'  && ctx.dragTarget.sessionId === s.id;
-            // Left-rail colour priority: connected green > selected accent
-            // > session's own colour > transparent.
-            const rail = isConnected
-              ? 'rgb(var(--success))'
-              : isSelected
-                ? 'rgb(var(--accent))'
-                : s.color ?? 'transparent';
+            // Left-rail colour priority: selected accent > session's own
+            // colour > transparent.
+            const rail = isSelected
+              ? 'rgb(var(--accent))'
+              : s.color ?? 'transparent';
             return (
               <div
                 key={s.id}
@@ -282,9 +278,7 @@ function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: No
                 {sessionHasBefore && <DropLine edge="top" />}
                 {sessionHasAfter  && <DropLine edge="bottom" />}
                 <span
-                  className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm ${
-                    isConnected ? 'animate-pulse' : ''
-                  }`}
+                  className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm"
                   style={{ background: rail }}
                   aria-hidden
                 />
@@ -293,12 +287,8 @@ function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: No
                     s.session_kind === 'wsl' ? SquareTerminal :
                     s.session_kind === 'local' ? MonitorDot :
                     Server;
-                  // Tile priority: connected green > per-session colour >
-                  // kind default. Keeps user branding visible when idle,
-                  // flips to a clear "live" signal while connected.
-                  const tileBg = isConnected
-                    ? 'rgb(var(--success))'
-                    : (s.color ?? KIND_DEFAULT_TILE[s.session_kind]);
+                  // Tile priority: per-session colour > kind default.
+                  const tileBg = s.color ?? KIND_DEFAULT_TILE[s.session_kind];
                   return (
                     <span
                       className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center"
@@ -351,12 +341,7 @@ export function SessionsSidebar() {
   const [dragTarget, setDragTarget] = useState<DropSlot | null>(null);
 
   const openTabAction   = useTabs((s) => s.open);
-  const openTabs        = useTabs((s) => s.tabs);
   const toggleSidebar   = useTabs((s) => s.toggleSidebar);
-  const connectedSessionIds = useMemo(
-    () => new Set(openTabs.filter((t) => t.status === 'connected').map((t) => t.session.id)),
-    [openTabs],
-  );
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try {
@@ -805,7 +790,6 @@ export function SessionsSidebar() {
     drag,
     dragTarget,
     selectedId,
-    connectedSessionIds,
     handleDragStart,
     handleDragEnd,
     handleDragOver,

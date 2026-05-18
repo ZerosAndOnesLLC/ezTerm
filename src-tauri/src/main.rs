@@ -97,8 +97,6 @@ async fn main() {
             commands::sftp::sftp_upload_chunk,
             commands::sftp::sftp_upload_finish,
             commands::sftp::sftp_upload_abort,
-            commands::sftp::drag_test_file,
-            commands::sftp::sftp_drag,
             commands::scp::scp_upload,
             commands::scp::scp_download,
             commands::local::local_connect,

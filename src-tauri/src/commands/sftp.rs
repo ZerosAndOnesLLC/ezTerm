@@ -391,65 +391,15 @@ pub async fn sftp_upload_abort(state: State<'_, AppState>, upload_id: u64) -> Re
     state.upload_streams.abort(upload_id).await
 }
 
-/// Start a streaming OS-native drag of one or more remote SFTP files
-/// (phases B2 + B3 + B4 of issue #28). Pulls bytes on demand via an
-/// IStream per file backed by a tokio reader task — no in-memory
-/// buffering, no size cap. Returns when the drag finishes (dropped
-/// / cancelled).
-///
-/// Windows-only today; macOS / Linux drag-out lands in phases B5/B6.
-#[tauri::command]
-pub async fn sftp_drag(
-    state: State<'_, AppState>,
-    connection_id: u64,
-    remote_paths: Vec<String>,
-) -> Result<crate::sftp::drag::DragOutcome> {
-    super::require_unlocked(&state).await?;
-    if remote_paths.is_empty() {
-        return Err(AppError::Validation("no paths to drag".into()));
-    }
-    let mut normalised: Vec<String> = Vec::with_capacity(remote_paths.len());
-    for p in remote_paths {
-        normalised.push(crate::sftp::normalise_remote_path(&p)?);
-    }
-    let handle = sftp_handle(&state, connection_id).await?;
-    // Capture the runtime handle BEFORE moving to spawn_blocking: the
-    // dedicated drag thread needs to drive async SFTP reads from a
-    // non-tokio context.
-    let runtime = tokio::runtime::Handle::current();
-    let outcome = tokio::task::spawn_blocking(move || {
-        crate::sftp::drag::start_sftp_drag(handle, normalised, runtime)
-    })
-    .await
-    .map_err(|e| AppError::Validation(format!("drag task panicked: {e}")))??;
-    Ok(outcome)
-}
-
-/// Test command for phase B1 of issue #28 — spawns an OS-native drag
-/// source carrying a hardcoded `body` as a single virtual file named
-/// `name`. Returns whether the user dropped or cancelled. Wired up to
-/// validate the COM plumbing end-to-end without needing an SFTP
-/// session: a dev can call this from the browser console (or a
-/// future test menu) and confirm that dropping into Explorer creates
-/// a real file with the expected bytes.
-///
-/// Windows-only today; non-Windows platforms surface a clear
-/// "unsupported" error from `sftp::drag::start_file_drag`.
-#[tauri::command]
-pub async fn drag_test_file(
-    state: State<'_, AppState>,
-    name: String,
-    body: String,
-) -> Result<crate::sftp::drag::DragOutcome> {
-    super::require_unlocked(&state).await?;
-    // DoDragDrop blocks the calling thread — we MUST move it off the
-    // tokio worker pool. `spawn_blocking` does exactly that and joins
-    // the synchronous return back into the async command.
-    let bytes = body.into_bytes();
-    let outcome = tokio::task::spawn_blocking(move || {
-        crate::sftp::drag::start_file_drag(name, bytes)
-    })
-    .await
-    .map_err(|e| AppError::Validation(format!("drag task panicked: {e}")))??;
-    Ok(outcome)
-}
+// NOTE on SFTP drag-out: an earlier iteration shipped an OLE
+// IDataObject + IStream drag-source so the user could drag a remote
+// file from the SFTP pane directly into Windows Explorer. That code
+// hit an unworkable WebView2 limitation — `DoDragDrop` from the host
+// process always returns E_FAIL once WebView2 is loaded (process-wide
+// claim by Chromium's drag controller), and the HTML5
+// `dragstart` → OS drag conversion also never fires from a Tauri
+// webview. There is no current Microsoft-supplied API surface to
+// initiate an OS-level virtual-file drag from a WebView2 host. We
+// retain the right-click → Download… save-dialog path in the SFTP
+// pane as the supported download UX until WebView2 exposes a drag
+// API or we move off WebView2.

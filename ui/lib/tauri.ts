@@ -146,19 +146,6 @@ export const api = {
     invoke<void>('sftp_upload_abort', { uploadId }),
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
-  /** Phase B1 of issue #28: starts an OS-native OLE drag with a
-   *  hardcoded `body` payload exposed as a virtual file named `name`.
-   *  Windows-only today; macOS/Linux surface an "unsupported" error.
-   *  Returns 'dropped' or 'cancelled' depending on user action. */
-  dragTestFile: (name: string, body: string) =>
-    invoke<'dropped' | 'cancelled'>('drag_test_file', { name, body }),
-  /** Phases B2 + B3 + B4 of issue #28: streaming OS-native drag of
-   *  one or more remote SFTP files. Each file streams independently
-   *  on demand — no in-memory buffer, no size cap. Windows-only;
-   *  macOS / Linux pending B5/B6. Returns 'dropped' or 'cancelled'. */
-  sftpDrag: (connectionId: number, remotePaths: string[]) =>
-    invoke<'dropped' | 'cancelled'>('sftp_drag', { connectionId, remotePaths }),
-
   // Local PTY (WSL / cmd / pwsh)
   localConnect:    (sessionId: number, cols: number, rows: number) =>
     invoke<{ connection_id: number }>('local_connect', { sessionId, cols, rows }),

@@ -368,9 +368,8 @@ async fn insert_imported_session(
     // Defaults match the UI's new-session defaults (see session-dialog.tsx).
     // `credential_id` is attached when a referenced key file was read into
     // the vault; otherwise the session lands with no credential and the
-    // user attaches one later from the session dialog. WSL rows force a
-    // green-tinted dot so they stand out in the tree.
-    let color: Option<&str> = if s.session_kind == "wsl" { Some("#34d399") } else { None };
+    // user attaches one later from the session dialog.
+    let color: Option<&str> = None;
     sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
          credential_id, key_passphrase_credential_id, color, \

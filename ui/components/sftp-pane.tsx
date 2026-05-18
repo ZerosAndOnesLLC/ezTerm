@@ -312,45 +312,45 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     const cid = tab.connectionId;
     if (cid == null || !dt) return;
 
-    // Prefer the items API so we can detect directories. Fall back to
-    // the `files` collection on browsers that don't expose entries
-    // (none of our supported webviews, but cheap defensive code).
-    const items = Array.from(dt.items ?? []);
+    // SYNCHRONOUS snapshot — DataTransferItem references are invalidated
+    // as soon as the drop handler yields (HTML5 spec; Chromium enforces).
+    // Anything we need from `dt.items` / `dt.files` must be captured
+    // before the first `await`, or subsequent entries come back null.
     type Work = { kind: 'file'; file: File; remote: string }
               | { kind: 'dir';  entry: FileSystemDirectoryEntry; remote: string; rootName: string };
-    const work: Work[] = [];
+    const fileWork: Extract<Work, { kind: 'file' }>[] = [];
+    const dirWork:  Extract<Work, { kind: 'dir'  }>[] = [];
 
+    const items = Array.from(dt.items ?? []);
     if (items.length > 0) {
       for (const it of items) {
         if (it.kind !== 'file') continue;
         const e = entryFromItem(it);
         if (e?.isDirectory) {
-          work.push({
+          dirWork.push({
             kind: 'dir',
             entry: e as FileSystemDirectoryEntry,
             remote: joinRemote(targetDir, e.name),
             rootName: e.name,
           });
-        } else if (e?.isFile) {
-          // FileSystemFileEntry.file is async; capture the File now.
-          const f = await getFile(e as FileSystemFileEntry).catch(() => null);
-          if (f) work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
         } else {
-          // Some weird-shaped DataTransferItem (text, image-data, ...). Skip.
+          // Use getAsFile() (sync) instead of FileSystemFileEntry.file
+          // (async) so we don't yield the event loop mid-iteration.
           const f = it.getAsFile();
-          if (f) work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
+          if (f) fileWork.push({
+            kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload'),
+          });
         }
       }
     } else {
       for (const f of Array.from(dt.files ?? [])) {
-        work.push({ kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload') });
+        fileWork.push({
+          kind: 'file', file: f, remote: joinRemote(targetDir, f.name || 'upload'),
+        });
       }
     }
 
-    if (work.length === 0) return;
-
-    const dirWork = work.filter((w): w is Extract<Work, { kind: 'dir' }> => w.kind === 'dir');
-    const fileWork = work.filter((w): w is Extract<Work, { kind: 'file' }> => w.kind === 'file');
+    if (fileWork.length === 0 && dirWork.length === 0) return;
 
     for (const f of fileWork) {
       void uploadOneFile(cid, f.file, f.remote);
@@ -387,10 +387,7 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
 
   /// Row mousedown handler. Updates selection per the standard
   /// file-manager idiom: plain click replaces, Ctrl/Cmd toggles,
-  /// Shift extends a range from the last plain-clicked row. The
-  /// drag-out start (`onDragOutStart`) fires SEPARATELY once the
-  /// mouse has moved past the threshold, so by the time the drag
-  /// runs the selection already reflects the user's intent.
+  /// Shift extends a range from the last plain-clicked row.
   function handleRowMouseDown(entry: SftpEntry, ev: React.MouseEvent) {
     if (ev.button !== 0) return;
     const path = entry.full_path;
@@ -421,29 +418,15 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     setAnchor(path);
   }
 
-  /// Drag-out trigger from a file row. Computes the set of paths to
-  /// drag (selection-aware) and invokes the OS-native drag
-  /// (`sftp_drag`), which blocks until the user drops or cancels.
-  /// Folders are silently filtered out — directory drag-out is a
-  /// separate phase (recursive remote listing).
-  function handleDragOutStart(entry: SftpEntry) {
-    const cid = tab.connectionId;
-    if (cid == null) return;
-    const inSelection = selected.has(entry.full_path);
-    const candidates = inSelection
-      ? entries.filter((e) => selected.has(e.full_path))
-      : [entry];
-    const paths = candidates.filter((e) => !e.is_dir).map((e) => e.full_path);
-    if (paths.length === 0) return;
-    api.sftpDrag(cid, paths).catch((er) => {
-      const msg = errMessage(er);
-      // The "drag-out not yet implemented on this platform" error
-      // shouldn't surface as a scary toast — it's an expected limit
-      // on macOS / Linux until phases B5/B6 land. Filter it.
-      if (/not yet implemented on this platform/i.test(msg)) return;
-      toast.danger('Drag failed', msg);
-    });
-  }
+  // SFTP drag-OUT (dragging a remote file from the pane into Windows
+  // Explorer) is not supported. We tried both OS-level OLE drag
+  // (`DoDragDrop`) and HTML5 `dragstart` with `setData('DownloadURL')`
+  // — WebView2 blocks both. Once WebView2 is loaded into the process,
+  // Chromium's drag controller refuses to let the host start an OS
+  // drag, and the HTML5 dragstart → OS drag conversion never fires.
+  // There is no current Microsoft-supplied API to initiate an OS-level
+  // virtual-file drag from a WebView2 host. Right-click → Download…
+  // (above) is the supported path.
 
   async function handleUploadClick() {
     const cid = tab.connectionId;
@@ -464,7 +447,14 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   return (
     <div
       className="h-full w-72 border-r border-border bg-surface flex flex-col min-h-0 shrink-0 relative"
-      onDragOver={(ev) => { ev.preventDefault(); if (!dragOver) setDragOver(true); }}
+      onDragOver={(ev) => {
+        ev.preventDefault();
+        // WebView2 needs the explicit copy effect to actually fire `drop`
+        // for external file drags — `preventDefault` alone covers same-page
+        // HTML5 drags but not OS-sourced ones.
+        ev.dataTransfer.dropEffect = 'copy';
+        if (!dragOver) setDragOver(true);
+      }}
       onDragLeave={(ev) => {
         // Ignore leaves into child elements — only clear when leaving the
         // pane bounds entirely.
@@ -551,7 +541,6 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
             onOpen={navigateInto}
             onContext={openContext}
             onFolderDrop={handleFolderDrop}
-            onDragOutStart={handleDragOutStart}
             onSelectMouseDown={handleRowMouseDown}
           />
         ))}

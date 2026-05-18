@@ -88,6 +88,7 @@ fn parse_etc_shells(text: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(unix)]
 fn basename(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
@@ -142,6 +143,7 @@ mod tests {
         assert_eq!(parsed, vec!["/bin/sh", "/bin/bash"]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn basename_extracts_final_component() {
         assert_eq!(basename("/bin/bash"), "bash");
