@@ -27,13 +27,15 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use russh_sftp::client::SftpSession;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::error::{AppError, Result};
-use crate::sftp::SftpHandle;
+use crate::sftp::{FileBrowser, SftpHandle};
+use crate::wslfs::WslFsHandle;
 
 /// Bounded so the frontend gets backpressure if the SFTP link is slow —
 /// at most this many chunks can be in flight before chunk() blocks.
@@ -63,18 +65,23 @@ impl UploadStreamRegistry {
     }
 
     /// Spawn the writer task and return an upload_id the frontend can
-    /// use to push chunks. The writer holds the SFTP session lock for
-    /// its lifetime and shuts down cleanly on Finish/Abort/channel-close.
+    /// use to push chunks. For SFTP the writer holds the SFTP session
+    /// lock for its lifetime; for WSL it holds a `tokio::fs::File` on
+    /// the UNC path. Either way it shuts down cleanly on
+    /// Finish/Abort/channel-close.
     pub async fn begin(
         &self,
-        handle: std::sync::Arc<SftpHandle>,
+        browser: Arc<FileBrowser>,
         remote_path: String,
     ) -> Result<u64> {
         let upload_id = self.alloc_id();
         let (tx, rx) = mpsc::channel::<UploadCmd>(CHANNEL_DEPTH);
         self.inner.write().await.insert(upload_id, UploadState { tx });
         tokio::spawn(async move {
-            let _ = writer_task(handle, remote_path, rx).await;
+            let _ = match &*browser {
+                FileBrowser::Sftp(_) => sftp_writer(browser.clone(), remote_path, rx).await,
+                FileBrowser::Wsl(_)  => wsl_writer(browser.clone(),  remote_path, rx).await,
+            };
         });
         Ok(upload_id)
     }
@@ -125,11 +132,15 @@ impl UploadStreamRegistry {
     }
 }
 
-async fn writer_task(
-    handle: std::sync::Arc<SftpHandle>,
+async fn sftp_writer(
+    browser: Arc<FileBrowser>,
     remote_path: String,
     mut rx: mpsc::Receiver<UploadCmd>,
 ) -> Result<()> {
+    let handle: &SftpHandle = match &*browser {
+        FileBrowser::Sftp(h) => h,
+        _ => return Err(AppError::Sftp("sftp_writer: wrong browser kind".into())),
+    };
     handle
         .with_session(async move |s: &mut SftpSession| -> Result<()> {
             let mut w = s
@@ -173,4 +184,45 @@ async fn writer_task(
             Ok(())
         })
         .await
+}
+
+/// WSL streaming-upload writer. Mirrors `sftp_writer` but writes to a
+/// `tokio::fs::File` on the `\\wsl.localhost\<distro>\…` UNC path.
+async fn wsl_writer(
+    browser: Arc<FileBrowser>,
+    remote_path: String,
+    mut rx: mpsc::Receiver<UploadCmd>,
+) -> Result<()> {
+    let handle: &WslFsHandle = match &*browser {
+        FileBrowser::Wsl(h) => h,
+        _ => return Err(AppError::Sftp("wsl_writer: wrong browser kind".into())),
+    };
+    let unc = handle.linux_to_unc(&remote_path);
+    let mut w = tokio::fs::File::create(&unc)
+        .await
+        .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+    while let Some(cmd) = rx.recv().await {
+        match cmd {
+            UploadCmd::Data(bytes, ack) => {
+                let r = w
+                    .write_all(&bytes)
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("write: {e}")));
+                drop(bytes);
+                let _ = ack.send(r);
+            }
+            UploadCmd::Finish(ack) => {
+                let r = w
+                    .flush()
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("close: {e}")));
+                let _ = ack.send(r);
+                return Ok(());
+            }
+            UploadCmd::Abort => {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
 }

@@ -48,6 +48,10 @@ pub async fn local_resize(
 
 #[tauri::command]
 pub async fn local_disconnect(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
+    // Drop the WSL file-browser handle first so the registry doesn't
+    // outlive the connection. Idempotent — `remove` is a no-op when
+    // no entry exists (e.g. tab never opened the file pane).
+    state.sftp.remove(connection_id).await;
     state.local.close(connection_id).await;
     Ok(())
 }

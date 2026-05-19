@@ -13,6 +13,7 @@ mod ssh;
 mod state;
 mod sync;
 mod vault;
+mod wslfs;
 mod xserver;
 
 use state::AppState;

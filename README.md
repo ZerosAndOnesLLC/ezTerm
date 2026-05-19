@@ -46,9 +46,13 @@ on those platforms.
   row. Resizable with a grab-strip on the right edge (180 – 520 px, persisted).
 - **Tab bar** with coloured status dots (pulse on connecting, green on
   connected, red on error), middle-click to close, per-tab SFTP toggle.
-- **SFTP side-pane** docked on the active SSH tab — breadcrumb navigation,
-  right-click context menu (Download, Rename, Delete), drag-drop upload from
-  Explorer with streaming 32 KiB chunks and live progress.
+- **SFTP side-pane** docked on the active SSH or WSL tab — breadcrumb
+  navigation, right-click context menu (Download, Rename, Delete), drag-drop
+  upload from Explorer with streaming 32 KiB chunks and live progress. WSL
+  tabs browse the distro's filesystem through the Plan 9 bridge
+  (`\\wsl.localhost\<distro>\…`) and shell out to the distro's coreutils
+  for POSIX-aware listing + `chmod` — same UX as MobaXterm's WSL pane,
+  no extra packages required.
 - **Inline auth-fix overlay** — when a connect fails with bad auth / missing
   credential, a dedicated overlay lets the user fix username, auth method, or
   vault credential without leaving the tab. No "close tab and start over" ritual.

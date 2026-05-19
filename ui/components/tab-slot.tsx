@@ -124,9 +124,14 @@ export function TabSlot({
   //     in non-tabs modes. Mount/unmount only on the explicit user toggle,
   //     never on a mode switch — preserves the pane's local state across
   //     mode flips.
+  // File-browser pane lights up for SSH (real SFTP subsystem) and WSL
+  // (Plan-9-backed adapter at `\\wsl.localhost\<distro>\`). Plain local
+  // shells (cmd, pwsh) deliberately don't get a pane — same as MobaXterm.
+  const fileBrowserKinds = tab.session.session_kind === 'ssh'
+    || tab.session.session_kind === 'wsl';
   const showCascadeChrome = kind === 'cascade';
-  const sftpVisible = kind === 'tabs' && tab.sftpOpen && tab.session.session_kind === 'ssh';
-  const sftpMounted = tab.sftpOpen && tab.session.session_kind === 'ssh';
+  const sftpVisible = kind === 'tabs' && tab.sftpOpen && fileBrowserKinds;
+  const sftpMounted = tab.sftpOpen && fileBrowserKinds;
   const forwardsVisible = kind === 'tabs' && tab.forwardsOpen && tab.session.session_kind === 'ssh';
   const forwardsMounted = tab.forwardsOpen && tab.session.session_kind === 'ssh';
 

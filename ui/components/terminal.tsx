@@ -202,24 +202,9 @@ export function TerminalView({ tab, visible }: Props) {
         await api.localReady(result.connection_id).catch(() => {});
       }
 
-      // rAF-coalesce ResizeObserver callbacks. A single layout pass (e.g.
-      // a view-mode switch in MdiArea) re-sizes every visible terminal in
-      // the same tick; without coalescing every frame we'd fire N
-      // synchronous Tauri term.resize IPCs. With this gate, each terminal
-      // fires at most one IPC per animation frame.
-      let resizeRaf = 0;
-      const onResize = () => {
-        if (resizeRaf) return;
-        resizeRaf = requestAnimationFrame(() => {
-          resizeRaf = 0;
-          safeFit(bundle);
-          term.resize(result.connection_id, bundle.terminal.cols, bundle.terminal.rows).catch(() => {});
-        });
-      };
-      const ro = new ResizeObserver(onResize);
-      if (containerRef.current) ro.observe(containerRef.current);
-      resizeObsRef.current = ro;
-      resizeRafRef.current = () => { if (resizeRaf) cancelAnimationFrame(resizeRaf); };
+      // Connection is up. The mount-time ResizeObserver / window
+      // 'resize' handler reads `connectionIdRef.current` and forwards
+      // dimensions to the backend, so no further setup is needed here.
     } catch (e) {
       fail(errMessage(e));
     }
@@ -254,6 +239,37 @@ export function TerminalView({ tab, visible }: Props) {
       opened = true;
       runConnect(false);
     }, 0);
+
+    // Resize handling — set up at MOUNT, not after connect, so resizes
+    // during the auth/handshake window aren't dropped and shrink-resizes
+    // that WebView2 only reports via `window.resize` (not always via
+    // ResizeObserver, audit issue #103) still propagate. Both signals
+    // feed one rAF-coalesced handler so we issue at most one IPC per
+    // animation frame even when both fire for the same gesture.
+    let resizeRaf = 0;
+    const onResize = () => {
+      if (resizeRaf) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        const b = bundleRef.current;
+        if (!b) return;
+        safeFit(b);
+        const cid = connectionIdRef.current;
+        if (cid !== null) {
+          termApiRef.current
+            .resize(cid, b.terminal.cols, b.terminal.rows)
+            .catch(() => {});
+        }
+      });
+    };
+    const ro = new ResizeObserver(onResize);
+    if (containerRef.current) ro.observe(containerRef.current);
+    resizeObsRef.current = ro;
+    window.addEventListener('resize', onResize);
+    resizeRafRef.current = () => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      window.removeEventListener('resize', onResize);
+    };
 
     return () => {
       cancelledRef.current = true;

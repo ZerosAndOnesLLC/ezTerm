@@ -63,6 +63,63 @@
 }
 
 html, body, #__next { height: 100%; }
+/* The app fills the webview exactly — never scroll the document itself.
+   Without this, a mid-resize tick where the laid-out content briefly
+   exceeds the new viewport size makes Chromium drop in an html-level
+   scrollbar that stacks alongside the inner pane's own scrollbar (e.g.
+   xterm's) on the right edge. `!important` because some HMR paths
+   inline a Tailwind preflight reset that resets overflow on body. */
+html, body {
+  overflow: hidden !important;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* xterm.js keeps `.xterm-viewport` with `overflow-y: scroll` for mouse-
+   wheel capture even though the visible scrollbar is rendered by
+   xterm's VSCode-derived `SmoothScrollableElement` (sized via the
+   `overviewRuler.width` terminal option). With our global `::-webkit-
+   scrollbar { width: 6px }` rule active the viewport's native
+   scrollbar shows up *alongside* the VSCode one — two slim bars
+   stacked side-by-side on the right edge. Hide the native one;
+   wheel events still flow through the viewport regardless. */
+.xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
+.xterm-viewport {
+  scrollbar-width: none !important;
+}
+
+/* Slim scrollbars (Chromium / WebView2). The default 16-17 px gutter
+   is too prominent against the slim dark chrome — drop to 6 px and
+   give the thumb a subtle accent that picks up on hover. Tokens, not
+   hex, so light mode tracks the same way. xterm.js terminals draw
+   their own scrollbar over canvas; this only affects sidebar / SFTP /
+   dialog / pane scrollers. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong) / 0.7);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.8);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Firefox fallback (WebView2 never sees this, but the dev build can
+   run in browsers during UI iteration). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border-strong) / 0.7) transparent;
+}
 
 body {
   @apply bg-bg text-fg antialiased;

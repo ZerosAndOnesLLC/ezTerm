@@ -14,6 +14,19 @@ pub struct Connection {
     /// `unlock_reader` takes the sender and sends `()`, the reader
     /// thread enters its normal read loop. Subsequent calls are no-ops.
     pub reader_gate: StdMutex<Option<std::sync::mpsc::Sender<()>>>,
+    /// Set when this connection is a WSL tab. Records the distro
+    /// (and optional user) so the file-browser commands can
+    /// resolve `\\wsl.localhost\<distro>\` paths and shell out to
+    /// `wsl.exe -d <distro> -u <user>` for POSIX-aware operations
+    /// (chmod, ls -la, realpath). `None` for plain local shells —
+    /// those don't get a file pane.
+    pub wsl_meta: Option<WslMeta>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WslMeta {
+    pub distro: String,
+    pub user:   Option<String>,
 }
 
 pub enum LocalInput {

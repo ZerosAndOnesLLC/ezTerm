@@ -110,7 +110,7 @@ export function TabsShell() {
               >
                 {t.session.name}
               </span>
-              {t.session.session_kind === 'ssh' && (
+              {(t.session.session_kind === 'ssh' || t.session.session_kind === 'wsl') && (
                 <button
                   type="button"
                   draggable={false}
@@ -118,8 +118,8 @@ export function TabsShell() {
                     e.stopPropagation();
                     useTabs.getState().setSftpOpen(t.tabId, !t.sftpOpen);
                   }}
-                  title={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
-                  aria-label={t.sftpOpen ? 'Hide SFTP pane' : 'Show SFTP pane'}
+                  title={t.sftpOpen ? 'Hide file pane' : 'Show file pane'}
+                  aria-label={t.sftpOpen ? 'Hide file pane' : 'Show file pane'}
                   aria-pressed={t.sftpOpen}
                   className="icon-btn w-5 h-5 ml-1"
                 >

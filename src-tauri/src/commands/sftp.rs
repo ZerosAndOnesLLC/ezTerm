@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::{AppError, Result};
-use crate::sftp::SftpHandle;
+use crate::sftp::{FileBrowser, SftpHandle};
 use crate::state::AppState;
+use crate::wslfs::{self, WslFsHandle};
 
 /// Monotonic id for transfers. The frontend correlates progress events to a
 /// ticket by subscribing to `sftp:transfer:{id}`.
@@ -37,46 +38,59 @@ pub struct SftpEntry {
     pub mode: u32,
 }
 
-/// Open an SFTP subsystem channel on the existing SSH session identified by
-/// `connection_id`. Stores the resulting `SftpSession` in the `SftpRegistry`
-/// so later `sftp_*` commands can reuse it. Idempotent only in the sense that
-/// the last insert wins — callers should invoke this once per connection.
+/// Open the file browser for `connection_id`. Routes by connection kind:
+/// SSH connections get a real SFTP subsystem channel; WSL connections get a
+/// Plan-9-backed adapter that translates Linux paths to `\\wsl.localhost`
+/// UNC and shells out for POSIX-aware ops. Plain local shells (cmd, pwsh)
+/// have no file browser — calling this for them returns `NotFound`.
 #[tauri::command]
 pub async fn sftp_open(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
     super::require_unlocked(&state).await?;
 
-    let conn = state
-        .ssh
-        .get(connection_id)
-        .await
-        .ok_or(AppError::NotFound)?;
+    // SSH path first — established connections live in state.ssh.
+    if let Some(conn) = state.ssh.get(connection_id).await {
+        let channel = conn
+            .ssh_handle
+            .channel_open_session()
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|e| AppError::Sftp(format!("init: {e}")))?;
+        state
+            .sftp
+            .insert(connection_id, FileBrowser::Sftp(SftpHandle::new(sftp)))
+            .await;
+        return Ok(());
+    }
 
-    // Open a second session channel on the same SSH handle, then request
-    // the `sftp` subsystem. `channel_open_session` takes `&self` so the
-    // shared Arc<Handle> needs no further synchronisation.
-    let channel = conn.ssh_handle
-        .channel_open_session()
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
-    channel
-        .request_subsystem(true, "sftp")
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // WSL path — look up the local PTY connection and confirm it was
+    // spawned with WSL metadata. Plain local shells (cmd/pwsh) land
+    // here without `wsl_meta` and are rejected.
+    if let Some(local) = state.local.get(connection_id).await {
+        let meta = local
+            .wsl_meta
+            .as_ref()
+            .ok_or_else(|| AppError::Validation(
+                "file browser is only available for SSH and WSL sessions".into(),
+            ))?;
+        let handle = WslFsHandle::new(meta.distro.clone(), meta.user.clone());
+        state
+            .sftp
+            .insert(connection_id, FileBrowser::Wsl(handle))
+            .await;
+        return Ok(());
+    }
 
-    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
-        .await
-        .map_err(|e| AppError::Sftp(format!("init: {e}")))?;
-
-    state
-        .sftp
-        .insert(connection_id, SftpHandle::new(sftp))
-        .await;
-    Ok(())
+    Err(AppError::NotFound)
 }
 
-/// Fetch a directory listing. The returned entries are sorted directories-first,
-/// name-ascending, with `.` and `..` filtered out (russh-sftp's `ReadDir` iterator
-/// already drops those).
+/// Fetch a directory listing. Sorted directories-first, name-ascending,
+/// with `.`/`..` filtered.
 #[tauri::command]
 pub async fn sftp_list(
     state: State<'_, AppState>,
@@ -85,41 +99,44 @@ pub async fn sftp_list(
 ) -> Result<Vec<SftpEntry>> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-
-    let mut out = handle
-        .with_session(
-            async move |s: &mut russh_sftp::client::SftpSession| -> Result<Vec<SftpEntry>> {
-                let dir = s
-                    .read_dir(&path)
-                    .await
-                    .map_err(|e| AppError::Sftp(e.to_string()))?;
-                let mut acc: Vec<SftpEntry> = Vec::new();
-                for entry in dir {
-                    let name = entry.file_name();
-                    let attrs = entry.metadata();
-                    let full = if path.ends_with('/') {
-                        format!("{path}{name}")
-                    } else {
-                        format!("{path}/{name}")
-                    };
-                    acc.push(SftpEntry {
-                        name,
-                        full_path: full,
-                        is_dir: attrs.is_dir(),
-                        is_symlink: attrs.is_symlink(),
-                        size: attrs.size.unwrap_or(0),
-                        mtime_unix: attrs.mtime.map(|m| m as i64).unwrap_or(0),
-                        mode: attrs.permissions.unwrap_or(0),
-                    });
-                }
-                Ok(acc)
-            },
-        )
-        .await?;
-
-    out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
-    Ok(out)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            let mut out = handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<Vec<SftpEntry>> {
+                        let dir = s
+                            .read_dir(&path)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))?;
+                        let mut acc: Vec<SftpEntry> = Vec::new();
+                        for entry in dir {
+                            let name = entry.file_name();
+                            let attrs = entry.metadata();
+                            let full = if path.ends_with('/') {
+                                format!("{path}{name}")
+                            } else {
+                                format!("{path}/{name}")
+                            };
+                            acc.push(SftpEntry {
+                                name,
+                                full_path: full,
+                                is_dir: attrs.is_dir(),
+                                is_symlink: attrs.is_symlink(),
+                                size: attrs.size.unwrap_or(0),
+                                mtime_unix: attrs.mtime.map(|m| m as i64).unwrap_or(0),
+                                mode: attrs.permissions.unwrap_or(0),
+                            });
+                        }
+                        Ok(acc)
+                    },
+                )
+                .await?;
+            out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
+            Ok(out)
+        }
+        FileBrowser::Wsl(handle) => wslfs::list::list(handle, &path).await,
+    }
 }
 
 #[tauri::command]
@@ -130,14 +147,21 @@ pub async fn sftp_mkdir(
 ) -> Result<()> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            s.create_dir(&path)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                        s.create_dir(&path)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
                 .await
-                .map_err(|e| AppError::Sftp(e.to_string()))
-        })
-        .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::mkdir(handle, &path).await,
+    }
 }
 
 #[tauri::command]
@@ -148,14 +172,21 @@ pub async fn sftp_rmdir(
 ) -> Result<()> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            s.remove_dir(&path)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                        s.remove_dir(&path)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
                 .await
-                .map_err(|e| AppError::Sftp(e.to_string()))
-        })
-        .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::rmdir(handle, &path).await,
+    }
 }
 
 #[tauri::command]
@@ -166,14 +197,21 @@ pub async fn sftp_remove(
 ) -> Result<()> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            s.remove_file(&path)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                        s.remove_file(&path)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
                 .await
-                .map_err(|e| AppError::Sftp(e.to_string()))
-        })
-        .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::remove(handle, &path).await,
+    }
 }
 
 #[tauri::command]
@@ -186,14 +224,21 @@ pub async fn sftp_rename(
     super::require_unlocked(&state).await?;
     let from = crate::sftp::normalise_remote_path(&from)?;
     let to = crate::sftp::normalise_remote_path(&to)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            s.rename(&from, &to)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                        s.rename(&from, &to)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
                 .await
-                .map_err(|e| AppError::Sftp(e.to_string()))
-        })
-        .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::rename(handle, &from, &to).await,
+    }
 }
 
 #[tauri::command]
@@ -205,18 +250,25 @@ pub async fn sftp_chmod(
 ) -> Result<()> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            // Only the permission bits are mutated — leave size/uid/gid/atime/mtime
-            // untouched on the server.
-            let mut attrs = russh_sftp::protocol::FileAttributes::empty();
-            attrs.permissions = Some(mode);
-            s.set_metadata(&path, attrs)
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                        // Only the permission bits are mutated — leave
+                        // size/uid/gid/atime/mtime untouched on the server.
+                        let mut attrs = russh_sftp::protocol::FileAttributes::empty();
+                        attrs.permissions = Some(mode);
+                        s.set_metadata(&path, attrs)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
                 .await
-                .map_err(|e| AppError::Sftp(e.to_string()))
-        })
-        .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::chmod(handle, &path, mode).await,
+    }
 }
 
 #[tauri::command]
@@ -227,22 +279,27 @@ pub async fn sftp_realpath(
 ) -> Result<String> {
     super::require_unlocked(&state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    handle
-        .with_session(
-            async move |s: &mut russh_sftp::client::SftpSession| -> Result<String> {
-                s.canonicalize(&path)
-                    .await
-                    .map_err(|e| AppError::Sftp(e.to_string()))
-            },
-        )
-        .await
+    let browser = require_browser(&state, connection_id).await?;
+    match &*browser {
+        FileBrowser::Sftp(handle) => {
+            handle
+                .with_session(
+                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<String> {
+                        s.canonicalize(&path)
+                            .await
+                            .map_err(|e| AppError::Sftp(e.to_string()))
+                    },
+                )
+                .await
+        }
+        FileBrowser::Wsl(handle) => wslfs::ops::realpath(handle, &path).await,
+    }
 }
 
-async fn sftp_handle(
+async fn require_browser(
     state: &State<'_, AppState>,
     connection_id: u64,
-) -> Result<std::sync::Arc<SftpHandle>> {
+) -> Result<std::sync::Arc<FileBrowser>> {
     state
         .sftp
         .get(connection_id)
@@ -263,18 +320,32 @@ pub async fn sftp_upload(
 ) -> Result<TransferTicket> {
     super::require_unlocked(&state).await?;
     let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
+    let browser = require_browser(&state, connection_id).await?;
     let transfer_id = next_transfer_id();
 
     tokio::spawn(async move {
-        let _ = crate::sftp::transfer::upload(
-            &app,
-            &handle,
-            transfer_id,
-            &PathBuf::from(&local_path),
-            &remote_path,
-        )
-        .await;
+        match &*browser {
+            FileBrowser::Sftp(handle) => {
+                let _ = crate::sftp::transfer::upload(
+                    &app,
+                    handle,
+                    transfer_id,
+                    &PathBuf::from(&local_path),
+                    &remote_path,
+                )
+                .await;
+            }
+            FileBrowser::Wsl(handle) => {
+                let _ = crate::wslfs::transfer::upload(
+                    &app,
+                    handle,
+                    transfer_id,
+                    &PathBuf::from(&local_path),
+                    &remote_path,
+                )
+                .await;
+            }
+        }
     });
     Ok(TransferTicket { transfer_id })
 }
@@ -304,18 +375,24 @@ pub async fn sftp_upload_bytes(
         )));
     }
     let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
+    let browser = require_browser(&state, connection_id).await?;
     let transfer_id = next_transfer_id();
 
     tokio::spawn(async move {
-        let _ = crate::sftp::transfer::upload_bytes(
-            &app,
-            &handle,
-            transfer_id,
-            &bytes,
-            &remote_path,
-        )
-        .await;
+        match &*browser {
+            FileBrowser::Sftp(handle) => {
+                let _ = crate::sftp::transfer::upload_bytes(
+                    &app, handle, transfer_id, &bytes, &remote_path,
+                )
+                .await;
+            }
+            FileBrowser::Wsl(handle) => {
+                let _ = crate::wslfs::transfer::upload_bytes(
+                    &app, handle, transfer_id, &bytes, &remote_path,
+                )
+                .await;
+            }
+        }
     });
     Ok(TransferTicket { transfer_id })
 }
@@ -331,18 +408,32 @@ pub async fn sftp_download(
 ) -> Result<TransferTicket> {
     super::require_unlocked(&state).await?;
     let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
+    let browser = require_browser(&state, connection_id).await?;
     let transfer_id = next_transfer_id();
 
     tokio::spawn(async move {
-        let _ = crate::sftp::transfer::download(
-            &app,
-            &handle,
-            transfer_id,
-            &remote_path,
-            &PathBuf::from(&local_path),
-        )
-        .await;
+        match &*browser {
+            FileBrowser::Sftp(handle) => {
+                let _ = crate::sftp::transfer::download(
+                    &app,
+                    handle,
+                    transfer_id,
+                    &remote_path,
+                    &PathBuf::from(&local_path),
+                )
+                .await;
+            }
+            FileBrowser::Wsl(handle) => {
+                let _ = crate::wslfs::transfer::download(
+                    &app,
+                    handle,
+                    transfer_id,
+                    &remote_path,
+                    &PathBuf::from(&local_path),
+                )
+                .await;
+            }
+        }
     });
     Ok(TransferTicket { transfer_id })
 }
@@ -351,7 +442,7 @@ pub async fn sftp_download(
 /// letting the frontend slice the dropped `File` and ship chunks one
 /// at a time. Returns an `upload_id` the frontend uses to push
 /// chunks; remember to call `sftp_upload_finish` (or
-/// `sftp_upload_abort` on cancel) to release the SFTP session.
+/// `sftp_upload_abort` on cancel) to release the file handle.
 #[tauri::command]
 pub async fn sftp_upload_begin(
     state: State<'_, AppState>,
@@ -360,8 +451,8 @@ pub async fn sftp_upload_begin(
 ) -> Result<u64> {
     super::require_unlocked(&state).await?;
     let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
-    let handle = sftp_handle(&state, connection_id).await?;
-    state.upload_streams.begin(handle, remote_path).await
+    let browser = require_browser(&state, connection_id).await?;
+    state.upload_streams.begin(browser, remote_path).await
 }
 
 /// Append one chunk. Returns when the chunk has been acknowledged by

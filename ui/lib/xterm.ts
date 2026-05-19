@@ -63,12 +63,29 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
     fontSize: opts.fontSize ?? 14,
     scrollback: opts.scrollback ?? 5000,
     allowProposedApi: true,
+    // xterm.js v6 routes its viewport scrollbar through VSCode's
+    // SmoothScrollableElement and sizes it from `overviewRuler.width`
+    // (default 14 px). Setting this here both shrinks the slider and
+    // tells xterm to reserve the space on the right edge so the
+    // scrollbar no longer overlays the rendered cells. We never add
+    // any overview-ruler decorations, so it just renders an empty
+    // 6 px gutter with the slider on top — borders are hidden via
+    // `overviewRulerBorder: transparent` below.
+    overviewRuler: { width: 6 },
     theme: {
       background:         '#121214',
       foreground:         '#e5e7eb',
       cursor:             '#e5e7eb',
       cursorAccent:       '#121214',
       selectionBackground:'#2d3748',
+      // Overview-ruler always paints a 1 px left border using this
+      // colour. We're not using the ruler for anything, so kill it.
+      overviewRulerBorder: 'rgba(0, 0, 0, 0)',
+      // Slim slider, white-on-dark with subtle hover/active brighten
+      // so it picks up on interaction without clashing with content.
+      scrollbarSliderBackground:       'rgba(255, 255, 255, 0.18)',
+      scrollbarSliderHoverBackground:  'rgba(255, 255, 255, 0.30)',
+      scrollbarSliderActiveBackground: 'rgba(255, 255, 255, 0.45)',
       black:   '#2d3748', red:     '#f87171',
       green:   '#34d399', yellow:  '#fbbf24',
       blue:    '#60a5fa', magenta: '#a78bfa',

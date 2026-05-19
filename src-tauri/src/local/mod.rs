@@ -34,7 +34,7 @@ use crate::state::AppState;
 pub mod registry;
 pub mod shells;
 
-pub use registry::{Connection, LocalInput, LocalRegistry};
+pub use registry::{Connection, LocalInput, LocalRegistry, WslMeta};
 
 pub struct SpawnRequest {
     /// "wsl" or "local".
@@ -65,6 +65,20 @@ pub async fn spawn(
 ) -> Result<SpawnOutcome> {
     let cmd = build_command(&req.kind, &req.program, &req.extra, req.starting_dir.as_deref())?;
     let id = state.local.alloc_id();
+    // For WSL tabs, capture distro + user so the file browser can resolve
+    // `\\wsl.localhost\<distro>\` paths and run `wsl.exe -d <distro> -u
+    // <user>` for POSIX-aware ops (ls/chmod/realpath). Empty `program`
+    // means "default distro" — leave the stored name empty and let
+    // wslfs::open() resolve it lazily on first use.
+    let wsl_meta = if req.kind == "wsl" {
+        let user = req.extra.trim();
+        Some(WslMeta {
+            distro: req.program.trim().to_string(),
+            user:   if user.is_empty() { None } else { Some(user.to_string()) },
+        })
+    } else {
+        None
+    };
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -158,6 +172,7 @@ pub async fn spawn(
             id,
             stdin: tx,
             reader_gate: std::sync::Mutex::new(Some(ready_tx)),
+            wsl_meta,
         })
         .await;
     Ok(SpawnOutcome { connection_id: id })
