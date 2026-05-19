@@ -463,14 +463,31 @@ export function TerminalView({ tab, visible }: Props) {
     // cross-platform reliability on Linux/macOS.
     const txt = await readText();
     if (!txt || !tab.connectionId) return;
-    const bytes = new TextEncoder().encode(txt);
-    await termApiRef.current.write(tab.connectionId, Array.from(bytes)).catch(() => {});
+    const bundle = bundleRef.current;
+    if (!bundle) return;
+    // Go through xterm's own `paste()` instead of encoding + writing to
+    // the PTY directly. It handles the two things that mangle pastes
+    // from the Windows clipboard (and apps like the Claude Code GUI,
+    // Slack, browsers, …):
+    //   - Line-ending normalisation: \r\n / \n / lone \r → \r (the
+    //     actual byte the terminal sends when the user presses Enter).
+    //     Writing raw \r\n submits each line twice — once for \r, once
+    //     for \n — and an "Enter on a blank line" between every
+    //     real line was the formatting corruption.
+    //   - Bracketed paste: when the remote shell has DEC mode 2004 on
+    //     (modern bash, zsh, fish, vim, less, claude-code's CLI, …),
+    //     xterm wraps the payload in `\e[200~ … \e[201~` so the shell
+    //     knows it's pasted text and disables auto-indent / history
+    //     expansion / inline command execution.
+    // The pasted bytes flow back through xterm's onData listener
+    // registered in runConnect, which writes them to the PTY.
+    bundle.terminal.paste(txt);
     // Ensure the window is foregrounded and xterm has focus so the user can
     // keep typing immediately after pasting — otherwise right-click → Paste
     // from a background ezTerm requires an extra left-click before keys go
     // through.
     getCurrentWindow().setFocus().catch(() => {});
-    bundleRef.current?.terminal.focus();
+    bundle.terminal.focus();
   }
 
   const showOverlay = tab.status !== 'connected' && !prompt && !authFix && !xserverMissing;
