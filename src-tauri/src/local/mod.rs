@@ -236,9 +236,12 @@ fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
 /// path (e.g. `/bin/bash`); blank falls back to `$SHELL` then `/bin/sh`.
 /// `extra` is an optional cwd, mirroring Windows local semantics.
 ///
-/// Always invoked as a login shell (`-l`). On macOS especially, Terminal.app
-/// runs login shells so PATH and the user's profile env (Homebrew, asdf,
-/// etc.) are populated; matching that avoids "command not found" surprises.
+/// Invoked as an interactive shell (`-i`), matching gnome-terminal /
+/// Konsole / iTerm defaults: `~/.bashrc` (and `~/.zshrc` etc.) load
+/// reliably, so users' PATH and exports from the rc file are picked up.
+/// A bare `-l` login shell only reads `~/.profile` / `~/.bash_profile`
+/// and skips the rc file unless the user wired it up themselves, which
+/// surprised users with "env vars don't load" reports (#104).
 #[cfg(unix)]
 fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
     let shell = match program.trim() {
@@ -246,7 +249,7 @@ fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
         other => other.to_string(),
     };
     let mut c = CommandBuilder::new(&shell);
-    c.arg("-l");
+    c.arg("-i");
     let cwd = extra.trim();
     if !cwd.is_empty() {
         c.cwd(cwd);
