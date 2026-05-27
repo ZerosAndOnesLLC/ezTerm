@@ -472,12 +472,23 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     const cid = tab.connectionId;
     if (cid == null) return;
     try {
-      const picked = await openDialog({ multiple: false });
-      if (typeof picked !== 'string') return;
-      const name = picked.split(/[\\/]/).pop() ?? 'upload';
-      const remote = joinRemote(tab.cwd, name);
-      const t = await api.sftpUpload(cid, picked, remote);
-      setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${name}` }]);
+      const picked = await openDialog({ multiple: true });
+      // Tauri returns string | string[] | null depending on `multiple`.
+      // Normalise to an array so the loop below handles both shapes.
+      const paths = Array.isArray(picked) ? picked : typeof picked === 'string' ? [picked] : [];
+      if (paths.length === 0) return;
+      const newTransfers: TrackedTransfer[] = [];
+      for (const p of paths) {
+        const name = p.split(/[\\/]/).pop() ?? 'upload';
+        const remote = joinRemote(tab.cwd, name);
+        try {
+          const t = await api.sftpUpload(cid, p, remote);
+          newTransfers.push({ transferId: t.transfer_id, label: `upload ${name}` });
+        } catch (er) {
+          toast.danger(`Upload failed: ${name}`, errMessage(er));
+        }
+      }
+      if (newTransfers.length) setTransfers((prev) => [...prev, ...newTransfers]);
       setTimeout(refresh, 500);
     } catch (er) {
       toast.danger('Upload failed', errMessage(er));
@@ -521,8 +532,8 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
         <button
           type="button"
           onClick={handleUploadClick}
-          title="Upload file"
-          aria-label="Upload file"
+          title="Upload files"
+          aria-label="Upload files"
           className="icon-btn"
         >
           <Upload size={13} />
