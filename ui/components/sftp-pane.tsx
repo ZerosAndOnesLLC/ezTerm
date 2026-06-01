@@ -175,7 +175,47 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     const cid = tab.connectionId;
     if (cid == null) return;
     const items: MenuItem[] = [];
-    if (!e.is_dir) {
+    // If the right-clicked file is part of an active multi-selection,
+    // Download applies to every selected non-directory entry and prompts
+    // once for a destination folder. Otherwise it falls back to the
+    // single-file save-as flow on the right-clicked entry.
+    const multiTargets =
+      !e.is_dir && selected.has(e.full_path) && selected.size > 1
+        ? entries.filter((ent) => selected.has(ent.full_path) && !ent.is_dir)
+        : null;
+    if (multiTargets && multiTargets.length > 1) {
+      items.push({
+        label: `Download ${multiTargets.length} files…`,
+        onClick: async () => {
+          try {
+            const destDir = await openDialog({
+              directory: true,
+              multiple: false,
+              title: 'Download to folder',
+            });
+            if (typeof destDir !== 'string') return;
+            // Honour the OS path separator implied by the picked
+            // folder. Tauri's open-dialog returns native paths, so a
+            // Windows pick contains `\` and a POSIX pick contains `/`.
+            const sep = destDir.includes('\\') && !destDir.includes('/') ? '\\' : '/';
+            const base = destDir.replace(/[\\/]+$/, '');
+            const newTransfers: TrackedTransfer[] = [];
+            for (const ent of multiTargets) {
+              try {
+                const localPath = `${base}${sep}${ent.name}`;
+                const t = await api.sftpDownload(cid, ent.full_path, localPath);
+                newTransfers.push({ transferId: t.transfer_id, label: `download ${ent.name}` });
+              } catch (er) {
+                toast.danger(`Download failed: ${ent.name}`, errMessage(er));
+              }
+            }
+            if (newTransfers.length) setTransfers((prev) => [...prev, ...newTransfers]);
+          } catch (er) {
+            toast.danger('Download failed', errMessage(er));
+          }
+        },
+      });
+    } else if (!e.is_dir) {
       items.push({
         label: 'Download…',
         onClick: async () => {
@@ -432,12 +472,23 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     const cid = tab.connectionId;
     if (cid == null) return;
     try {
-      const picked = await openDialog({ multiple: false });
-      if (typeof picked !== 'string') return;
-      const name = picked.split(/[\\/]/).pop() ?? 'upload';
-      const remote = joinRemote(tab.cwd, name);
-      const t = await api.sftpUpload(cid, picked, remote);
-      setTransfers((prev) => [...prev, { transferId: t.transfer_id, label: `upload ${name}` }]);
+      const picked = await openDialog({ multiple: true });
+      // Tauri returns string | string[] | null depending on `multiple`.
+      // Normalise to an array so the loop below handles both shapes.
+      const paths = Array.isArray(picked) ? picked : typeof picked === 'string' ? [picked] : [];
+      if (paths.length === 0) return;
+      const newTransfers: TrackedTransfer[] = [];
+      for (const p of paths) {
+        const name = p.split(/[\\/]/).pop() ?? 'upload';
+        const remote = joinRemote(tab.cwd, name);
+        try {
+          const t = await api.sftpUpload(cid, p, remote);
+          newTransfers.push({ transferId: t.transfer_id, label: `upload ${name}` });
+        } catch (er) {
+          toast.danger(`Upload failed: ${name}`, errMessage(er));
+        }
+      }
+      if (newTransfers.length) setTransfers((prev) => [...prev, ...newTransfers]);
       setTimeout(refresh, 500);
     } catch (er) {
       toast.danger('Upload failed', errMessage(er));
@@ -481,8 +532,8 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
         <button
           type="button"
           onClick={handleUploadClick}
-          title="Upload file"
-          aria-label="Upload file"
+          title="Upload files"
+          aria-label="Upload files"
           className="icon-btn"
         >
           <Upload size={13} />
