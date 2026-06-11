@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Terminal } from 'lucide-react';
 import { useTabs } from '@/lib/tabs-store';
 import { EmptyState } from './empty-state';
 import { TabSlot } from './tab-slot';
 import { MinimizedStrip } from './minimized-strip';
 
-export function MdiArea() {
+// memo: the parent TabsShell re-renders on every drag-indicator change
+// while a tab is being dragged; MdiArea takes no props and subscribes to
+// the tabs store itself, so those parent renders are pure waste here.
+export const MdiArea = memo(function MdiArea() {
   const tabs      = useTabs((s) => s.tabs);
   const activeId  = useTabs((s) => s.activeId);
   const viewMode  = useTabs((s) => s.viewMode);
@@ -121,4 +124,4 @@ export function MdiArea() {
       {viewMode === 'cascade' && <MinimizedStrip />}
     </div>
   );
-}
+});

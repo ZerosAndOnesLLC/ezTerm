@@ -183,6 +183,7 @@ pub fn user_install_path() -> Option<PathBuf> {
 /// hops by default. Pinned to 1.20.14.0 (current stable as of 2026-Q2)
 /// so the install surface is deterministic. The installer is an NSIS
 /// EXE — we drive it with `/S /D=<target>` below.
+#[cfg(target_os = "windows")]
 const VCXSRV_INSTALLER_URL: &str =
     "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/\
      vcxsrv-64.1.20.14.0.installer.exe/download";

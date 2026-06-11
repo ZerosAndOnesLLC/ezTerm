@@ -39,6 +39,7 @@ function DropLine({ edge }: { edge: 'top' | 'bottom' }) {
 }
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
+import { beginPointerDrag } from '@/lib/pointer-drag';
 import type { Folder as TFolder, Session } from '@/lib/types';
 import { useTabs } from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
@@ -136,11 +137,7 @@ interface NodeViewCtx {
   drag:                { kind: 'session' | 'folder'; id: number } | null;
   dragTarget:          DropSlot | null;
   selectedId:          number | null;
-  handleDragStart:     (e: React.DragEvent, kind: 'session' | 'folder', id: number) => void;
-  handleDragEnd:       () => void;
-  handleDragOver:      (e: React.DragEvent, slot: DropSlot) => void;
-  handleDrop:          (e: React.DragEvent, slot: DropSlot) => Promise<void>;
-  slotForRow:          (e: React.DragEvent, row: 'session' | 'folder', id: number) => DropSlot;
+  handlePointerDown:   (e: React.PointerEvent, kind: 'session' | 'folder', id: number) => void;
   toggleFolder:        (id: number) => void;
   openFolderMenu:      (e: React.MouseEvent, f: TFolder | null) => void;
   openSessionMenu:     (e: React.MouseEvent, s: Session) => void;
@@ -152,8 +149,7 @@ interface NodeViewCtx {
 // Top-level so the function identity is stable across SessionsSidebar
 // re-renders. If NodeView were defined inside SessionsSidebar, every
 // setState would give it a new identity and React would unmount + remount
-// the whole tree — which aborts in-flight HTML5 drags by ripping the
-// source DOM out from under the browser.
+// the whole tree — losing scroll position and hover state mid-drag.
 function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeViewCtx }) {
   const isOpen = node.folder ? ctx.expanded.has(node.folder.id) : true;
   const FolderIcon = isOpen ? FolderOpen : Folder;
@@ -177,11 +173,9 @@ function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: No
     <div>
       {node.folder && (
         <div
-          draggable
-          onDragStart={(e) => ctx.handleDragStart(e, 'folder', node.folder!.id)}
-          onDragEnd={ctx.handleDragEnd}
-          onDragOver={(e) => ctx.handleDragOver(e, ctx.slotForRow(e, 'folder', node.folder!.id))}
-          onDrop={(e) => ctx.handleDrop(e, ctx.slotForRow(e, 'folder', node.folder!.id))}
+          data-dnd-kind="folder"
+          data-dnd-id={node.folder.id}
+          onPointerDown={(e) => ctx.handlePointerDown(e, 'folder', node.folder!.id)}
           onClick={() => ctx.toggleFolder(node.folder!.id)}
           onContextMenu={(e) => ctx.openFolderMenu(e, node.folder!)}
           className={`group relative h-7 flex items-center gap-1.5 cursor-default select-none pr-2 transition-colors ${
@@ -246,25 +240,12 @@ function NodeView({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: No
             return (
               <div
                 key={s.id}
-                draggable
-                onDragStart={(e) => ctx.handleDragStart(e, 'session', s.id)}
-                onDragEnd={ctx.handleDragEnd}
+                data-dnd-kind="session"
+                data-dnd-id={s.id}
+                onPointerDown={(e) => ctx.handlePointerDown(e, 'session', s.id)}
                 onClick={() => ctx.setSelectedId(s.id)}
                 onContextMenu={(e) => ctx.openSessionMenu(e, s)}
                 onDoubleClick={() => ctx.openTabAction(s)}
-                onDragOver={(e) => {
-                  if (!ctx.drag) return;
-                  // Split the row 50/50: top half places the dragged item
-                  // *before* this session, bottom half *after*. Works for
-                  // both same-folder reordering and cross-folder moves
-                  // (the drop handler resolves destFolderId from the
-                  // anchor session's folder).
-                  ctx.handleDragOver(e, ctx.slotForRow(e, 'session', s.id));
-                }}
-                onDrop={(e) => {
-                  if (!ctx.drag) return;
-                  ctx.handleDrop(e, ctx.slotForRow(e, 'session', s.id));
-                }}
                 className={`group relative h-7 flex items-center gap-2 cursor-default select-none pr-2 transition-colors ${
                   isSelected
                     ? 'bg-accent/18 text-fg'
@@ -509,41 +490,42 @@ export function SessionsSidebar() {
 
   // --- Drag & drop ------------------------------------------------------
   //
-  // HTML5 DnD. The dragged row puts {kind,id} into dataTransfer so the drop
-  // handler can route to api.sessionMove / folderMove. Sort is always 0 on
-  // drop (new-top-of-folder); intra-folder reordering is a separate pass.
+  // Pointer-event dragging (NOT HTML5 DnD — WebKitGTK's native drag can
+  // hold the pointer grab forever and freeze the app on Linux, see #109).
+  // beginPointerDrag installs window-level listeners; the hovered drop slot
+  // is resolved by hit-testing `data-dnd-*` rows under the pointer. Sort is
+  // always 0 on an `into-*` drop (new-top-of-folder); before/after slots
+  // reorder via the full-list API.
   //
-  // React 19 batches setState more aggressively than 18, so the first few
-  // `dragover` events fire before the `drag` state update from `dragstart`
-  // has rendered — gating `preventDefault()` on the state value left the
-  // browser marking the target as a non-drop zone, and `drop` never fired.
-  // Mirror the drag source into a ref for synchronous access; state is
-  // still used for the opacity / highlight visuals.
+  // The drag source is mirrored into a ref because the move/drop callbacks
+  // close over the render where the drag started; state drives only the
+  // opacity / highlight visuals. sessionsRef/foldersRef are live mirrors of
+  // the data arrays for the same reason — a reload() can resolve mid-drag,
+  // and the drop must be computed from drop-time data, not the snapshot
+  // captured at pointerdown.
   const dragSourceRef = useRef<{ kind: 'session' | 'folder'; id: number } | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const sessionsRef = useRef(sessions);
+  const foldersRef = useRef(folders);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+    foldersRef.current = folders;
+  }, [sessions, folders]);
 
-  function handleDragStart(
-    e: React.DragEvent,
-    kind: 'session' | 'folder',
-    id: number,
-  ) {
-    e.stopPropagation();
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('application/json', JSON.stringify({ kind, id }));
-    dragSourceRef.current = { kind, id };
-    setDrag({ kind, id });
-  }
-
-  function handleDragEnd() {
-    dragSourceRef.current = null;
-    setDrag(null);
-    setDragTarget(null);
-  }
+  // Tear down an in-flight drag if the sidebar unmounts (Ctrl+B toggles it
+  // out of the tree) — the helper's window listeners would otherwise
+  // outlive it with stale closures.
+  const dragCancelRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => dragCancelRef.current?.(), []);
 
   function setDragTargetIfChanged(next: DropSlot | null) {
-    if (!slotsEqual(dragTarget, next)) setDragTarget(next);
+    // Functional updater: `prev` is never stale even though this closure
+    // was created at pointerdown, and React bails out of the re-render
+    // when the updater returns the previous value.
+    setDragTarget((prev) => (slotsEqual(prev, next) ? prev : next));
   }
 
-  /** Compute the slot for a row-aware drag.
+  /** Compute the slot for the row-aware drag position.
    *
    *  Sessions split 50/50 above/below for sibling reorder.
    *
@@ -556,13 +538,12 @@ export function SessionsSidebar() {
    *    the narrow ~14px middle band (25% of a 28px row) made dropping a
    *    session *into* a folder feel broken — see #72. */
   function slotForRow(
-    e: React.DragEvent,
+    rect: DOMRect,
+    clientY: number,
     row: 'session' | 'folder',
     id: number,
   ): DropSlot {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const ratio = rect.height > 0 ? y / rect.height : 0.5;
+    const ratio = rect.height > 0 ? (clientY - rect.top) / rect.height : 0.5;
     if (row === 'session') {
       return ratio < 0.5
         ? { kind: 'before-session', sessionId: id }
@@ -576,34 +557,75 @@ export function SessionsSidebar() {
     return { kind: 'into-folder', folderId: id };
   }
 
-  function handleDragOver(e: React.DragEvent, slot: DropSlot) {
-    const src = dragSourceRef.current;
-    if (src) {
-      // Can't drop a folder into itself (either as a parent or as its own
-      // sibling-edge). before/after-folder on self is a no-op drop, but we
-      // still reject to avoid a confusing indicator line.
-      if (src.kind === 'folder' && slot.kind === 'into-folder' && slot.folderId === src.id) return;
-      if (src.kind === 'folder' && (slot.kind === 'before-folder' || slot.kind === 'after-folder') && slot.folderId === src.id) return;
+  /** Drop slot under the pointer: a `data-dnd-*` row resolves via
+   *  slotForRow; bare tree whitespace is "move to root"; anywhere else
+   *  (terminal area, toolbar) is not a drop target. */
+  function slotAtPoint(x: number, y: number): DropSlot | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return null;
+    const rowEl = el.closest<HTMLElement>('[data-dnd-kind]');
+    if (rowEl) {
+      const kind = rowEl.dataset.dndKind as 'session' | 'folder';
+      const id = Number(rowEl.dataset.dndId);
+      return slotForRow(rowEl.getBoundingClientRect(), y, kind, id);
     }
-    // Always preventDefault so the browser keeps treating us as a valid
-    // drop target. The full-payload validity check happens at drop time.
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    setDragTargetIfChanged(slot);
+    if (el.closest('[data-dnd-root]')) return { kind: 'into-root' };
+    return null;
   }
 
-  async function handleDrop(e: React.DragEvent, slot: DropSlot) {
-    e.preventDefault();
-    e.stopPropagation();
-    const raw = e.dataTransfer.getData('application/json');
-    dragSourceRef.current = null;
-    setDrag(null);
-    setDragTarget(null);
-    if (!raw) return;
-    let payload: { kind: 'session' | 'folder'; id: number };
-    try { payload = JSON.parse(raw); } catch { return; }
+  /** Can't drop a row onto itself: a folder into/beside itself, or a
+   *  session before/after itself (which would otherwise resolve anchor ===
+   *  dragged in buildOrderForSessionDrop and silently jump the session to
+   *  the top of its folder). Rejecting also suppresses the indicator line
+   *  on the dragged row. Deeper cycles (folder into a descendant) are
+   *  rejected by the backend at drop time. */
+  function slotRejected(slot: DropSlot): boolean {
+    const src = dragSourceRef.current;
+    if (!src) return false;
+    if (src.kind === 'folder') {
+      return (
+        (slot.kind === 'into-folder' || slot.kind === 'before-folder' || slot.kind === 'after-folder')
+        && slot.folderId === src.id
+      );
+    }
+    return (
+      (slot.kind === 'before-session' || slot.kind === 'after-session')
+      && slot.sessionId === src.id
+    );
+  }
 
+  function handlePointerDown(
+    e: React.PointerEvent,
+    kind: 'session' | 'folder',
+    id: number,
+  ) {
+    dragCancelRef.current = beginPointerDrag(e, {
+      onDragStart: () => {
+        dragSourceRef.current = { kind, id };
+        setDrag({ kind, id });
+      },
+      onDragMove: (x, y) => {
+        const slot = slotAtPoint(x, y);
+        setDragTargetIfChanged(slot && !slotRejected(slot) ? slot : null);
+      },
+      onDrop: (x, y) => {
+        const slot = slotAtPoint(x, y);
+        if (slot && !slotRejected(slot)) void performDrop({ kind, id }, slot);
+      },
+      onEnd: () => {
+        dragSourceRef.current = null;
+        setDrag(null);
+        setDragTarget(null);
+      },
+      scrollContainer: () => treeRef.current,
+      axis: 'y',
+    });
+  }
+
+  async function performDrop(
+    payload: { kind: 'session' | 'folder'; id: number },
+    slot: DropSlot,
+  ) {
     try {
       if (payload.kind === 'session') {
         await dropSession(payload.id, slot);
@@ -623,7 +645,9 @@ export function SessionsSidebar() {
     // in one gesture works). Folder-edge drops aren't a valid destination
     // for a session; treat them as "move into that folder's parent and
     // reorder" — we position just above/below the folder in its parent.
-    const cur = sessions.find((s) => s.id === sessionId);
+    // Read through the refs: this runs in a closure captured at
+    // pointerdown, and the lists may have reloaded since.
+    const cur = sessionsRef.current.find((s) => s.id === sessionId);
     if (!cur) return;
 
     const destFolderId = resolveDestFolderId(slot);
@@ -650,7 +674,7 @@ export function SessionsSidebar() {
       await api.sessionMove(sessionId, destFolderId, 0);
     }
     // Build new order among sessions in destFolderId.
-    const existingInDest = sessions
+    const existingInDest = sessionsRef.current
       .filter((s) => s.folder_id === destFolderId && s.id !== sessionId)
       .sort((a, b) => a.sort - b.sort || a.id - b.id)
       .map((s) => s.id);
@@ -661,7 +685,7 @@ export function SessionsSidebar() {
   }
 
   async function dropFolder(folderId: number, slot: DropSlot) {
-    const cur = folders.find((f) => f.id === folderId);
+    const cur = foldersRef.current.find((f) => f.id === folderId);
     if (!cur) return;
     if (slot.kind === 'into-folder' && slot.folderId === folderId) return;
 
@@ -685,7 +709,7 @@ export function SessionsSidebar() {
     if (crossParent) {
       await api.folderMove(folderId, destParentId, 0);
     }
-    const existingInDest = folders
+    const existingInDest = foldersRef.current
       .filter((f) => f.parent_id === destParentId && f.id !== folderId)
       .sort((a, b) => a.sort - b.sort || a.id - b.id)
       .map((f) => f.id);
@@ -702,12 +726,12 @@ export function SessionsSidebar() {
         return slot.folderId;
       case 'before-session':
       case 'after-session': {
-        const sib = sessions.find((s) => s.id === slot.sessionId);
+        const sib = sessionsRef.current.find((s) => s.id === slot.sessionId);
         return sib ? sib.folder_id : undefined;
       }
       case 'before-folder':
       case 'after-folder': {
-        const sib = folders.find((f) => f.id === slot.folderId);
+        const sib = foldersRef.current.find((f) => f.id === slot.folderId);
         return sib ? sib.parent_id : undefined;
       }
     }
@@ -783,18 +807,14 @@ export function SessionsSidebar() {
   // itself is hoisted to module scope (below SessionsSidebar) so its
   // function identity stays stable across renders — defining it inline
   // would cause React to unmount + remount the entire tree on every
-  // setState (e.g. dragover → setDragTarget), which aborts in-flight
-  // HTML5 drags by ripping the source DOM out from under the browser.
+  // setState (e.g. pointermove → setDragTarget), losing scroll position
+  // and DOM state mid-drag.
   const nodeViewCtx: NodeViewCtx = {
     expanded,
     drag,
     dragTarget,
     selectedId,
-    handleDragStart,
-    handleDragEnd,
-    handleDragOver,
-    handleDrop,
-    slotForRow,
+    handlePointerDown,
     toggleFolder,
     openFolderMenu,
     openSessionMenu,
@@ -851,18 +871,17 @@ export function SessionsSidebar() {
       </div>
 
       {/* Tree — the whole container is a drop zone for "move to root".
-          Individual rows have their own onDragOver that stops propagation
-          for folder drops, so this only fires when the user hovers open
-          whitespace or a root-level row while dragging. */}
+          slotAtPoint resolves rows first, so this only matches when the
+          user hovers open whitespace while dragging. */}
       <div
+        ref={treeRef}
+        data-dnd-root
         className={`flex-1 min-h-0 overflow-auto py-1 transition-colors ${
           drag && dragTarget?.kind === 'into-root' ? 'bg-accent/10 outline outline-1 outline-accent/40 -outline-offset-1' : ''
         }`}
         role="tree"
         aria-label="Sessions"
         onContextMenu={(e) => { if (e.target === e.currentTarget) openFolderMenu(e, null); }}
-        onDragOver={(e) => handleDragOver(e, { kind: 'into-root' })}
-        onDrop={(e) => handleDrop(e, { kind: 'into-root' })}
       >
         {empty ? (
           <EmptyState
