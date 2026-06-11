@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FolderTree, Network, Terminal, X } from 'lucide-react';
 import { useTabs } from '@/lib/tabs-store';
 import { beginPointerDrag } from '@/lib/pointer-drag';
@@ -15,55 +15,81 @@ export function TabsShell() {
   // Pointer-event drag-reorder (NOT HTML5 DnD — WebKitGTK's native drag can
   // hold the pointer grab forever and freeze the app on Linux, see #109).
   // Both states only change on drag start/end and when the insertion point
-  // crosses a tab midpoint — not once per pointermove tick.
-  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
+  // crosses a tab midpoint — not once per pointermove tick. The dragged tab
+  // is tracked by stable tabId, not index — a chorded middle-click can
+  // close a tab mid-drag and shift every index.
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
+  // Tear down an in-flight drag if this component ever unmounts — the
+  // helper's window listeners would otherwise outlive it.
+  const dragCancelRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => dragCancelRef.current?.(), []);
+
   const clearDrag = () => {
-    setDragFromIndex(null);
+    setDragTabId(null);
     setDropTarget(null);
   };
 
+  /** Pointer must stay within this band above/below the strip for a drop
+   *  target to resolve — releasing further away aborts the drag, matching
+   *  the old HTML5 drop-outside-is-a-no-op behavior. */
+  const STRIP_Y_TOLERANCE_PX = 24;
+
+  /** Live index of a tab — resolved at use time, never captured, so a tab
+   *  closing mid-drag can't make us reorder the wrong one. */
+  const tabIndexOf = (id: string) =>
+    useTabs.getState().tabs.findIndex((tb) => tb.tabId === id);
+
   /** Tab-strip drop target under the pointer, by hit-testing tab rects.
-   *  Past either end of the strip snaps to the first/last edge. */
-  const dropTargetAt = (x: number): DropTarget | null => {
+   *  Past either horizontal end of the strip snaps to the first/last edge;
+   *  vertically outside the strip (plus tolerance) is no target at all. */
+  const dropTargetAt = (x: number, y: number): DropTarget | null => {
     const strip = stripRef.current;
     if (!strip) return null;
+    const stripRect = strip.getBoundingClientRect();
+    if (
+      y < stripRect.top - STRIP_Y_TOLERANCE_PX ||
+      y > stripRect.bottom + STRIP_Y_TOLERANCE_PX
+    ) {
+      return null;
+    }
     const els = Array.from(strip.querySelectorAll<HTMLElement>('[data-tab-index]'));
     if (els.length === 0) return null;
+    let firstLeft = Infinity;
+    let lastRight = -Infinity;
     for (const el of els) {
       const rect = el.getBoundingClientRect();
+      firstLeft = Math.min(firstLeft, rect.left);
+      lastRight = Math.max(lastRight, rect.right);
       if (x < rect.left || x >= rect.right) continue;
       const index = Number(el.dataset.tabIndex);
       return { index, side: x < rect.left + rect.width / 2 ? 'left' : 'right' };
     }
-    if (x < els[0].getBoundingClientRect().left) return { index: 0, side: 'left' };
-    if (x >= els[els.length - 1].getBoundingClientRect().right) {
-      return { index: els.length - 1, side: 'right' };
-    }
+    if (x < firstLeft) return { index: 0, side: 'left' };
+    if (x >= lastRight) return { index: els.length - 1, side: 'right' };
     return null;
   };
 
-  const startTabDrag = (e: React.PointerEvent, fromIndex: number) => {
-    // Buttons inside the tab (close, panes) are clicks, never drag handles.
-    if ((e.target as HTMLElement).closest('button')) return;
-    beginPointerDrag(e, {
-      onDragStart: () => setDragFromIndex(fromIndex),
-      onDragMove: (x) => {
-        const next = dropTargetAt(x);
+  const startTabDrag = (e: React.PointerEvent, tabId: string) => {
+    dragCancelRef.current = beginPointerDrag(e, {
+      onDragStart: () => setDragTabId(tabId),
+      onDragMove: (x, y) => {
+        const next = dropTargetAt(x, y);
         // Dropping onto the source tab is a no-op (see store.reorder).
         // Suppress the drop indicator there so users don't think a
         // move will happen when it won't.
-        const shown = next && next.index === fromIndex ? null : next;
+        const shown = next && next.index === tabIndexOf(tabId) ? null : next;
         setDropTarget((prev) =>
           prev?.index === shown?.index && prev?.side === shown?.side ? prev : shown,
         );
       },
-      onDrop: (x) => {
-        const target = dropTargetAt(x);
-        if (!target) return;
-        reorder(fromIndex, target.side === 'left' ? target.index : target.index + 1);
+      onDrop: (x, y) => {
+        const from = tabIndexOf(tabId);
+        const target = dropTargetAt(x, y);
+        if (from < 0 || !target) return;
+        reorder(from, target.side === 'left' ? target.index : target.index + 1);
       },
       onEnd: clearDrag,
       scrollContainer: () => stripRef.current,
@@ -82,14 +108,14 @@ export function TabsShell() {
         )}
         {tabs.map((t, index) => {
           const on = t.tabId === activeId;
-          const dragging = dragFromIndex === index;
+          const dragging = dragTabId === t.tabId;
           const showLeftIndicator = dropTarget?.index === index && dropTarget.side === 'left';
           const showRightIndicator = dropTarget?.index === index && dropTarget.side === 'right';
           return (
             <div
               key={t.tabId}
               data-tab-index={index}
-              onPointerDown={(e) => startTabDrag(e, index)}
+              onPointerDown={(e) => startTabDrag(e, t.tabId)}
               onClick={() => setActive(t.tabId)}
               onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); close(t.tabId); } }}
               className={`group relative flex items-center gap-2 px-3 cursor-grab active:cursor-grabbing select-none border-r border-border ${

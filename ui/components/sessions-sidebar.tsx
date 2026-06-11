@@ -499,16 +499,30 @@ export function SessionsSidebar() {
   //
   // The drag source is mirrored into a ref because the move/drop callbacks
   // close over the render where the drag started; state drives only the
-  // opacity / highlight visuals. dragTargetRef likewise keeps slot dedupe
-  // accurate across renders so pointermove doesn't re-render every tick.
+  // opacity / highlight visuals. sessionsRef/foldersRef are live mirrors of
+  // the data arrays for the same reason — a reload() can resolve mid-drag,
+  // and the drop must be computed from drop-time data, not the snapshot
+  // captured at pointerdown.
   const dragSourceRef = useRef<{ kind: 'session' | 'folder'; id: number } | null>(null);
-  const dragTargetRef = useRef<DropSlot | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  const sessionsRef = useRef(sessions);
+  const foldersRef = useRef(folders);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+    foldersRef.current = folders;
+  }, [sessions, folders]);
+
+  // Tear down an in-flight drag if the sidebar unmounts (Ctrl+B toggles it
+  // out of the tree) — the helper's window listeners would otherwise
+  // outlive it with stale closures.
+  const dragCancelRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => dragCancelRef.current?.(), []);
 
   function setDragTargetIfChanged(next: DropSlot | null) {
-    if (slotsEqual(dragTargetRef.current, next)) return;
-    dragTargetRef.current = next;
-    setDragTarget(next);
+    // Functional updater: `prev` is never stale even though this closure
+    // was created at pointerdown, and React bails out of the re-render
+    // when the updater returns the previous value.
+    setDragTarget((prev) => (slotsEqual(prev, next) ? prev : next));
   }
 
   /** Compute the slot for the row-aware drag position.
@@ -559,16 +573,24 @@ export function SessionsSidebar() {
     return null;
   }
 
-  /** Can't drop a folder into itself (either as a parent or as its own
-   *  sibling-edge). before/after-folder on self is a no-op drop, but we
-   *  still reject to avoid a confusing indicator line. Deeper cycles
-   *  (into a descendant) are rejected by the backend at drop time. */
+  /** Can't drop a row onto itself: a folder into/beside itself, or a
+   *  session before/after itself (which would otherwise resolve anchor ===
+   *  dragged in buildOrderForSessionDrop and silently jump the session to
+   *  the top of its folder). Rejecting also suppresses the indicator line
+   *  on the dragged row. Deeper cycles (folder into a descendant) are
+   *  rejected by the backend at drop time. */
   function slotRejected(slot: DropSlot): boolean {
     const src = dragSourceRef.current;
-    if (!src || src.kind !== 'folder') return false;
+    if (!src) return false;
+    if (src.kind === 'folder') {
+      return (
+        (slot.kind === 'into-folder' || slot.kind === 'before-folder' || slot.kind === 'after-folder')
+        && slot.folderId === src.id
+      );
+    }
     return (
-      (slot.kind === 'into-folder' || slot.kind === 'before-folder' || slot.kind === 'after-folder')
-      && slot.folderId === src.id
+      (slot.kind === 'before-session' || slot.kind === 'after-session')
+      && slot.sessionId === src.id
     );
   }
 
@@ -577,9 +599,7 @@ export function SessionsSidebar() {
     kind: 'session' | 'folder',
     id: number,
   ) {
-    // Buttons inside a row (delete) are clicks, never drag handles.
-    if ((e.target as HTMLElement).closest('button')) return;
-    beginPointerDrag(e, {
+    dragCancelRef.current = beginPointerDrag(e, {
       onDragStart: () => {
         dragSourceRef.current = { kind, id };
         setDrag({ kind, id });
@@ -594,7 +614,6 @@ export function SessionsSidebar() {
       },
       onEnd: () => {
         dragSourceRef.current = null;
-        dragTargetRef.current = null;
         setDrag(null);
         setDragTarget(null);
       },
@@ -626,7 +645,9 @@ export function SessionsSidebar() {
     // in one gesture works). Folder-edge drops aren't a valid destination
     // for a session; treat them as "move into that folder's parent and
     // reorder" — we position just above/below the folder in its parent.
-    const cur = sessions.find((s) => s.id === sessionId);
+    // Read through the refs: this runs in a closure captured at
+    // pointerdown, and the lists may have reloaded since.
+    const cur = sessionsRef.current.find((s) => s.id === sessionId);
     if (!cur) return;
 
     const destFolderId = resolveDestFolderId(slot);
@@ -653,7 +674,7 @@ export function SessionsSidebar() {
       await api.sessionMove(sessionId, destFolderId, 0);
     }
     // Build new order among sessions in destFolderId.
-    const existingInDest = sessions
+    const existingInDest = sessionsRef.current
       .filter((s) => s.folder_id === destFolderId && s.id !== sessionId)
       .sort((a, b) => a.sort - b.sort || a.id - b.id)
       .map((s) => s.id);
@@ -664,7 +685,7 @@ export function SessionsSidebar() {
   }
 
   async function dropFolder(folderId: number, slot: DropSlot) {
-    const cur = folders.find((f) => f.id === folderId);
+    const cur = foldersRef.current.find((f) => f.id === folderId);
     if (!cur) return;
     if (slot.kind === 'into-folder' && slot.folderId === folderId) return;
 
@@ -688,7 +709,7 @@ export function SessionsSidebar() {
     if (crossParent) {
       await api.folderMove(folderId, destParentId, 0);
     }
-    const existingInDest = folders
+    const existingInDest = foldersRef.current
       .filter((f) => f.parent_id === destParentId && f.id !== folderId)
       .sort((a, b) => a.sort - b.sort || a.id - b.id)
       .map((f) => f.id);
@@ -705,12 +726,12 @@ export function SessionsSidebar() {
         return slot.folderId;
       case 'before-session':
       case 'after-session': {
-        const sib = sessions.find((s) => s.id === slot.sessionId);
+        const sib = sessionsRef.current.find((s) => s.id === slot.sessionId);
         return sib ? sib.folder_id : undefined;
       }
       case 'before-folder':
       case 'after-folder': {
-        const sib = folders.find((f) => f.id === slot.folderId);
+        const sib = foldersRef.current.find((f) => f.id === slot.folderId);
         return sib ? sib.parent_id : undefined;
       }
     }

@@ -38,6 +38,19 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
   }, [width]);
 
+  // Block ALL in-page native drag initiation. WebKitGTK's HTML5 drag can
+  // take the pointer grab and never release it, hard-freezing the app on
+  // Linux (#109) — and anchors and selected text are natively draggable
+  // even with no `draggable` attribute anywhere. The app has no legitimate
+  // in-page drag sources (tab/tree reordering uses pointer events, see
+  // lib/pointer-drag.ts), and OS file drops into the SFTP pane are
+  // unaffected: external drags never fire an in-page `dragstart`.
+  useEffect(() => {
+    const block = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragstart', block);
+    return () => window.removeEventListener('dragstart', block);
+  }, []);
+
   // Auto-update check — cadence-gated (30d default) so we don't hit the
   // GitHub Releases endpoint on every unlock. If an update is waiting,
   // surface a prompt via UpdateDialog; the user can always dismiss and
