@@ -116,34 +116,29 @@ pub(crate) async fn get(pool: &SqlitePool, id: i64) -> Result<CredentialRow> {
     .ok_or(crate::error::AppError::NotFound)
 }
 
-pub(crate) async fn update_label(pool: &SqlitePool, id: i64, label: &str) -> Result<()> {
-    let n = sqlx::query("UPDATE credentials SET label = ? WHERE id = ?")
-        .bind(label)
-        .bind(id)
-        .execute(pool)
-        .await?
-        .rows_affected();
-    if n == 0 {
-        return Err(crate::error::AppError::NotFound);
-    }
-    Ok(())
-}
-
-pub(crate) async fn update_secret(
+/// Update a credential's label and/or its secret independently; `None`
+/// keeps the existing column values (COALESCE against NULL binds).
+pub(crate) async fn update(
     pool: &SqlitePool,
     id: i64,
-    label: &str,
-    nonce: &[u8],
-    ciphertext: &[u8],
+    label: Option<&str>,
+    secret: Option<(&[u8], &[u8])>,
 ) -> Result<()> {
-    let n = sqlx::query("UPDATE credentials SET label = ?, nonce = ?, ciphertext = ? WHERE id = ?")
-        .bind(label)
-        .bind(nonce)
-        .bind(ciphertext)
-        .bind(id)
-        .execute(pool)
-        .await?
-        .rows_affected();
+    let (nonce, ciphertext) = match secret {
+        Some((n, c)) => (Some(n), Some(c)),
+        None => (None, None),
+    };
+    let n = sqlx::query(
+        "UPDATE credentials SET label = COALESCE(?, label), \
+         nonce = COALESCE(?, nonce), ciphertext = COALESCE(?, ciphertext) WHERE id = ?",
+    )
+    .bind(label)
+    .bind(nonce)
+    .bind(ciphertext)
+    .bind(id)
+    .execute(pool)
+    .await?
+    .rows_affected();
     if n == 0 {
         return Err(crate::error::AppError::NotFound);
     }
@@ -187,27 +182,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_label_and_secret() {
+    async fn update_label_and_secret_independently() {
         let p = pool().await;
         let id = insert(&p, "private_key", "old-name", &[0u8; 12], &[1, 2, 3])
             .await
             .unwrap();
 
-        update_label(&p, id, "new-name").await.unwrap();
+        // Rename only — secret untouched.
+        update(&p, id, Some("new-name"), None).await.unwrap();
         let detail = &list_detailed(&p).await.unwrap()[0];
         assert_eq!(detail.label, "new-name");
         assert!(!detail.created_at.is_empty());
+        assert_eq!(get(&p, id).await.unwrap().ciphertext, vec![1, 2, 3]);
 
-        update_secret(&p, id, "rotated", &[9u8; 12], &[4, 5, 6])
+        // Rotate only — label untouched.
+        update(&p, id, None, Some((&[9u8; 12], &[4, 5, 6])))
             .await
             .unwrap();
         let row = get(&p, id).await.unwrap();
         assert_eq!(row.nonce, vec![9u8; 12]);
         assert_eq!(row.ciphertext, vec![4, 5, 6]);
-        assert_eq!(list(&p).await.unwrap()[0].label, "rotated");
+        assert_eq!(list(&p).await.unwrap()[0].label, "new-name");
 
-        assert!(update_label(&p, 9999, "x").await.is_err());
-        assert!(update_secret(&p, 9999, "x", &[0u8; 12], &[1]).await.is_err());
+        // Both at once.
+        update(&p, id, Some("both"), Some((&[7u8; 12], &[8])))
+            .await
+            .unwrap();
+        assert_eq!(list(&p).await.unwrap()[0].label, "both");
+        assert_eq!(get(&p, id).await.unwrap().ciphertext, vec![8]);
+
+        assert!(update(&p, 9999, Some("x"), None).await.is_err());
+        assert!(update(&p, 9999, None, Some((&[0u8; 12], &[1]))).await.is_err());
     }
 
     #[tokio::test]

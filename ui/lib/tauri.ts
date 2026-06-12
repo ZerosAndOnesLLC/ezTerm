@@ -92,9 +92,10 @@ export const api = {
   credentialListDetailed: () => invoke<CredentialDetail[]>('credential_list_detailed'),
   credentialCreate: (kind: CredentialKind, label: string, plaintext: string) =>
     invoke<CredentialMeta>('credential_create', { kind, label, plaintext }),
-  /** Rename and/or replace the secret. `plaintext: null` keeps the
-   *  existing ciphertext (rename-only). */
-  credentialUpdate: (id: number, label: string, plaintext: string | null) =>
+  /** Rename and/or replace the secret — fields are independent. `null`
+   *  keeps the existing value, so a rotate never echoes back a (possibly
+   *  stale) label and a rename never re-sends the secret. */
+  credentialUpdate: (id: number, label: string | null, plaintext: string | null) =>
     invoke<void>('credential_update', { id, label, plaintext }),
   credentialDelete: (id: number) => invoke<void>('credential_delete', { id }),
 

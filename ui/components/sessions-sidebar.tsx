@@ -995,7 +995,15 @@ export function SessionsSidebar() {
       )}
 
       {credentialsOpen && (
-        <CredentialsDialog onClose={() => setCredentialsOpen(false)} />
+        <CredentialsDialog
+          onClose={() => {
+            setCredentialsOpen(false);
+            // Deleting a credential nulls sessions' references in the DB
+            // (ON DELETE SET NULL); refresh so an Edit doesn't seed the
+            // dialog from a stale row and re-write the dangling id.
+            reload();
+          }}
+        />
       )}
 
       {backupOpen && (
