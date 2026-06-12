@@ -1,7 +1,9 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Eye, EyeOff, KeyRound, KeySquare, Lock, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { api, errMessage } from '@/lib/tauri';
+import { emitCredentialsChanged } from '@/lib/credential-events';
 import { toast } from '@/lib/toast';
 import type { CredentialDetail, CredentialKind } from '@/lib/types';
 import { ConfirmDialog } from './confirm-dialog';
@@ -33,6 +35,9 @@ export function CredentialsDialog({ onClose }: Props) {
   const [addSecret, setAddSecret] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<CredentialDetail | null>(null);
   const [busy, setBusy] = useState(false);
+  // Re-entrancy guard for run(): state alone is stale within one tick, so
+  // a double-Enter in the rename input could launch concurrent mutations.
+  const busyRef = useRef(false);
 
   const reload = useCallback(async () => {
     try {
@@ -59,39 +64,50 @@ export function CredentialsDialog({ onClose }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
       // Capture phase + stopPropagation: this dialog can be nested inside
       // the session dialog (via CredentialPicker), whose own bubble-phase
-      // Escape handler would otherwise close both layers at once. Escape
-      // unwinds one layer at a time: confirm → inline edit → dialog.
-      e.preventDefault();
-      e.stopPropagation();
-      if (busy) return;
-      if (confirmDelete) {
-        setConfirmDelete(null);
-      } else if (edit || addKind) {
-        setEdit(null);
-        setAddKind(null);
-      } else {
-        onClose();
+      // window handlers bind Escape (close) AND Ctrl/Cmd+Enter (save) —
+      // either would tear down the session editor underneath the open
+      // manager. Swallow both here; Escape unwinds one layer at a time:
+      // confirm → inline edit → dialog. Never gated on busy — a hung
+      // mutation must not leave Escape dead for the whole app.
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirmDelete) {
+          setConfirmDelete(null);
+        } else if (edit || addKind) {
+          setEdit(null);
+          setAddKind(null);
+        } else {
+          onClose();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
       }
     }
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [busy, edit, addKind, confirmDelete, onClose]);
+  }, [edit, addKind, confirmDelete, onClose]);
 
   /** Run a mutation + reload. Returns false on failure so callers keep
-   *  the inline form (and whatever the user typed) open. */
+   *  the inline form (and whatever the user typed) open. Re-entrant
+   *  calls are dropped while a mutation is in flight. */
   async function run(fn: () => Promise<void>): Promise<boolean> {
+    if (busyRef.current) return false;
+    busyRef.current = true;
     setBusy(true);
     try {
       await fn();
       await reload();
+      emitCredentialsChanged();
       return true;
     } catch (e) {
       toast.danger('Action failed', errMessage(e));
       return false;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -111,7 +127,10 @@ export function CredentialsDialog({ onClose }: Props) {
     if (edit?.mode !== 'replace' || !edit.secret) return;
     const secret = edit.secret;
     const ok = await run(async () => {
-      await api.credentialUpdate(current.id, current.label, secret);
+      // label: null — rotating never writes the label, so a stale list
+      // can't silently revert a rename done elsewhere (or on a synced
+      // device) in the meantime.
+      await api.credentialUpdate(current.id, null, secret);
       toast.success('Secret updated', current.label);
     });
     if (ok) setEdit(null);
@@ -132,29 +151,27 @@ export function CredentialsDialog({ onClose }: Props) {
   }
 
   async function doDelete(c: CredentialDetail) {
-    await run(async () => {
+    const ok = await run(async () => {
       await api.credentialDelete(c.id);
       toast.success('Credential deleted', c.label);
     });
-    setConfirmDelete(null);
+    // Keep the confirm open on failure — closing it would make a failed
+    // delete look successful apart from a transient toast.
+    if (ok) setConfirmDelete(null);
   }
 
-  return (
+  // Portaled to <body>: the dialog can be opened from CredentialPicker
+  // inside the session editor's <form> (Enter would implicitly submit it)
+  // and inside AuthFixOverlay, whose backdrop-filter creates a containing
+  // block that re-anchors `fixed` descendants to the terminal pane.
+  // Escaping the DOM tree sidesteps both.
+  return createPortal(
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overlay-in"
       role="dialog"
       aria-modal="true"
       aria-label="Credentials"
-      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
-      onKeyDown={(e) => {
-        // When opened from CredentialPicker this dialog sits inside the
-        // session editor's <form>; Enter in a text input would implicitly
-        // submit (and close) that editor. Inputs handle Enter themselves
-        // (rename row), so block only the default form submission.
-        if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
-          e.preventDefault();
-        }
-      }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-[600px] max-w-full max-h-[85vh] bg-surface border border-border rounded-md shadow-dialog overflow-hidden dialog-in flex flex-col">
         <div className="px-4 py-3 border-b border-border bg-surface2/30 flex items-center justify-between">
@@ -275,6 +292,7 @@ export function CredentialsDialog({ onClose }: Props) {
                             placeholder={`New ${g.secretLabel.toLowerCase()}`}
                             value={edit.secret}
                             onChange={(secret) => setEdit({ ...edit, secret })}
+                            onEnter={() => saveReplace(c)}
                             ariaLabel={`New secret for ${c.label}`}
                           />
                           <div className="flex gap-2 justify-end">
@@ -306,6 +324,7 @@ export function CredentialsDialog({ onClose }: Props) {
                         placeholder="Label (e.g. 'Prod server key')"
                         value={addLabel}
                         onChange={(e) => setAddLabel(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveAdd(); }}
                         aria-label={`New ${g.title} label`}
                         autoFocus
                       />
@@ -314,6 +333,7 @@ export function CredentialsDialog({ onClose }: Props) {
                         placeholder={g.secretLabel}
                         value={addSecret}
                         onChange={setAddSecret}
+                        onEnter={saveAdd}
                         ariaLabel={`New ${g.title} secret`}
                       />
                       <div className="flex gap-2 justify-end">
@@ -345,8 +365,7 @@ export function CredentialsDialog({ onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
-            className="px-3 py-1.5 border border-border rounded text-sm hover:bg-surface2 focus-ring disabled:opacity-50"
+            className="px-3 py-1.5 border border-border rounded text-sm hover:bg-surface2 focus-ring"
           >
             Close
           </button>
@@ -369,17 +388,21 @@ export function CredentialsDialog({ onClose }: Props) {
           onConfirm={() => doDelete(confirmDelete)}
         />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function SecretInput({
-  kind, placeholder, value, onChange, ariaLabel,
+  kind, placeholder, value, onChange, onEnter, ariaLabel,
 }: {
   kind: CredentialKind;
   placeholder: string;
   value: string;
   onChange: (v: string) => void;
+  /** Enter-to-save for the single-line variant; the private-key textarea
+   *  keeps Enter for newlines. */
+  onEnter?: () => void;
   ariaLabel: string;
 }) {
   const [show, setShow] = useState(false);
@@ -404,6 +427,7 @@ function SecretInput({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onEnter?.(); }}
         aria-label={ariaLabel}
       />
       <button

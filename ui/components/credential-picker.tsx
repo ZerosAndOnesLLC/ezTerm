@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Eye, EyeOff, Plus, Settings2 } from 'lucide-react';
 import { api } from '@/lib/tauri';
+import { onCredentialsChanged } from '@/lib/credential-events';
 import type { CredentialKind, CredentialMeta } from '@/lib/types';
 import { CredentialsDialog } from './credentials-dialog';
 
@@ -27,24 +28,21 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [managing, setManaging] = useState(false);
 
-  async function reload() {
+  /** Fetch the list and clamp a dangling selection. The selected id can
+   *  go stale several ways — the manager deleted it (opened from this
+   *  picker OR a sibling picker, which edits all kinds), or the session
+   *  form was seeded from a row whose credential was deleted earlier —
+   *  so clamping lives here, on every sync, not in any one close path. */
+  const syncList = useCallback(async () => {
     const all = await api.credentialList();
     setList(all.filter((c) => c.kind === kind));
-    return all;
-  }
-
-  /** The manager can rename or delete anything, including the currently
-   *  selected credential — refresh the list and drop a dangling value. */
-  async function closeManager() {
-    setManaging(false);
-    const all = await reload();
     if (value !== null && !all.some((c) => c.id === value && c.kind === kind)) {
       onChange(null);
     }
-  }
+  }, [kind, value, onChange]);
 
   useEffect(() => {
-    reload();
+    syncList();
     setAdding(false);
     setLabel('');
     setSecret('');
@@ -52,6 +50,10 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
     setErr(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind]);
+
+  // Stay in sync while any credentials manager is mutating the vault —
+  // the broadcast fires after every successful rename/rotate/add/delete.
+  useEffect(() => onCredentialsChanged(() => { void syncList(); }), [syncList]);
 
   async function create() {
     if (!label.trim() || !secret) {
@@ -66,7 +68,7 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
       setLabel('');
       setShow(false);
       setAdding(false);
-      await reload();
+      await syncList();
       onChange(created.id);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -110,7 +112,10 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
         </button>
       </div>
 
-      {managing && <CredentialsDialog onClose={closeManager} />}
+      {/* No cleanup needed on close: the manager broadcasts after every
+          successful mutation, so this picker (and any sibling) already
+          re-synced and clamped via the credentials-changed listener. */}
+      {managing && <CredentialsDialog onClose={() => setManaging(false)} />}
 
       {adding && (
         <div className="border border-border rounded-sm p-3 bg-surface2 space-y-2">

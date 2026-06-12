@@ -1,5 +1,5 @@
 use tauri::State;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::commands::require_unlocked;
 use crate::db::credentials::{self, CredentialDetail, CredentialMeta};
@@ -23,9 +23,12 @@ pub async fn credential_create(
     state: State<'_, AppState>,
     kind: String,
     label: String,
-    mut plaintext: String,
+    plaintext: String,
 ) -> Result<CredentialMeta> {
     require_unlocked(&state).await?;
+    // Wrap immediately so every return path — validation errors and a
+    // failed encrypt alike — zeroizes the secret on drop.
+    let plaintext = Zeroizing::new(plaintext);
     if !matches!(kind.as_str(), "password" | "private_key" | "key_passphrase") {
         return Err(AppError::Validation("invalid kind".into()));
     }
@@ -36,7 +39,6 @@ pub async fn credential_create(
         return Err(AppError::Validation("label too long".into()));
     }
     if plaintext.len() > MAX_PLAINTEXT_LEN {
-        plaintext.zeroize();
         return Err(AppError::Validation("secret too long".into()));
     }
 
@@ -45,7 +47,6 @@ pub async fn credential_create(
         let vault_state = state.vault.read().await;
         vault::encrypt_with(&vault_state, plaintext.as_bytes())?
     };
-    plaintext.zeroize();
 
     let id = credentials::insert(&state.db, &kind, label.trim(), &nonce, &ct).await?;
     state.sync.trigger();
@@ -64,40 +65,52 @@ pub async fn credential_list_detailed(
     credentials::list_detailed(&state.db).await
 }
 
-/// Rename a credential and optionally replace its secret. `plaintext` of
-/// `None` (or empty) keeps the existing ciphertext so a rename never
-/// requires re-entering the key/passphrase.
+/// Rename a credential and/or replace its secret. Each field is
+/// independent: `label: None` rotates the secret without touching the
+/// name (so a stale UI label can't silently revert a rename), and
+/// `plaintext: None` (or empty) renames without re-entering the secret.
 #[tauri::command]
 pub async fn credential_update(
     state: State<'_, AppState>,
     id: i64,
-    label: String,
+    label: Option<String>,
     plaintext: Option<String>,
 ) -> Result<()> {
     require_unlocked(&state).await?;
-    if label.trim().is_empty() {
-        return Err(AppError::Validation("label required".into()));
-    }
-    if label.len() > MAX_LABEL_LEN {
-        return Err(AppError::Validation("label too long".into()));
+    // Wrap immediately so every return path zeroizes the secret on drop.
+    let plaintext = plaintext.map(Zeroizing::new);
+
+    if let Some(l) = &label {
+        if l.trim().is_empty() {
+            return Err(AppError::Validation("label required".into()));
+        }
+        if l.len() > MAX_LABEL_LEN {
+            return Err(AppError::Validation("label too long".into()));
+        }
     }
 
-    match plaintext {
-        Some(mut pt) if !pt.is_empty() => {
+    let secret = match &plaintext {
+        Some(pt) if !pt.is_empty() => {
             if pt.len() > MAX_PLAINTEXT_LEN {
-                pt.zeroize();
                 return Err(AppError::Validation("secret too long".into()));
             }
             // Scope the vault read guard so it is dropped before the DB write.
-            let (nonce, ct) = {
-                let vault_state = state.vault.read().await;
-                vault::encrypt_with(&vault_state, pt.as_bytes())?
-            };
-            pt.zeroize();
-            credentials::update_secret(&state.db, id, label.trim(), &nonce, &ct).await?;
+            let vault_state = state.vault.read().await;
+            Some(vault::encrypt_with(&vault_state, pt.as_bytes())?)
         }
-        _ => credentials::update_label(&state.db, id, label.trim()).await?,
+        _ => None,
+    };
+    if label.is_none() && secret.is_none() {
+        return Err(AppError::Validation("nothing to update".into()));
     }
+
+    credentials::update(
+        &state.db,
+        id,
+        label.as_deref().map(str::trim),
+        secret.as_ref().map(|(n, c)| (n.as_slice(), c.as_slice())),
+    )
+    .await?;
     state.sync.trigger();
     Ok(())
 }
