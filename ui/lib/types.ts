@@ -247,6 +247,20 @@ export interface CredentialMeta {
   label: string;
 }
 
+export interface CredentialSessionRef {
+  id: number;
+  name: string;
+}
+
+export interface CredentialDetail {
+  id: number;
+  kind: CredentialKind;
+  label: string;
+  created_at: string;
+  /** Sessions referencing this credential (primary auth or key passphrase). */
+  used_by: CredentialSessionRef[];
+}
+
 export interface AppErrorPayload {
   code: string;
   message: string;
