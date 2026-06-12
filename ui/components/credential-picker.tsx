@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, Plus } from 'lucide-react';
+import { Eye, EyeOff, Plus, Settings2 } from 'lucide-react';
 import { api } from '@/lib/tauri';
 import type { CredentialKind, CredentialMeta } from '@/lib/types';
+import { CredentialsDialog } from './credentials-dialog';
 
 interface Props {
   kind: CredentialKind;
@@ -24,10 +25,22 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [managing, setManaging] = useState(false);
 
   async function reload() {
     const all = await api.credentialList();
     setList(all.filter((c) => c.kind === kind));
+    return all;
+  }
+
+  /** The manager can rename or delete anything, including the currently
+   *  selected credential — refresh the list and drop a dangling value. */
+  async function closeManager() {
+    setManaging(false);
+    const all = await reload();
+    if (value !== null && !all.some((c) => c.id === value && c.kind === kind)) {
+      onChange(null);
+    }
   }
 
   useEffect(() => {
@@ -86,7 +99,18 @@ export function CredentialPicker({ kind, value, onChange }: Props) {
             <span>Add new</span>
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setManaging(true)}
+          aria-label="Manage credentials"
+          title="Manage credentials"
+          className="btn-ghost focus-ring"
+        >
+          <Settings2 size={12} />
+        </button>
       </div>
+
+      {managing && <CredentialsDialog onClose={closeManager} />}
 
       {adding && (
         <div className="border border-border rounded-sm p-3 bg-surface2 space-y-2">

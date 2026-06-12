@@ -55,6 +55,7 @@ import { SyncDialog } from './sync-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
 import { ChangePasswordDialog } from './change-password-dialog';
 import { RecoveryCodeDialog } from './recovery-code-dialog';
+import { CredentialsDialog } from './credentials-dialog';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -311,6 +312,7 @@ export function SessionsSidebar() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
   const [recoveryCodeOpen, setRecoveryCodeOpen] = useState(false);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [moveSession, setMoveSession] = useState<Session | null>(null);
   const [moveFolder, setMoveFolder] = useState<TFolder | null>(null);
   // Drag-and-drop state: `drag` is the row being dragged (opacity-50 on the
@@ -395,6 +397,7 @@ export function SessionsSidebar() {
         { separator: true },
         { label: 'Cloud sync\u2026', onClick: () => setSyncOpen(true) },
         { separator: true },
+        { label: 'Credentials\u2026', onClick: () => setCredentialsOpen(true) },
         { label: 'Change master password\u2026', onClick: () => setChangePwOpen(true) },
         { label: 'Recovery code\u2026', onClick: () => setRecoveryCodeOpen(true) },
       );
@@ -989,6 +992,10 @@ export function SessionsSidebar() {
 
       {recoveryCodeOpen && (
         <RecoveryCodeDialog onClose={() => setRecoveryCodeOpen(false)} />
+      )}
+
+      {credentialsOpen && (
+        <CredentialsDialog onClose={() => setCredentialsOpen(false)} />
       )}
 
       {backupOpen && (

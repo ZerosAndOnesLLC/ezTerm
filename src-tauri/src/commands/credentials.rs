@@ -2,7 +2,7 @@ use tauri::State;
 use zeroize::Zeroize;
 
 use crate::commands::require_unlocked;
-use crate::db::credentials::{self, CredentialMeta};
+use crate::db::credentials::{self, CredentialDetail, CredentialMeta};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use crate::vault;
@@ -54,6 +54,52 @@ pub async fn credential_create(
         kind,
         label: label.trim().into(),
     })
+}
+
+#[tauri::command]
+pub async fn credential_list_detailed(
+    state: State<'_, AppState>,
+) -> Result<Vec<CredentialDetail>> {
+    require_unlocked(&state).await?;
+    credentials::list_detailed(&state.db).await
+}
+
+/// Rename a credential and optionally replace its secret. `plaintext` of
+/// `None` (or empty) keeps the existing ciphertext so a rename never
+/// requires re-entering the key/passphrase.
+#[tauri::command]
+pub async fn credential_update(
+    state: State<'_, AppState>,
+    id: i64,
+    label: String,
+    plaintext: Option<String>,
+) -> Result<()> {
+    require_unlocked(&state).await?;
+    if label.trim().is_empty() {
+        return Err(AppError::Validation("label required".into()));
+    }
+    if label.len() > MAX_LABEL_LEN {
+        return Err(AppError::Validation("label too long".into()));
+    }
+
+    match plaintext {
+        Some(mut pt) if !pt.is_empty() => {
+            if pt.len() > MAX_PLAINTEXT_LEN {
+                pt.zeroize();
+                return Err(AppError::Validation("secret too long".into()));
+            }
+            // Scope the vault read guard so it is dropped before the DB write.
+            let (nonce, ct) = {
+                let vault_state = state.vault.read().await;
+                vault::encrypt_with(&vault_state, pt.as_bytes())?
+            };
+            pt.zeroize();
+            credentials::update_secret(&state.db, id, label.trim(), &nonce, &ct).await?;
+        }
+        _ => credentials::update_label(&state.db, id, label.trim()).await?,
+    }
+    state.sync.trigger();
+    Ok(())
 }
 
 #[tauri::command]

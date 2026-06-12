@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
-  Folder, Session, SessionInput, CredentialMeta, CredentialKind, VaultStatus,
+  Folder, Session, SessionInput, CredentialMeta, CredentialDetail, CredentialKind, VaultStatus,
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
@@ -89,8 +89,13 @@ export const api = {
 
   // Credentials
   credentialList:   () => invoke<CredentialMeta[]>('credential_list'),
+  credentialListDetailed: () => invoke<CredentialDetail[]>('credential_list_detailed'),
   credentialCreate: (kind: CredentialKind, label: string, plaintext: string) =>
     invoke<CredentialMeta>('credential_create', { kind, label, plaintext }),
+  /** Rename and/or replace the secret. `plaintext: null` keeps the
+   *  existing ciphertext (rename-only). */
+  credentialUpdate: (id: number, label: string, plaintext: string | null) =>
+    invoke<void>('credential_update', { id, label, plaintext }),
   credentialDelete: (id: number) => invoke<void>('credential_delete', { id }),
 
   // Settings
