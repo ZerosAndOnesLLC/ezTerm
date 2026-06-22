@@ -92,9 +92,26 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
     return () => { cancelled = true; unsub?.(); };
   }, [connectionId]);
 
+  // The runtime layer deliberately does NOT emit an initial "Running"
+  // status event (see ssh/forwards/local.rs) — the awaited return value
+  // of forward_start/forward_create carries that summary, and the caller
+  // is responsible for folding it into the list. Upsert by runtime_id so
+  // a started/created forward shows up (and flips to running) immediately
+  // instead of only appearing after the next status event or reconnect.
+  const upsertRuntime = (rf: RuntimeForward) => setRuntime((cur) => {
+    const idx = cur.findIndex((x) => x.runtime_id === rf.runtime_id);
+    if (idx === -1) return [...cur, rf];
+    const next = cur.slice();
+    next[idx] = rf;
+    return next;
+  });
+
   async function startPersistent(id: number) {
     if (connectionId == null) return;
-    try { await api.forwardStart(connectionId, { kind: 'persistent', id }); }
+    try {
+      const rf = await api.forwardStart(connectionId, { kind: 'persistent', id });
+      upsertRuntime(rf);
+    }
     catch (e) { toast.danger('Start failed', String((e as { message?: string })?.message ?? e)); }
   }
   async function stop(runtimeId: number) {
@@ -194,15 +211,28 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
       </div>
 
       {dialog?.kind === 'ephemeral-create' && connectionId != null && (
-        <ForwardDialog mode="ephemeral-create" connectionId={connectionId}
+        <ForwardDialog mode="ephemeral-create" connectionId={connectionId} sessionId={sessionId}
                        onClose={() => setDialog(null)}
-                       onSaved={() => setDialog(null)} />
+                       onSaved={(r) => {
+                         const { persistent, runtime } = r;
+                         if (persistent) setPersistent((cur) => [...cur, persistent]);
+                         if (runtime) upsertRuntime(runtime);
+                         setDialog(null);
+                       }} />
       )}
       {dialog?.kind === 'ephemeral-edit' && connectionId != null && (
         <ForwardDialog mode="ephemeral-edit" connectionId={connectionId}
                        existing={dialog.existing}
                        onClose={() => setDialog(null)}
-                       onSaved={() => setDialog(null)} />
+                       onSaved={(r) => {
+                         const oldId = dialog.existing.runtime_id;
+                         const { runtime } = r;
+                         setRuntime((cur) => {
+                           const without = cur.filter((x) => x.runtime_id !== oldId);
+                           return runtime ? [...without, runtime] : without;
+                         });
+                         setDialog(null);
+                       }} />
       )}
     </div>
   );

@@ -11,12 +11,18 @@ import type {
 type Mode =
   | { mode: 'persistent-create'; sessionId: number }
   | { mode: 'persistent-edit';   forward: Forward }
-  | { mode: 'ephemeral-create';  connectionId: number }
+  | { mode: 'ephemeral-create';  connectionId: number; sessionId?: number }
   | { mode: 'ephemeral-edit';    connectionId: number; existing: RuntimeForward };
+
+/** A save can yield a persistent row (DB-backed), a runtime forward
+ *  (started on a tab), or both — when the per-tab pane saves to the
+ *  session *and* starts it on the active connection. Callers update
+ *  whichever lists are relevant to them. */
+export type ForwardSaveResult = { persistent?: Forward; runtime?: RuntimeForward };
 
 type Props = Mode & {
   onClose: () => void;
-  onSaved: (result: Forward | RuntimeForward) => void;
+  onSaved: (result: ForwardSaveResult) => void;
 };
 
 const KIND_TILES: { value: ForwardKind; label: string; hint: string; Icon: LucideIcon }[] = [
@@ -55,6 +61,15 @@ export function ForwardDialog(props: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // The per-tab pane can offer to persist the forward to the session
+  // (so it survives reconnects) instead of being tab-only. Only when we
+  // know a real, saved session id to attach it to.
+  const persistSessionId =
+    props.mode === 'ephemeral-create' && props.sessionId != null && props.sessionId > 0
+      ? props.sessionId
+      : null;
+  const [persist, setPersist] = useState(false);
+
   const isPersistent = props.mode === 'persistent-create' || props.mode === 'persistent-edit';
   const isDynamic    = v.kind === 'dynamic';
   const nonLoopback  = v.bind_addr.trim() !== '' &&
@@ -70,32 +85,45 @@ export function ForwardDialog(props: Props) {
       if (v.dest_port < 1 || v.dest_port > 65535) return setErr('Destination port must be 1–65535');
     }
     setBusy(true);
+    const dest_addr = isDynamic ? '' : v.dest_addr;
+    const dest_port = isDynamic ? 0  : v.dest_port;
     try {
       if (isPersistent) {
         const input: ForwardInput = {
           name: v.name, kind: v.kind,
           bind_addr: v.bind_addr, bind_port: v.bind_port,
-          dest_addr: isDynamic ? '' : v.dest_addr,
-          dest_port: isDynamic ?  0 : v.dest_port,
+          dest_addr, dest_port,
           auto_start: v.auto_start,
         };
         const out = props.mode === 'persistent-create'
           ? await api.forwardCreate(props.sessionId, input)
           : await api.forwardUpdate(props.forward.id, input);
-        props.onSaved(out);
+        props.onSaved({ persistent: out });
+        props.onClose();
+      } else if (props.mode === 'ephemeral-create' && persist && persistSessionId != null) {
+        // Save to the session (persistent) AND start it on this tab so
+        // it's live now and comes back on the next connect.
+        const input: ForwardInput = {
+          name: v.name, kind: v.kind,
+          bind_addr: v.bind_addr, bind_port: v.bind_port,
+          dest_addr, dest_port,
+          auto_start: v.auto_start,
+        };
+        const created = await api.forwardCreate(persistSessionId, input);
+        const rf = await api.forwardStart(props.connectionId, { kind: 'persistent', id: created.id });
+        props.onSaved({ persistent: created, runtime: rf });
         props.onClose();
       } else {
         const spec: ForwardSpec = {
           name: v.name, kind: v.kind,
           bind_addr: v.bind_addr, bind_port: v.bind_port,
-          dest_addr: isDynamic ? '' : v.dest_addr,
-          dest_port: isDynamic ?  0 : v.dest_port,
+          dest_addr, dest_port,
         };
         if (props.mode === 'ephemeral-edit') {
           await api.forwardStop(props.connectionId, props.existing.runtime_id).catch(() => {});
         }
         const rf = await api.forwardStart(props.connectionId, { kind: 'ephemeral', spec });
-        props.onSaved(rf);
+        props.onSaved({ runtime: rf });
         props.onClose();
       }
     } catch (e) {
@@ -179,7 +207,15 @@ export function ForwardDialog(props: Props) {
             </div>
           )}
 
-          {isPersistent && (
+          {persistSessionId != null && (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={persist}
+                     onChange={(e) => setPersist(e.target.checked)} />
+              <span className="text-sm">Save to this session (persists across reconnects)</span>
+            </label>
+          )}
+
+          {(isPersistent || persist) && (
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={v.auto_start === 1}
                      onChange={(e) => setV({ ...v, auto_start: e.target.checked ? 1 : 0 })} />
