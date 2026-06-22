@@ -214,4 +214,65 @@ mod tests {
         let mut i = base(); i.kind = "udp".into();
         assert!(validate_input(&i).is_err());
     }
+
+    async fn pool() -> SqlitePool {
+        let p = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::init_pool_from_pool(&p).await.unwrap();
+        // Seed a session row so the FK on session_forwards is satisfiable.
+        sqlx::query(
+            "INSERT INTO sessions (id, name, host, username, auth_type) \
+             VALUES (1, 'test', 'example.com', 'root', 'password')",
+        )
+        .execute(&p)
+        .await
+        .unwrap();
+        p
+    }
+
+    fn dynamic_input() -> ForwardInput {
+        ForwardInput {
+            name: "socks".into(),
+            kind: "dynamic".into(),
+            bind_addr: "127.0.0.1".into(),
+            bind_port: 1080,
+            dest_addr: String::new(),
+            dest_port: 0,
+            auto_start: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_create_persists_and_lists() {
+        let p = pool().await;
+        let created = create(&p, 1, &dynamic_input()).await.unwrap();
+        assert_eq!(created.kind, "dynamic");
+        let rows = list_for_session(&p, 1).await.unwrap();
+        assert_eq!(rows.len(), 1, "dynamic forward should persist + list back");
+        assert_eq!(rows[0].kind, "dynamic");
+    }
+
+    #[test]
+    fn input_deserializes_from_frontend_dynamic_json() {
+        // Exact JSON the forward-dialog builds for a persistent dynamic
+        // forward (dest_addr:'' dest_port:0).
+        let json = r#"{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0,"auto_start":1}"#;
+        let parsed: ForwardInput = serde_json::from_str(json).expect("dynamic ForwardInput must deserialize");
+        assert_eq!(parsed.kind, "dynamic");
+        validate_input(&parsed).expect("dynamic input must validate");
+    }
+
+    #[tokio::test]
+    async fn all_kinds_persist() {
+        let p = pool().await;
+        let mut local = base(); local.bind_port = 5432;
+        let mut remote = base(); remote.kind = "remote".into(); remote.bind_port = 8080;
+        create(&p, 1, &local).await.unwrap();
+        create(&p, 1, &remote).await.unwrap();
+        create(&p, 1, &dynamic_input()).await.unwrap();
+        assert_eq!(list_for_session(&p, 1).await.unwrap().len(), 3);
+    }
 }

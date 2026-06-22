@@ -1005,17 +1005,18 @@ function ForwardsConfigPane({ sessionId }: { sessionId: number | null }) {
       {editing === 'new' && (
         <ForwardDialog mode="persistent-create" sessionId={sessionId}
                        onClose={() => setEditing(null)}
-                       onSaved={(out) => {
-                         setRows((cur) => [...cur, out as Forward]);
+                       onSaved={(r) => {
+                         const { persistent } = r;
+                         if (persistent) setRows((cur) => [...cur, persistent]);
                          setEditing(null);
                        }} />
       )}
       {editing && editing !== 'new' && (
         <ForwardDialog mode="persistent-edit" forward={editing as Forward}
                        onClose={() => setEditing(null)}
-                       onSaved={(out) => {
-                         const upd = out as Forward;
-                         setRows((cur) => cur.map((x) => x.id === upd.id ? upd : x));
+                       onSaved={(r) => {
+                         const { persistent } = r;
+                         if (persistent) setRows((cur) => cur.map((x) => x.id === persistent.id ? persistent : x));
                          setEditing(null);
                        }} />
       )}
