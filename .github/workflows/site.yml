@@ -60,3 +60,25 @@ jobs:
       - name: Deploy to Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Tell IndexNow-family engines (Bing, Yandex, Seznam, Naver) the site
+      # changed so they recrawl within minutes instead of days. Google does
+      # not use IndexNow — it discovers via the sitemap in Search Console.
+      # The key is NOT a secret: engines verify ownership by fetching
+      # public/<key>.txt from the live site, so it must match that filename.
+      # continue-on-error: an IndexNow outage must never fail a deploy.
+      - name: Submit sitemap URLs to IndexNow
+        continue-on-error: true
+        env:
+          INDEXNOW_KEY: fc2e8a4b7218fe19b3d54bba2d8215cb
+          INDEXNOW_HOST: ezterm.zerosandones.us
+        run: |
+          PAYLOAD=$(grep -oP '(?<=<loc>)[^<]+' site/dist/sitemap.xml \
+            | jq -R . \
+            | jq -s --arg host "$INDEXNOW_HOST" --arg key "$INDEXNOW_KEY" \
+                '{host: $host, key: $key, keyLocation: ("https://" + $host + "/" + $key + ".txt"), urlList: .}')
+          echo "$PAYLOAD"
+          curl -sS --fail-with-body -X POST "https://api.indexnow.org/indexnow" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$PAYLOAD" \
+            -w "\nIndexNow HTTP %{http_code}\n"

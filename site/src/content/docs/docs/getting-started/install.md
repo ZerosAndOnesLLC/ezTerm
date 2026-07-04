@@ -1,6 +1,9 @@
 ---
 title: Install
-description: How to install ezTerm on Windows, Linux, and macOS.
+description: "Install ezTerm on Windows, Linux, or macOS — download the self-contained binary, check runtime requirements, and get to your first SSH session in minutes."
+head:
+  - tag: title
+    content: "Install ezTerm on Windows, Linux & macOS — Setup Guide"
 ---
 
 ezTerm ships as a single self-contained binary — no installer required.

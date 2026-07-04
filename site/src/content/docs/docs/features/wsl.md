@@ -1,6 +1,9 @@
 ---
 title: WSL
-description: WSL distros as tabs under ConPTY.
+description: "Open WSL distros as ezTerm terminal tabs under ConPTY — full ANSI color, Windows-Linux interop, and your local Linux shells alongside SSH sessions."
+head:
+  - tag: title
+    content: "WSL Tabs in ezTerm — Linux Distro Terminals on Windows"
 sidebar:
   order: 3
 ---

@@ -1,6 +1,9 @@
 ---
 title: SSH
-description: russh-backed sessions with password, key, or agent auth.
+description: "How SSH works in ezTerm — password, private-key, and agent authentication, host-key TOFU verification, keepalives, timeouts, and compression via russh."
+head:
+  - tag: title
+    content: "SSH in ezTerm — Password, Key & Agent Auth, Host-Key TOFU"
 sidebar:
   order: 1
 ---

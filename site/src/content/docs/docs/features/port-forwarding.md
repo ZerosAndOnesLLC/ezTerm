@@ -1,6 +1,9 @@
 ---
 title: Port forwarding
-description: Local, remote, and dynamic (SOCKS5) forwards.
+description: "Set up local, remote, and dynamic (SOCKS5) SSH port forwards in ezTerm — persistent or ad-hoc tunnels with OpenSSH semantics and safe loopback defaults."
+head:
+  - tag: title
+    content: "SSH Port Forwarding in ezTerm — Local, Remote & SOCKS5"
 sidebar:
   order: 6
 ---

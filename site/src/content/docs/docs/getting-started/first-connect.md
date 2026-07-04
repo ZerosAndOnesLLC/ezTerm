@@ -1,6 +1,9 @@
 ---
 title: First connect
-description: Create a session, connect, and run a command.
+description: "Create your first ezTerm SSH session — set a master password, save a session with password or key auth, connect in a tab, and try the SFTP side-pane."
+head:
+  - tag: title
+    content: "Your First SSH Connection in ezTerm — Quick-Start Guide"
 ---
 
 After setting your master password, you'll see the empty sessions sidebar. Let's connect to a server.

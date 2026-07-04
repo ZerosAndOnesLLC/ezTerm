@@ -1,6 +1,9 @@
 ---
 title: Troubleshooting
-description: Common issues and fixes.
+description: "Fixes for common ezTerm problems — host-key mismatch errors, port-forward conflicts, missing X11 windows, vault unlock failures, and Linux library errors."
+head:
+  - tag: title
+    content: "ezTerm Troubleshooting — Fixes for Common SSH Client Issues"
 ---
 
 ## "Host key mismatch" hard-failure

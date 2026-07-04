@@ -1,6 +1,9 @@
 ---
 title: FAQ
-description: Frequently asked questions.
+description: "Answers to common ezTerm questions — GPLv3 licensing, Windows, Linux, and macOS support, Tauri vs Electron, session import, data storage, and security."
+head:
+  - tag: title
+    content: "ezTerm FAQ — Licensing, Platforms, Features & Security"
 ---
 
 ## Is it really free?
