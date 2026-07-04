@@ -1,6 +1,9 @@
 ---
 title: SFTP
-description: File transfer side-pane on the same SSH connection.
+description: "ezTerm docks an SFTP file browser beside your terminal on the same SSH connection — browse, upload, download, and manage remote files with no second login."
+head:
+  - tag: title
+    content: "SFTP File Browser in ezTerm — Transfers on One Connection"
 sidebar:
   order: 2
 ---

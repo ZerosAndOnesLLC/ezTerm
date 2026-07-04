@@ -1,6 +1,9 @@
 ---
 title: Import from MobaXterm
-description: Bring SSH and WSL sessions over from MobaXterm.
+description: "Migrate from MobaXterm to ezTerm — import .mxtsessions exports with folder structure intact while private keys move into the encrypted vault automatically."
+head:
+  - tag: title
+    content: "Import MobaXterm Sessions into ezTerm — Migration Guide"
 ---
 
 ezTerm can read MobaXterm's session exports and recreate them — including the folder structure and any private-key files referenced by the sessions.

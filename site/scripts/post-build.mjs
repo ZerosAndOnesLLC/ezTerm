@@ -6,6 +6,9 @@
 //    Astro's compact one-line output with news/xhtml/image/video namespaces
 //    can trip strict parsers (e.g. GSC sometimes reports "could not be read"
 //    on the dense form).
+// 4. Drop /download/ from the sitemap — that page is noindex (JS redirect to
+//    GitHub Releases), and a noindex URL in a sitemap reads as a
+//    contradiction in Search Console / Bing Webmaster reports.
 import fs from 'node:fs';
 
 const DIST = 'dist';
@@ -21,7 +24,9 @@ if (fs.existsSync(`${DIST}/sitemap-index.xml`)) {
 
 if (fs.existsSync(`${DIST}/sitemap.xml`)) {
   const raw = fs.readFileSync(`${DIST}/sitemap.xml`, 'utf8');
-  const locs = [...raw.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  const locs = [...raw.matchAll(/<loc>([^<]+)<\/loc>/g)]
+    .map((m) => m[1])
+    .filter((u) => !/\/download\/?$/.test(u));
   if (locs.length > 0) {
     const body = locs
       .map((u) => `  <url>\n    <loc>${u}</loc>\n  </url>`)

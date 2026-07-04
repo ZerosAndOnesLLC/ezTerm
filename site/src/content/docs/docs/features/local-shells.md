@@ -1,6 +1,9 @@
 ---
 title: Local shells
-description: cmd, PowerShell, or any local shell as a tab.
+description: "Run cmd, PowerShell, pwsh, or any local executable as an ezTerm tab — keep local shells, WSL distros, and remote SSH sessions together in one window."
+head:
+  - tag: title
+    content: "Local Shell Tabs in ezTerm — cmd, PowerShell & Custom"
 sidebar:
   order: 4
 ---

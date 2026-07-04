@@ -1,6 +1,9 @@
 ---
 title: Vault
-description: Encrypted credential storage. Argon2id + ChaCha20-Poly1305.
+description: "Every secret ezTerm stores is encrypted in a local vault — Argon2id key derivation, ChaCha20-Poly1305 encryption, zeroized plaintext, encrypted backups."
+head:
+  - tag: title
+    content: "ezTerm Vault — Encrypted SSH Credential & Key Storage"
 sidebar:
   order: 7
 ---

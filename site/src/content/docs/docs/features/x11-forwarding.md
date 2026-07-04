@@ -1,6 +1,9 @@
 ---
 title: X11 forwarding
-description: Run remote Linux GUI apps as native Windows windows.
+description: "ezTerm bundles VcXsrv so X11 forwarding works out of the box on Windows — remote Linux GUI apps open as native windows; Linux and macOS use your X server."
+head:
+  - tag: title
+    content: "X11 Forwarding in ezTerm — Remote Linux GUI Apps on Windows"
 sidebar:
   order: 5
 ---
