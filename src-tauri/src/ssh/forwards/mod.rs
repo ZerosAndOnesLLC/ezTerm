@@ -101,6 +101,12 @@ pub enum ForwardStatus {
     Running,
     Stopped,
     Error { message: String },
+    /// The bind address is already taken by another ezTerm tab, another
+    /// ezTerm window/process, or (remote) this session already forwarding
+    /// that port. Neutral, not a failure — the pane shows it amber with
+    /// Start still offered so the user can take it over if the other
+    /// holder goes away. Emitted instead of `Error` on `PortConflict`.
+    Conflict { message: String },
 }
 
 pub struct RuntimeForward {
@@ -109,6 +115,13 @@ pub struct RuntimeForward {
     pub spec:          ForwardSpec,
     pub status:        StdMutex<ForwardStatus>,
     pub stop_tx:       Mutex<Option<oneshot::Sender<()>>>,
+    // Fired by the listener task once its teardown is fully complete —
+    // local/dynamic have released their bound port, remote has dropped
+    // its dispatch entry and awaited `cancel_tcpip_forward`. Lets a
+    // caller that intends to re-bind the same address (edit-in-place)
+    // wait for the old listener to actually let go first. See
+    // `stop_and_wait`.
+    pub done_rx:       Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -131,6 +144,31 @@ impl RuntimeForward {
 
     pub fn set_status(&self, s: ForwardStatus) {
         *self.status.lock().expect("forward status poisoned") = s;
+    }
+
+    /// Signal the listener task to stop, without waiting for teardown.
+    /// The `Stopped` status event is emitted by the task before teardown
+    /// completes, so UI reflects the stop immediately. Use when nothing
+    /// downstream needs the bound address freed right away (user-driven
+    /// Stop, connection close). Idempotent.
+    pub async fn stop(&self) {
+        if let Some(tx) = self.stop_tx.lock().await.take() {
+            let _ = tx.send(());
+        }
+    }
+
+    /// Signal stop and await the listener task's full teardown so the
+    /// bound address is actually released before returning. Bounded so a
+    /// server that never answers `cancel_tcpip_forward` can't hang the
+    /// caller. Use before re-binding the same address (edit-in-place
+    /// restart). Idempotent — a second call returns immediately.
+    pub async fn stop_and_wait(&self) {
+        if let Some(tx) = self.stop_tx.lock().await.take() {
+            let _ = tx.send(());
+        }
+        if let Some(rx) = self.done_rx.lock().await.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), rx).await;
+        }
     }
 }
 
@@ -186,13 +224,16 @@ impl Forwards {
     /// chance to exit cleanly (Remote needs the handle for
     /// `cancel_tcpip_forward`).
     pub async fn stop_all(&self) {
-        let ids: Vec<u64> = self.by_id.read().await.keys().copied().collect();
-        for id in ids {
-            if let Some(rf) = self.by_id.write().await.remove(&id) {
-                if let Some(tx) = rf.stop_tx.lock().await.take() {
-                    let _ = tx.send(());
-                }
-            }
+        // Drain the whole map under one lock acquisition. Taking ids then
+        // re-locking per id leaves a window where the still-running
+        // auto-start scan could insert a forward between iterations that
+        // we'd then never stop (its listener + bound port would leak).
+        let all: Vec<Arc<RuntimeForward>> = {
+            let mut guard = self.by_id.write().await;
+            guard.drain().map(|(_, rf)| rf).collect()
+        };
+        for rf in all {
+            rf.stop().await;
         }
     }
 }

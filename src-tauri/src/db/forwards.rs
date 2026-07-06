@@ -123,7 +123,9 @@ pub async fn create(
     .bind(session_id)
     .bind(&input.name)
     .bind(&input.kind)
-    .bind(&input.bind_addr)
+    // Trim so a stray space in the bind address doesn't land in the row;
+    // bind_socket trims at use time too, so this just keeps storage clean.
+    .bind(input.bind_addr.trim())
     .bind(input.bind_port)
     .bind(&input.dest_addr)
     .bind(input.dest_port)
@@ -144,7 +146,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &ForwardInput) -> Result<
     )
     .bind(&input.name)
     .bind(&input.kind)
-    .bind(&input.bind_addr)
+    .bind(input.bind_addr.trim())
     .bind(input.bind_port)
     .bind(&input.dest_addr)
     .bind(input.dest_port)

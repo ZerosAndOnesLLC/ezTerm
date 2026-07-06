@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::commands::require_unlocked;
 use crate::db;
 use crate::error::{AppError, Result};
-use crate::ssh::forwards::{ForwardKind, ForwardSpec, RuntimeForwardSummary};
+use crate::ssh::forwards::{ForwardKind, ForwardSpec, ForwardStatus, RuntimeForwardSummary};
 use crate::state::AppState;
 
 // ---------- Persistent ----------
@@ -46,7 +46,7 @@ pub async fn forward_update(
     // Stop any currently-running runtime forwards backed by this
     // persistent id BEFORE writing the DB. Capture the connection ids
     // we stopped on so we can re-start with the new spec.
-    let stopped_on = stop_runtimes_for_persistent(&state, id).await;
+    let stopped_on = stop_runtimes_for_persistent(&state, id, true).await;
     let updated = db::forwards::update(&state.db, id, &input).await?;
     // Re-start using the freshly-updated row so the new spec is what
     // goes live. Failures emit error events as usual; we don't fail
@@ -63,19 +63,13 @@ pub async fn forward_update(
         let spec = new_spec.clone();
         let cid = conn.id;
         tokio::spawn(async move {
-            if let Err(e) = start_inner(cid, app2.clone(), forwards, handle, spec.clone(), Some(id)).await {
+            // start_inner emits its own status event (Running / Conflict /
+            // Error) carrying the real allocated runtime id, so we only log
+            // a hard failure here — no synthetic sentinel event.
+            if let Err(e) = start_inner(cid, app2, forwards, handle, spec.clone(), Some(id)).await {
                 tracing::warn!(
                     "post-update restart of forward {}:{} failed: {e}",
                     spec.bind_addr, spec.bind_port,
-                );
-                let _ = app2.emit(
-                    &format!("forwards:status:{cid}"),
-                    &serde_json::json!({
-                        "runtime_id":    0,
-                        "persistent_id": id,
-                        "spec":          spec,
-                        "status":        { "status": "error", "message": format!("restart after edit: {e}") },
-                    }),
                 );
             }
         });
@@ -89,7 +83,7 @@ pub async fn forward_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
     // Stop any running runtime forwards for this persistent id before
     // dropping the DB row. Otherwise a running -R keeps tunneling to
     // a destination the user thought they deleted.
-    let _ = stop_runtimes_for_persistent(&state, id).await;
+    let _ = stop_runtimes_for_persistent(&state, id, false).await;
     db::forwards::delete(&state.db, id).await
 }
 
@@ -100,6 +94,7 @@ pub async fn forward_delete(state: State<'_, AppState>, id: i64) -> Result<()> {
 async fn stop_runtimes_for_persistent(
     state: &State<'_, AppState>,
     id: i64,
+    wait: bool,
 ) -> Vec<Arc<crate::ssh::registry::Connection>> {
     let mut stopped_on: Vec<Arc<crate::ssh::registry::Connection>> = Vec::new();
     for conn in state.ssh.list_all().await {
@@ -108,9 +103,10 @@ async fn stop_runtimes_for_persistent(
         for rt in runtimes {
             if rt.persistent_id == Some(id) {
                 if let Some(rf) = conn.forwards.remove(rt.runtime_id).await {
-                    if let Some(tx) = rf.stop_tx.lock().await.take() {
-                        let _ = tx.send(());
-                    }
+                    // `wait` when the caller is about to re-bind the same
+                    // address (edit-in-place restart) and needs the old
+                    // listener to release it first; otherwise fire-and-forget.
+                    if wait { rf.stop_and_wait().await; } else { rf.stop().await; }
                 }
                 touched = true;
             }
@@ -163,6 +159,30 @@ pub async fn forward_start(
                 conn.ssh_handle.clone(), spec, persistent_id).await
 }
 
+/// Replace a running ephemeral (tab-only) forward with a new spec —
+/// the edit-in-place path for the per-tab pane. Stops the old runtime
+/// and WAITS for its listener to release the bind before starting the
+/// new one, so re-using the same address doesn't race teardown and hit
+/// AddrInUse / "already forwarded". (Persistent forwards use
+/// `forward_update`, which has the same discipline.)
+#[tauri::command]
+pub async fn forward_replace(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    connection_id: u64,
+    runtime_id: u64,
+    spec: ForwardSpec,
+) -> Result<RuntimeForwardSummary> {
+    require_unlocked(&state).await?;
+    let conn = state.ssh.get(connection_id).await
+        .ok_or(AppError::NotFound)?;
+    if let Some(rf) = conn.forwards.remove(runtime_id).await {
+        rf.stop_and_wait().await;
+    }
+    start_inner(connection_id, app, conn.forwards.clone(),
+                conn.ssh_handle.clone(), spec, None).await
+}
+
 #[tauri::command]
 pub async fn forward_stop(
     state: State<'_, AppState>,
@@ -173,9 +193,7 @@ pub async fn forward_stop(
     let conn = state.ssh.get(connection_id).await
         .ok_or(AppError::NotFound)?;
     if let Some(rf) = conn.forwards.remove(runtime_id).await {
-        if let Some(tx) = rf.stop_tx.lock().await.take() {
-            let _ = tx.send(());
-        }
+        rf.stop().await;
     }
     Ok(())
 }
@@ -260,24 +278,63 @@ pub(crate) async fn start_inner(
             let _ = app_emit.emit(&event, &s);
         });
 
-    let rf = match spec.kind {
+    let started = match spec.kind {
         ForwardKind::Local => {
             crate::ssh::forwards::local::start(
                 handle.clone(), spec.clone(), id, persistent_id, on_status.clone(),
-            ).await?
+            ).await
         }
         ForwardKind::Remote => {
             crate::ssh::forwards::remote::start(
                 handle.clone(), forwards.dispatch.clone(),
                 spec.clone(), id, persistent_id, on_status.clone(),
-            ).await?
+            ).await
         }
         ForwardKind::Dynamic => {
             crate::ssh::forwards::dynamic::start(
                 handle.clone(), spec.clone(), id, persistent_id, on_status.clone(),
-            ).await?
+            ).await
+        }
+    };
+    let rf = match started {
+        Ok(rf) => rf,
+        Err(AppError::PortConflict(msg)) => {
+            // Neutral: the bind address is owned by another ezTerm tab,
+            // another window/process, or this session already forwards it.
+            // Emit an amber Conflict status (the pane keeps Start available
+            // so the user can take it over) and return Ok — no error toast,
+            // nothing inserted into the registry.
+            let summary = RuntimeForwardSummary {
+                runtime_id: id,
+                persistent_id,
+                spec: spec.clone(),
+                status: ForwardStatus::Conflict { message: msg },
+            };
+            on_status(summary.clone());
+            return Ok(summary);
+        }
+        Err(e) => {
+            // Real failure. Emit the error carrying the id we allocated so
+            // several concurrent auto-start failures each get their own row
+            // instead of colliding on a sentinel id, then propagate so an
+            // awaiting caller (manual Start) sees it as a rejected command.
+            let summary = RuntimeForwardSummary {
+                runtime_id: id,
+                persistent_id,
+                spec: spec.clone(),
+                status: ForwardStatus::Error { message: e.to_string() },
+            };
+            on_status(summary);
+            return Err(e);
         }
     };
     forwards.insert(rf.clone()).await;
+    // Emit the initial Running status once, centrally. Callers that await
+    // this function (manual Start) get the summary as the return value AND
+    // this event; the pane upserts by runtime_id so they coalesce into one
+    // row. Callers that DON'T await it — the connect-time auto-start scan
+    // and the post-edit restart — rely on this event as their only signal,
+    // which is why the per-kind start fns stay silent and defer to here.
+    on_status(rf.summary());
     Ok(rf.summary())
 }

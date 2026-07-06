@@ -118,6 +118,7 @@ async fn main() {
             commands::forwards::forward_delete,
             commands::forwards::forward_runtime_list,
             commands::forwards::forward_start,
+            commands::forwards::forward_replace,
             commands::forwards::forward_stop,
             commands::forwards::forward_stop_all,
             commands::xserver::xserver_status,

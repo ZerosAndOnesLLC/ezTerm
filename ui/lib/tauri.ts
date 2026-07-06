@@ -6,7 +6,7 @@ import type {
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
   Platform, DetectedShell,
-  Forward, ForwardInput, RuntimeForward, ForwardStartTarget,
+  Forward, ForwardInput, ForwardSpec, RuntimeForward, ForwardStartTarget,
   BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
   SyncStatus, S3ConfigInput,
 } from './types';
@@ -182,6 +182,10 @@ export const api = {
     invoke<RuntimeForward[]>('forward_runtime_list', { connectionId }),
   forwardStart: (connectionId: number, target: ForwardStartTarget) =>
     invoke<RuntimeForward>('forward_start', { connectionId, target }),
+  // Edit-in-place for a tab-only forward: stops the old runtime, waits for
+  // its bind to release, then starts the new spec — one round-trip, no race.
+  forwardReplace: (connectionId: number, runtimeId: number, spec: ForwardSpec) =>
+    invoke<RuntimeForward>('forward_replace', { connectionId, runtimeId, spec }),
   forwardStop: (connectionId: number, runtimeId: number) =>
     invoke<void>('forward_stop', { connectionId, runtimeId }),
   forwardStopAll: (connectionId: number) =>

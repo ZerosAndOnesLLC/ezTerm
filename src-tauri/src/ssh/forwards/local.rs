@@ -25,22 +25,37 @@ pub async fn start(
 ) -> Result<Arc<RuntimeForward>> {
     let bind = bind_socket(&spec.bind_addr, spec.bind_port)?;
     let listener = TcpListener::bind(bind).await.map_err(|e| {
-        AppError::Ssh(super::format_bind_error(&spec.bind_addr, spec.bind_port, &e))
+        let msg = super::format_bind_error(&spec.bind_addr, spec.bind_port, &e);
+        // AddrInUse is the multi-tab / multi-process case: someone else
+        // already owns this local port. Surface it as a neutral conflict,
+        // not a hard error. Other bind failures (permission, etc.) stay Ssh.
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            AppError::PortConflict(msg)
+        } else {
+            AppError::Ssh(msg)
+        }
     })?;
 
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+    let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
         id:            runtime_id,
         persistent_id,
         spec:          spec.clone(),
         status:        std::sync::Mutex::new(ForwardStatus::Running),
         stop_tx:       Mutex::new(Some(stop_tx)),
+        done_rx:       Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();
     let on_status_task = on_status.clone();
     let inflight = Arc::new(Semaphore::new(MAX_INFLIGHT_PER_FORWARD));
     tokio::spawn(async move {
+        // Distinguishes a clean stop (emit Stopped) from an accept failure
+        // (already emitted Error) so the post-loop block doesn't clobber
+        // the Error with Stopped — which the pane treats as "remove the
+        // row", hiding the failure.
+        let mut error_exit = false;
         loop {
             tokio::select! {
                 _ = &mut stop_rx => break,
@@ -53,6 +68,7 @@ pub async fn start(
                                 message: format!("accept: {e}"),
                             });
                             on_status_task(rf_task.summary());
+                            error_exit = true;
                             break;
                         }
                     };
@@ -96,12 +112,19 @@ pub async fn start(
                 }
             }
         }
-        rf_task.set_status(ForwardStatus::Stopped);
-        on_status_task(rf_task.summary());
+        if !error_exit {
+            rf_task.set_status(ForwardStatus::Stopped);
+            on_status_task(rf_task.summary());
+        }
+        // Teardown done: the listener has been dropped and the local
+        // port is free. Wake anyone waiting to re-bind it (edit-in-place).
+        let _ = done_tx.send(());
     });
 
-    // Note: do NOT emit Running here — the command layer's awaited
-    // return value already carries the same summary, and emitting both
-    // makes the UI render the row twice for every Start.
+    // The initial Running status is emitted once, centrally, by
+    // `start_inner` after it registers the forward — that reaches the
+    // auto-start scan and post-edit restart too, not just callers that
+    // await this return value. Kinds stay silent on start to keep a
+    // single emit site.
     Ok(rf)
 }

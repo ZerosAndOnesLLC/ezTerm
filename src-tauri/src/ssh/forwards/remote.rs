@@ -27,30 +27,35 @@ pub async fn start(
 ) -> Result<Arc<RuntimeForward>> {
     let key = (spec.bind_addr.clone(), spec.bind_port as u32);
 
-    // Per-connection dedupe: refuse a duplicate (bind_addr, bind_port)
-    // registration. Otherwise a server could re-deliver channels into
-    // an unrelated forward task that happens to share the key.
+    let (tx, mut rx) = mpsc::unbounded_channel::<Channel<Msg>>();
+
+    // Per-connection dedupe: check + insert under a single write lock so
+    // two concurrent starts for the same key can't both pass the check
+    // (TOCTOU). A duplicate is a neutral conflict — this session already
+    // forwards that port — not a hard error.
     {
-        let map = dispatch.read().expect("dispatch poisoned");
+        let mut map = dispatch.write().expect("dispatch poisoned");
         if map.contains_key(&key) {
-            return Err(AppError::Validation(format!(
-                "{}:{} is already bound by another forward on this session",
+            return Err(AppError::PortConflict(format!(
+                "{}:{} is already forwarded on this session",
                 spec.bind_addr, spec.bind_port,
             )));
         }
+        map.insert(key.clone(), tx);
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<Channel<Msg>>();
-    dispatch.write().expect("dispatch poisoned").insert(key.clone(), tx);
+    // From here the dispatch entry is live. This guard removes it on every
+    // exit path — server reject below, normal teardown, or a task panic —
+    // so a stale key can't permanently block re-binding the address.
+    let guard = DispatchGuard { map: dispatch.clone(), key: key.clone() };
 
     // Request the forward on the server side. If the server rejects
-    // (AllowTcpForwarding=no, port-in-use on remote, etc.), back out
-    // the dispatch entry and surface the error to the command layer.
+    // (AllowTcpForwarding=no, port-in-use on remote, etc.), `guard` drops
+    // on return and backs the dispatch entry out.
     if let Err(e) = handle
         .tcpip_forward(spec.bind_addr.clone(), spec.bind_port as u32)
         .await
     {
-        dispatch.write().expect("dispatch poisoned").remove(&key);
         return Err(AppError::Ssh(format!(
             "tcpip_forward {}:{}: {e}",
             spec.bind_addr, spec.bind_port,
@@ -58,21 +63,24 @@ pub async fn start(
     }
 
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+    let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
         id:            runtime_id,
         persistent_id,
         spec:          spec.clone(),
         status:        std::sync::Mutex::new(ForwardStatus::Running),
         stop_tx:       Mutex::new(Some(stop_tx)),
+        done_rx:       Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();
     let on_status_task = on_status.clone();
-    let dispatch_task = dispatch.clone();
     let handle_task = handle.clone();
-    let key_task = key.clone();
     let spec_task = spec.clone();
     tokio::spawn(async move {
+        // Owns the dispatch entry for the task's lifetime; dropped
+        // explicitly below (or on panic) to release the key.
+        let guard = guard;
         loop {
             tokio::select! {
                 _ = &mut stop_rx => break,
@@ -103,13 +111,36 @@ pub async fn start(
         // Drop the dispatch entry BEFORE awaiting cancel_tcpip_forward
         // so we don't keep accepting channels into a now-dropped mpsc
         // while waiting for the server's reply.
-        dispatch_task.write().expect("dispatch poisoned").remove(&key_task);
+        drop(guard);
         let _ = handle_task
             .cancel_tcpip_forward(spec_task.bind_addr.clone(), spec_task.bind_port as u32)
             .await;
         rf_task.set_status(ForwardStatus::Stopped);
         on_status_task(rf_task.summary());
+        // Teardown done: dispatch key dropped and the server-side remote
+        // bind cancelled. Only now is it safe to re-request the same
+        // (bind_addr, bind_port) — edit-in-place waits on this.
+        let _ = done_tx.send(());
     });
 
+    // Initial Running status is emitted centrally by `start_inner`.
     Ok(rf)
+}
+
+/// Removes a remote forward's dispatch entry when dropped. Covers the
+/// normal teardown path (dropped explicitly before `cancel_tcpip_forward`)
+/// and abnormal ones (early server-reject return, task panic) so a
+/// `(bind_addr, bind_port)` key can't leak and permanently block
+/// re-binding that address on this connection.
+struct DispatchGuard {
+    map: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
+    key: (String, u32),
+}
+
+impl Drop for DispatchGuard {
+    fn drop(&mut self) {
+        if let Ok(mut m) = self.map.write() {
+            m.remove(&self.key);
+        }
+    }
 }

@@ -9,6 +9,7 @@ import type { Tab } from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
 import { forwardLabel } from '@/lib/forwards';
 import { ForwardDialog } from './forward-dialog';
+import { ContextMenu, type MenuItem } from './context-menu';
 
 const KIND_TONE: Record<ForwardKind, string> = {
   local:   'text-blue-400',
@@ -16,22 +17,24 @@ const KIND_TONE: Record<ForwardKind, string> = {
   dynamic: 'text-emerald-400',
 };
 
-type RowStatus = 'idle' | 'running' | 'error';
+type RowStatus = 'idle' | 'running' | 'error' | 'conflict';
 
 function statusClasses(s: RowStatus): string {
   switch (s) {
-    case 'running': return 'bg-success';
-    case 'error':   return 'bg-danger';
-    default:        return 'bg-muted/60';
+    case 'running':  return 'bg-success';
+    case 'error':    return 'bg-danger';
+    case 'conflict': return 'bg-amber-500';
+    default:         return 'bg-muted/60';
   }
 }
 
 function rfStatus(rf: RuntimeForward | undefined): RowStatus {
   if (!rf) return 'idle';
   switch (rf.status.status) {
-    case 'running': return 'running';
-    case 'error':   return 'error';
-    default:        return 'idle';
+    case 'running':  return 'running';
+    case 'error':    return 'error';
+    case 'conflict': return 'conflict';
+    default:         return 'idle';
   }
 }
 
@@ -46,6 +49,7 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
     | { kind: 'persistent-edit'; forward: Forward }
     | null
   >(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
   useEffect(() => {
     api.forwardList(sessionId).then(setPersistent).catch(() => {});
@@ -93,12 +97,11 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
     return () => { cancelled = true; unsub?.(); };
   }, [connectionId]);
 
-  // The runtime layer deliberately does NOT emit an initial "Running"
-  // status event (see ssh/forwards/local.rs) — the awaited return value
-  // of forward_start/forward_create carries that summary, and the caller
-  // is responsible for folding it into the list. Upsert by runtime_id so
-  // a started/created forward shows up (and flips to running) immediately
-  // instead of only appearing after the next status event or reconnect.
+  // start_inner emits an initial status event (Running / Conflict / Error)
+  // AND manual Start/Create return the same summary. Both carry the same
+  // runtime_id, so we upsert by it: the awaited return value shows the row
+  // instantly, and the event (the only signal for connect-time auto-start
+  // and post-edit restarts) coalesces into the same row rather than duping.
   const upsertRuntime = (rf: RuntimeForward) => setRuntime((cur) => {
     const idx = cur.findIndex((x) => x.runtime_id === rf.runtime_id);
     if (idx === -1) return [...cur, rf];
@@ -161,17 +164,33 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
           const rt = runtimeByPersistent.get(p.id);
           const isRunning = rt?.status.status === 'running';
           const tone = rfStatus(rt);
-          const lastError = rt?.status.status === 'error' ? rt.status.message : null;
+          const note = rt && (rt.status.status === 'error' || rt.status.status === 'conflict')
+            ? rt.status.message : null;
           const label = forwardLabel(p);
           return (
             <Row key={`p-${p.id}`} kind={p.kind} label={label}
-                 tone={tone} lastError={lastError}
+                 tone={tone} note={note}
+                 onContextMenu={(e) => {
+                   e.preventDefault();
+                   setMenu({ x: e.clientX, y: e.clientY, items: [
+                     { label: 'Edit', onClick: () => setDialog({ kind: 'persistent-edit', forward: p }) },
+                     isRunning
+                       ? { label: 'Stop', onClick: () => stop(rt!.runtime_id) }
+                       : { label: 'Start', disabled: connectionId == null, onClick: () => startPersistent(p.id) },
+                     { separator: true },
+                     { label: 'Delete', danger: true, onClick: async () => {
+                         await api.forwardDelete(p.id);
+                         setPersistent((cur) => cur.filter((x) => x.id !== p.id));
+                       } },
+                   ] });
+                 }}
                  actions={
                    <>
                      {isRunning
-                       ? <IconBtn title="Stop"  onClick={() => stop(rt!.runtime_id)}><Square size={12}/></IconBtn>
+                       ? <IconBtn title="Stop" tone="danger" onClick={() => stop(rt!.runtime_id)}><Square size={12}/></IconBtn>
                        : <IconBtn
                            title={connectionId == null ? 'Connect first to start' : 'Start'}
+                           tone="success"
                            disabled={connectionId == null}
                            onClick={() => startPersistent(p.id)}>
                            <Play size={12}/>
@@ -182,9 +201,8 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
                      </IconBtn>
                      <IconBtn title="Delete"
                               onClick={async () => {
-                                if (isRunning && connectionId != null) {
-                                  await api.forwardStop(connectionId, rt!.runtime_id).catch(() => {});
-                                }
+                                // forward_delete stops any running runtime for
+                                // this id server-side, so no separate stop call.
                                 await api.forwardDelete(p.id);
                                 setPersistent((cur) => cur.filter((x) => x.id !== p.id));
                               }}>
@@ -200,14 +218,22 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
                kind={rf.spec.kind}
                label={forwardLabel(rf.spec)}
                tone={rfStatus(rf)}
-               lastError={rf.status.status === 'error' ? rf.status.message : null}
+               note={rf.status.status === 'error' || rf.status.status === 'conflict'
+                 ? rf.status.message : null}
+               onContextMenu={(e) => {
+                 e.preventDefault();
+                 setMenu({ x: e.clientX, y: e.clientY, items: [
+                   { label: 'Edit', onClick: () => setDialog({ kind: 'ephemeral-edit', existing: rf }) },
+                   { label: 'Stop', onClick: () => stop(rf.runtime_id) },
+                 ] });
+               }}
                actions={
                  <>
                    <IconBtn title="Edit"
                             onClick={() => setDialog({ kind: 'ephemeral-edit', existing: rf })}>
                      <Pencil size={12}/>
                    </IconBtn>
-                   <IconBtn title="Stop" onClick={() => stop(rf.runtime_id)}>
+                   <IconBtn title="Stop" tone="danger" onClick={() => stop(rf.runtime_id)}>
                      <Square size={12}/>
                    </IconBtn>
                  </>
@@ -253,39 +279,55 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
                          setDialog(null);
                        }} />
       )}
+
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }
 
-function Row({ kind, label, tone, lastError, actions }: {
+function Row({ kind, label, tone, note, actions, onContextMenu }: {
   kind: ForwardKind; label: string; tone: RowStatus;
-  lastError: string | null; actions: React.ReactNode;
+  note: string | null; actions: React.ReactNode;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const KindIcon = kind === 'local' ? ArrowLeftRight : kind === 'remote' ? Server : Globe2;
+  // Conflict is neutral (amber); a real error is red.
+  const noteTone = tone === 'conflict' ? 'text-amber-500' : 'text-danger';
   return (
-    <div className="px-3 py-2 border-b border-border hover:bg-surface2">
+    <div
+      className="px-3 py-2 border-b border-border hover:bg-surface2"
+      // Right-click the row for its context menu (Edit / Start-Stop /
+      // Delete). The app-wide handler already suppresses the native menu.
+      onContextMenu={onContextMenu}
+    >
       <div className="flex items-center gap-2 text-sm min-w-0">
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusClasses(tone)}`} aria-hidden />
         <KindIcon size={12} className={`shrink-0 ${KIND_TONE[kind]}`} />
         <span className="truncate flex-1 font-mono text-xs">{label}</span>
         <span className="flex items-center gap-0.5 shrink-0">{actions}</span>
       </div>
-      {lastError && <div className="text-xs text-danger pl-6 mt-0.5 break-words">{lastError}</div>}
+      {note && <div className={`text-xs ${noteTone} pl-6 mt-0.5 break-words`}>{note}</div>}
     </div>
   );
 }
 
 function IconBtn({
-  children, title, onClick, disabled,
+  children, title, onClick, disabled, tone,
 }: {
   children: React.ReactNode; title: string; onClick: () => void; disabled?: boolean;
+  tone?: 'success' | 'danger';
 }) {
+  // Start is green, Stop is red; everything else follows the muted default.
+  const color =
+    tone === 'success' ? 'text-success hover:text-success'
+    : tone === 'danger' ? 'text-danger hover:text-danger'
+    : 'text-muted hover:text-fg';
   return (
     <button
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="p-1 rounded hover:bg-surface2 text-muted hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed"
+      className={`p-1 rounded hover:bg-surface2 ${color} disabled:opacity-40 disabled:cursor-not-allowed`}
     >
       {children}
     </button>
