@@ -33,6 +33,18 @@ export default function Page() {
     void invoke('ui_ready').catch(() => {});
   }, []);
 
+  // Suppress the webview's native context menu app-wide. Without this,
+  // right-clicking any area not covered by one of our own menus surfaces
+  // the browser default — whose "Reload" reloads the SPA and drops every
+  // open tab/connection. Our custom menus (sidebar, SFTP, terminal) are
+  // React onContextMenu handlers that still fire and render normally;
+  // this only cancels the native menu. Registered once at the app root.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    window.addEventListener('contextmenu', onContextMenu);
+    return () => window.removeEventListener('contextmenu', onContextMenu);
+  }, []);
+
   if (status === null)    return <main className="h-full flex items-center justify-center text-muted">Loading…</main>;
   if (status !== 'unlocked')
     return (

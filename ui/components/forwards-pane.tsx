@@ -43,6 +43,7 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
   const [dialog, setDialog] = useState<
     | { kind: 'ephemeral-create' }
     | { kind: 'ephemeral-edit'; existing: RuntimeForward }
+    | { kind: 'persistent-edit'; forward: Forward }
     | null
   >(null);
 
@@ -175,6 +176,10 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
                            onClick={() => startPersistent(p.id)}>
                            <Play size={12}/>
                          </IconBtn>}
+                     <IconBtn title="Edit"
+                              onClick={() => setDialog({ kind: 'persistent-edit', forward: p })}>
+                       <Pencil size={12}/>
+                     </IconBtn>
                      <IconBtn title="Delete"
                               onClick={async () => {
                                 if (isRunning && connectionId != null) {
@@ -231,6 +236,20 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
                            const without = cur.filter((x) => x.runtime_id !== oldId);
                            return runtime ? [...without, runtime] : without;
                          });
+                         setDialog(null);
+                       }} />
+      )}
+      {dialog?.kind === 'persistent-edit' && (
+        // Editing saved config is a DB op, independent of a live tunnel.
+        // If one is running, forward_update stops & restarts it on the
+        // backend and the status events we already subscribe to reflect it.
+        <ForwardDialog mode="persistent-edit" forward={dialog.forward}
+                       onClose={() => setDialog(null)}
+                       onSaved={(r) => {
+                         const { persistent } = r;
+                         if (persistent) {
+                           setPersistent((cur) => cur.map((x) => x.id === persistent.id ? persistent : x));
+                         }
                          setDialog(null);
                        }} />
       )}
