@@ -37,6 +37,14 @@ pub enum AppError {
     #[error("ssh: {0}")]
     Ssh(String),
 
+    /// A forward's bind address is already taken — by another ezTerm tab,
+    /// another ezTerm window/process, or (for remote) the same session
+    /// already forwarding that port. Not a failure the user needs to fix:
+    /// the surfacing layer renders it as a neutral "in use elsewhere"
+    /// state with Start still available, not a red error.
+    #[error("port conflict: {0}")]
+    PortConflict(String),
+
     #[error("authentication failed")]
     AuthFailed,
 
@@ -97,6 +105,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::Io(_) => "io",
         AppError::Serde(_) => "serde",
         AppError::Ssh(_) => "ssh",
+        AppError::PortConflict(_) => "port_conflict",
         AppError::AuthFailed => "auth_failed",
         AppError::HostKeyMismatch { .. } => "host_key_mismatch",
         AppError::HostKeyUntrusted => "host_key_untrusted",

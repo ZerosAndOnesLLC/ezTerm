@@ -511,6 +511,11 @@ async fn connect_impl(
                     continue;
                 }
             };
+            // start_inner emits its own status event (Running / Conflict /
+            // Error) with the real allocated runtime id — so a conflict from
+            // a second tab/window shows amber (not a hard error), and
+            // several failures don't collide on a sentinel id. We only log
+            // here.
             if let Err(e) = crate::commands::forwards::start_inner(
                 id,
                 app_for_scan.clone(),
@@ -522,15 +527,6 @@ async fn connect_impl(
                 tracing::warn!(
                     "auto-start forward {}:{} failed: {e}",
                     spec.bind_addr, spec.bind_port,
-                );
-                let _ = app_for_scan.emit(
-                    &format!("forwards:status:{id}"),
-                    &serde_json::json!({
-                        "runtime_id":    0,
-                        "persistent_id": f.id,
-                        "spec":          spec,
-                        "status":        { "status": "error", "message": e.to_string() },
-                    }),
                 );
             }
         }

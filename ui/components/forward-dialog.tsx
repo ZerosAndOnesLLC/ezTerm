@@ -119,10 +119,13 @@ export function ForwardDialog(props: Props) {
           bind_addr: v.bind_addr, bind_port: v.bind_port,
           dest_addr, dest_port,
         };
-        if (props.mode === 'ephemeral-edit') {
-          await api.forwardStop(props.connectionId, props.existing.runtime_id).catch(() => {});
-        }
-        const rf = await api.forwardStart(props.connectionId, { kind: 'ephemeral', spec });
+        // Editing a running tab-only forward: replace atomically on the
+        // backend (stop → wait for the bind to release → start) so re-using
+        // the same address can't race teardown into AddrInUse. A fresh
+        // ephemeral-create just starts.
+        const rf = props.mode === 'ephemeral-edit'
+          ? await api.forwardReplace(props.connectionId, props.existing.runtime_id, spec)
+          : await api.forwardStart(props.connectionId, { kind: 'ephemeral', spec });
         props.onSaved({ runtime: rf });
         props.onClose();
       }

@@ -28,22 +28,33 @@ pub async fn start(
 ) -> Result<Arc<RuntimeForward>> {
     let bind = bind_socket(&spec.bind_addr, spec.bind_port)?;
     let listener = TcpListener::bind(bind).await.map_err(|e| {
-        AppError::Ssh(format_bind_error(&spec.bind_addr, spec.bind_port, &e))
+        let msg = format_bind_error(&spec.bind_addr, spec.bind_port, &e);
+        // AddrInUse → neutral conflict (another tab/window/process owns the
+        // port); other bind failures stay a hard Ssh error. See local.rs.
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            AppError::PortConflict(msg)
+        } else {
+            AppError::Ssh(msg)
+        }
     })?;
 
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+    let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
         id:            runtime_id,
         persistent_id,
         spec:          spec.clone(),
         status:        std::sync::Mutex::new(ForwardStatus::Running),
         stop_tx:       Mutex::new(Some(stop_tx)),
+        done_rx:       Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();
     let on_status_task = on_status.clone();
     let inflight = Arc::new(Semaphore::new(MAX_INFLIGHT_PER_FORWARD));
     tokio::spawn(async move {
+        // See local.rs: keep a clean stop from clobbering an accept Error.
+        let mut error_exit = false;
         loop {
             tokio::select! {
                 _ = &mut stop_rx => break,
@@ -56,6 +67,7 @@ pub async fn start(
                                 message: format!("accept: {e}"),
                             });
                             on_status_task(rf_task.summary());
+                            error_exit = true;
                             break;
                         }
                     };
@@ -77,10 +89,15 @@ pub async fn start(
                 }
             }
         }
-        rf_task.set_status(ForwardStatus::Stopped);
-        on_status_task(rf_task.summary());
+        if !error_exit {
+            rf_task.set_status(ForwardStatus::Stopped);
+            on_status_task(rf_task.summary());
+        }
+        // Teardown done: listener dropped, local port free. See local.rs.
+        let _ = done_tx.send(());
     });
 
+    // Initial Running status is emitted centrally by `start_inner`.
     Ok(rf)
 }
 

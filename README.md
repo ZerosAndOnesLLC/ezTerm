@@ -25,6 +25,11 @@ on those platforms.
   JetBrains tools, …) pop as native Windows windows. The Windows release
   tarball ships VcXsrv in a `vcxsrv/` subfolder so no separate install is
   needed.
+- **Port forwarding** — Local (`-L`), Remote (`-R`), and Dynamic / SOCKS5 (`-D`)
+  tunnels. Save them to a session to auto-start on connect, or add ad-hoc tunnels
+  to a live tab. A side pane shows each tunnel's live state (green running / red
+  stopped, amber when the port is already in use by another tab or window) with
+  start / stop / edit / delete from buttons or a right-click menu.
 - **MobaXterm import** — point at a `.mxtsessions` export or `MobaXterm.ini` and
   import SSH + WSL rows with their folder structure. Private-key files are read
   off disk and stored as encrypted vault credentials, auto-attached to the

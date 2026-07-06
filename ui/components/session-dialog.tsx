@@ -986,10 +986,10 @@ function ForwardsConfigPane({ sessionId }: { sessionId: number | null }) {
               <span className="text-[10px] uppercase text-success/80 border border-success/30 rounded px-1">auto</span>
             )}
             <div className="flex gap-0.5 shrink-0">
-              <button title="Edit"
+              <button type="button" title="Edit"
                       className="p-1 rounded hover:bg-surface2 text-muted hover:text-fg"
                       onClick={() => setEditing(r)}><Pencil size={12} /></button>
-              <button title="Delete"
+              <button type="button" title="Delete"
                       className="p-1 rounded hover:bg-surface2 text-muted hover:text-fg"
                       onClick={async () => {
                         await api.forwardDelete(r.id);

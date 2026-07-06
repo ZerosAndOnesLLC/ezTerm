@@ -138,7 +138,11 @@ export interface ForwardInput {
 export type ForwardStatus =
   | { status: 'running' }
   | { status: 'stopped' }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string }
+  // Bind address is owned by another ezTerm tab, another window/process,
+  // or (remote) this session already forwards it. Neutral, not a failure:
+  // shown amber with Start still available so the user can take it over.
+  | { status: 'conflict'; message: string };
 
 export interface RuntimeForward {
   runtime_id:    number;
