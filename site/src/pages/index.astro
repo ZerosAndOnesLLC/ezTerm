@@ -20,7 +20,7 @@ const jsonLd = {
   operatingSystem: 'Windows, Linux, macOS',
   description: DESC,
   url: SITE,
-  downloadUrl: `${REPO}/releases/latest`,
+  downloadUrl: `${REPO}/releases`,
   license: 'https://www.gnu.org/licenses/gpl-3.0.en.html',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   author: { '@type': 'Organization', name: 'ZerosAndOnes', url: 'https://github.com/ZerosAndOnesLLC' },
@@ -70,7 +70,7 @@ const jsonLd = {
       <li><a href={`${BASE}docs/`}>Docs</a></li>
       <li><a href={REPO}>GitHub</a></li>
     </ul>
-    <a class="nav-cta" href={`${REPO}/releases/latest`}>Download</a>
+    <a class="nav-cta" href={`${REPO}/releases`}>Download</a>
   </div>
 </nav>
 
@@ -86,7 +86,7 @@ const jsonLd = {
       MobaXterm-style sessions. Rust-native protocol stack. Encrypted vault by default. One binary on Windows, Linux, and macOS — and zero compromises.
     </p>
     <div class="cta-row">
-      <a class="btn btn-primary" href={`${REPO}/releases/latest`}>Get ezTerm →</a>
+      <a class="btn btn-primary" href={`${REPO}/releases`}>Get ezTerm →</a>
       <a class="btn btn-ghost" href={`${BASE}docs/`}><span class="pfx">$</span> read the docs</a>
       <a class="btn btn-ghost" href={REPO}><span class="pfx">$</span> source</a>
     </div>
@@ -256,7 +256,7 @@ const jsonLd = {
       <h2>Stop paying for <span class="grad">SSH.</span></h2>
       <p>Download a single tar.xz. Extract. Run. Cross-platform from day one — Windows, Linux, macOS.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href={`${REPO}/releases/latest`}>Download ezTerm</a>
+        <a class="btn btn-primary" href={`${REPO}/releases`}>Download ezTerm</a>
         <a class="btn btn-ghost" href={`${BASE}docs/getting-started/install/`}><span class="pfx">$</span> install guide</a>
       </div>
     </div>

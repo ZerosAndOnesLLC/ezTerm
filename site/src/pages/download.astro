@@ -2,10 +2,10 @@
 // site/src/pages/download.astro
 //
 // /download/ is a stable, advertise-able URL that bounces visitors to the
-// latest GitHub release. We use JavaScript + a tiny delay (rather than
+// GitHub Releases page. We use JavaScript + a tiny delay (rather than
 // meta-refresh) so we can fire a GA event before navigating. The page is
 // noindexed so Google doesn't try to merge it with the GitHub releases page.
-const TARGET = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases/latest';
+const TARGET = 'https://github.com/ZerosAndOnesLLC/ezTerm/releases';
 const SITE = 'https://ezterm.zerosandones.us';
 const BASE = import.meta.env.BASE_URL;
 const GA_ID = 'G-19V4705C82';
@@ -18,7 +18,7 @@ const GA_ID = 'G-19V4705C82';
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="robots" content="noindex" />
     <title>Download ezTerm — Free SSH Client for Windows, Linux & macOS</title>
-    <meta name="description" content="Download the latest ezTerm release for Windows, Linux, or macOS — this page redirects to the newest build on GitHub Releases." />
+    <meta name="description" content="Download ezTerm for Windows, Linux, or macOS — this page redirects to the GitHub Releases page where you can pick your build." />
     <link rel="canonical" href={`${SITE}/download/`} />
     <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
     <!--
@@ -40,7 +40,7 @@ const GA_ID = 'G-19V4705C82';
       });
       gtag('event', 'download_click', {
         event_category: 'engagement',
-        event_label: 'github_releases_latest',
+        event_label: 'github_releases',
         transport_type: 'beacon',
       });
       // Give the beacon a moment to fire (browsers prioritize beacons even
@@ -66,6 +66,6 @@ const GA_ID = 'G-19V4705C82';
     <noscript>
       <meta http-equiv="refresh" content={`0; url=${TARGET}`} />
     </noscript>
-    <p>Redirecting to the latest release… If you aren't redirected, <a href={TARGET}>click here</a>.</p>
+    <p>Redirecting to downloads… If you aren't redirected, <a href={TARGET}>click here</a>.</p>
   </body>
 </html>
