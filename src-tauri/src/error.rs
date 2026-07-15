@@ -77,6 +77,9 @@ pub enum AppError {
     #[allow(dead_code)]
     #[error("transfer cancelled")]
     TransferCancelled,
+
+    #[error("updater: {0}")]
+    Updater(String),
 }
 
 impl Serialize for AppError {
@@ -115,6 +118,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::PathTraversal => "path_traversal",
         AppError::XServerMissing => "xserver_missing",
         AppError::TransferCancelled => "transfer_cancelled",
+        AppError::Updater(_) => "updater",
     }
 }
 

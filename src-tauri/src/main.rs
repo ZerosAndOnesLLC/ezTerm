@@ -129,6 +129,8 @@ async fn main() {
             commands::sync::sync_disable,
             commands::sync::sync_push_now,
             commands::sync::sync_pull_to_temp,
+            commands::updater::updater_check,
+            commands::updater::updater_download_install,
             commands::splash::ui_ready,
         ])
         .run(tauri::generate_context!())
