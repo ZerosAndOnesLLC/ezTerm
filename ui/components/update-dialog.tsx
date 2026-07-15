@@ -1,31 +1,34 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw, Sparkles, X,
+  AlertTriangle, CheckCircle2, Download, FlaskConical, Loader2, RefreshCw, Sparkles, X,
 } from 'lucide-react';
-import { type Update } from '@tauri-apps/plugin-updater';
-import { checkForUpdate, downloadAndInstall, relaunch } from '@/lib/updater';
+import {
+  type UpdateInfo, checkForUpdate, downloadAndInstall, relaunch,
+  getPreReleaseOptIn, setPreReleaseOptIn,
+} from '@/lib/updater';
 import { errMessage } from '@/lib/tauri';
 
 interface Props {
   /** If provided, skip the initial check and start from "update-available".
    *  Used when the auto-check fired before the user opened the dialog. */
-  initialUpdate?: Update | null;
+  initialUpdate?: UpdateInfo | null;
   onClose: () => void;
 }
 
 type Phase =
   | { kind: 'checking' }
   | { kind: 'up-to-date' }
-  | { kind: 'available'; update: Update }
-  | { kind: 'downloading'; update: Update; downloaded: number; total: number | null }
-  | { kind: 'installed'; update: Update }
+  | { kind: 'available'; update: UpdateInfo }
+  | { kind: 'downloading'; update: UpdateInfo; downloaded: number; total: number | null }
+  | { kind: 'installed'; update: UpdateInfo }
   | { kind: 'error'; message: string };
 
 export function UpdateDialog({ initialUpdate, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>(
     initialUpdate ? { kind: 'available', update: initialUpdate } : { kind: 'checking' },
   );
+  const [preRelease, setPreRelease] = useState(getPreReleaseOptIn());
   const busy = phase.kind === 'checking' || phase.kind === 'downloading' || phase.kind === 'installed';
   const startedRef = useRef(false);
 
@@ -59,7 +62,7 @@ export function UpdateDialog({ initialUpdate, onClose }: Props) {
     const update = phase.update;
     setPhase({ kind: 'downloading', update, downloaded: 0, total: null });
     try {
-      await downloadAndInstall(update, (downloaded, total) => {
+      await downloadAndInstall((downloaded, total) => {
         setPhase({ kind: 'downloading', update, downloaded, total });
       });
       setPhase({ kind: 'installed', update });
@@ -74,6 +77,21 @@ export function UpdateDialog({ initialUpdate, onClose }: Props) {
     setPhase({ kind: 'checking' });
     try {
       const u = await checkForUpdate();
+      setPhase(u ? { kind: 'available', update: u } : { kind: 'up-to-date' });
+    } catch (e) {
+      setPhase({ kind: 'error', message: errMessage(e) });
+    }
+  }
+
+  // Flip the release channel and immediately re-check so the result reflects
+  // the new channel. Persisted so auto-checks follow the same channel.
+  async function toggleChannel(on: boolean) {
+    if (busy) return;
+    setPreRelease(on);
+    setPreReleaseOptIn(on);
+    setPhase({ kind: 'checking' });
+    try {
+      const u = await checkForUpdate(on);
       setPhase(u ? { kind: 'available', update: u } : { kind: 'up-to-date' });
     } catch (e) {
       setPhase({ kind: 'error', message: errMessage(e) });
@@ -120,12 +138,17 @@ export function UpdateDialog({ initialUpdate, onClose }: Props) {
 
           {phase.kind === 'available' && (
             <>
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-baseline gap-2 flex-wrap">
                 <span className="text-muted text-xs">Current</span>
-                <span className="font-mono">{phase.update.currentVersion}</span>
+                <span className="font-mono">{phase.update.current_version}</span>
                 <span className="text-muted mx-1">→</span>
                 <span className="text-muted text-xs">New</span>
                 <span className="font-mono font-semibold text-accent">{phase.update.version}</span>
+                {phase.update.pre_release && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                    <FlaskConical size={10} /> Pre-release
+                  </span>
+                )}
               </div>
               {phase.update.date && (
                 <div className="text-muted text-xs">
@@ -176,6 +199,31 @@ export function UpdateDialog({ initialUpdate, onClose }: Props) {
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <span className="break-words">{phase.message}</span>
             </div>
+          )}
+
+          {phase.kind !== 'downloading' && phase.kind !== 'installed' && (
+            <label
+              className={`flex items-start gap-2.5 pt-3 mt-1 border-t border-border ${busy ? 'opacity-60' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                checked={preRelease}
+                disabled={busy}
+                onChange={(e) => void toggleChannel(e.target.checked)}
+                className="mt-0.5 accent-accent"
+              />
+              <span className="flex-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <FlaskConical size={12} className="text-amber-500" />
+                  Include pre-releases (beta)
+                </span>
+                <span className="block text-muted text-xs mt-0.5">
+                  Track the newest release, including pre-release builds, to
+                  test versions before they ship publicly. The offered build
+                  must have a higher version than what you have installed.
+                </span>
+              </span>
+            </label>
           )}
         </div>
 

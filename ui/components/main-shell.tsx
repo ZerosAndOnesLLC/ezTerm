@@ -1,11 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { PanelLeftOpen } from 'lucide-react';
-import { type Update } from '@tauri-apps/plugin-updater';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
-import { maybeAutoCheck } from '@/lib/updater';
+import { maybeAutoCheck, type UpdateInfo } from '@/lib/updater';
 import { SessionsSidebar } from './sessions-sidebar';
 import { TabsShell } from './tabs-shell';
 import { StatusBar } from './status-bar';
@@ -55,7 +54,7 @@ export function MainShell({ onLock }: { onLock: () => void }) {
   // GitHub Releases endpoint on every unlock. If an update is waiting,
   // surface a prompt via UpdateDialog; the user can always dismiss and
   // install later from the sidebar menu.
-  const [autoUpdate, setAutoUpdate] = useState<Update | null>(null);
+  const [autoUpdate, setAutoUpdate] = useState<UpdateInfo | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const autoUpdateChecked = useRef(false);
   useEffect(() => {

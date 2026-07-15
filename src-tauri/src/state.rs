@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use sqlx::SqlitePool;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::local::LocalRegistry;
 use crate::sftp::upload_stream::UploadStreamRegistry;
@@ -49,6 +49,11 @@ pub struct AppState {
     /// to floor the splash's visible duration so it doesn't flicker on
     /// a cold machine with fast cache.
     pub started_at: Instant,
+    /// The `Update` produced by the most recent `updater_check`, held so a
+    /// subsequent `updater_download_install` can act on the exact release the
+    /// user reviewed (stable or pre-release channel). Single-slot: a fresh
+    /// check overwrites it.
+    pub pending_update: Arc<Mutex<Option<tauri_plugin_updater::Update>>>,
 }
 
 impl AppState {
@@ -67,6 +72,7 @@ impl AppState {
             xserver: Arc::new(XServerManager::new()),
             sync,
             started_at: Instant::now(),
+            pending_update: Arc::new(Mutex::new(None)),
         }
     }
 

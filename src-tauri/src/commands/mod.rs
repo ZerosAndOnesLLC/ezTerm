@@ -11,6 +11,7 @@ pub mod sftp;
 pub mod splash;
 pub mod ssh;
 pub mod sync;
+pub mod updater;
 pub mod vault;
 pub mod xserver;
 
