@@ -22,23 +22,23 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 argon2 = "0.5"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 rand = "0.10"
-zeroize = { version = "1.8", features = ["derive"] }
+zeroize = { version = "1.9", features = ["derive"] }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 directories = "6"
 
-russh = "0.61"
-russh-sftp = "2.1"
+russh = "0.62"
+russh-sftp = "2.4"
 sha2 = "0.11"
-base64 = "0.22"
+base64 = "0.23"
 async-channel = "2"
 bytes = "1"
 portable-pty = "0.9"

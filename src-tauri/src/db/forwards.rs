@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{AssertSqlSafe, FromRow, SqlitePool};
 
 use crate::error::{AppError, Result};
 
@@ -84,7 +84,7 @@ pub async fn list_for_session(pool: &SqlitePool, session_id: i64) -> Result<Vec<
         "SELECT {SELECT_COLS} FROM session_forwards \
          WHERE session_id = ? ORDER BY sort, id"
     );
-    Ok(sqlx::query_as::<_, Forward>(&sql).bind(session_id).fetch_all(pool).await?)
+    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(session_id).fetch_all(pool).await?)
 }
 
 pub async fn list_auto_start(pool: &SqlitePool, session_id: i64) -> Result<Vec<Forward>> {
@@ -92,12 +92,12 @@ pub async fn list_auto_start(pool: &SqlitePool, session_id: i64) -> Result<Vec<F
         "SELECT {SELECT_COLS} FROM session_forwards \
          WHERE session_id = ? AND auto_start = 1 ORDER BY sort, id"
     );
-    Ok(sqlx::query_as::<_, Forward>(&sql).bind(session_id).fetch_all(pool).await?)
+    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(session_id).fetch_all(pool).await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Forward> {
     let sql = format!("SELECT {SELECT_COLS} FROM session_forwards WHERE id = ?");
-    sqlx::query_as::<_, Forward>(&sql).bind(id)
+    sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(id)
         .fetch_optional(pool).await?
         .ok_or(AppError::NotFound)
 }

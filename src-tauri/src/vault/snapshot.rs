@@ -56,7 +56,7 @@ pub async fn take(pool: &SqlitePool, label: &str) -> Result<PathBuf> {
     let filename = format!("{SNAPSHOT_PREFIX}{label}-{stamp}{SNAPSHOT_SUFFIX}");
     let target = dir.join(&filename);
     let escaped = target.to_string_lossy().replace('\'', "''");
-    sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("VACUUM INTO '{escaped}'")))
         .execute(pool).await?;
 
     // Lock the snapshot down on unix so it can't be read by other
@@ -129,7 +129,7 @@ mod tests {
 
         let target = tmp.path().join("snap.sqlite");
         let escaped = target.to_string_lossy().replace('\'', "''");
-        sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("VACUUM INTO '{escaped}'")))
             .execute(&pool).await.unwrap();
         assert!(target.exists());
     }

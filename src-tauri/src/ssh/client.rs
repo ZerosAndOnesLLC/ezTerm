@@ -99,9 +99,14 @@ impl client::Handler for ClientHandler {
         channel: russh::Channel<Msg>,
         _originator_address: &str,
         _originator_port: u32,
+        reply: russh::client::ChannelOpenHandle,
         _session: &mut russh::client::Session,
     ) -> std::result::Result<(), Self::Error> {
+        // Dropping `reply` without accepting sends the server an
+        // AdministrativelyProhibited rejection — the right answer when
+        // X11 wasn't negotiated on this connection.
         let Some(display) = self.x11_display else { return Ok(()); };
+        reply.accept().await;
         let target = format!("127.0.0.1:{}", 6000 + display as u16);
         tokio::spawn(async move {
             let tcp = match tokio::net::TcpStream::connect(&target).await {
@@ -136,6 +141,7 @@ impl client::Handler for ClientHandler {
         connected_port: u32,
         _originator_address: &str,
         _originator_port: u32,
+        reply: russh::client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> std::result::Result<(), Self::Error> {
         let key = (connected_address.to_string(), connected_port);
@@ -149,7 +155,10 @@ impl client::Handler for ClientHandler {
         // SSH channel window. `send` only fails if the receiver was
         // dropped, in which case the forward was cancelled mid-flight
         // and dropping the channel is the right move.
+        // Dropping `reply` without accepting rejects the open, which is
+        // the right move when the forward was cancelled mid-flight.
         if let Some(tx) = tx {
+            reply.accept().await;
             let _ = tx.send(channel);
         }
         Ok(())

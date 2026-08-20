@@ -1,4 +1,4 @@
-use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
 use rand::{rngs::SysRng, TryRng};
 use zeroize::Zeroizing;
 
@@ -12,21 +12,23 @@ impl Aead256 {
     pub fn new(key: &[u8; 32]) -> Self { Self(Zeroizing::new(*key)) }
 
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&*self.0));
+        let cipher =
+            ChaCha20Poly1305::new_from_slice(&*self.0).map_err(|_| AppError::Crypto)?;
         let mut nonce_bytes = [0u8; NONCE_LEN];
         SysRng
             .try_fill_bytes(&mut nonce_bytes)
             .map_err(|_| AppError::Crypto)?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
-        let ct = cipher.encrypt(nonce, plaintext).map_err(|_| AppError::Crypto)?;
+        let nonce = Nonce::from(nonce_bytes);
+        let ct = cipher.encrypt(&nonce, plaintext).map_err(|_| AppError::Crypto)?;
         Ok((nonce_bytes.to_vec(), ct))
     }
 
     pub fn decrypt(&self, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
         if nonce.len() != NONCE_LEN { return Err(AppError::Crypto); }
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&*self.0));
-        let nonce = Nonce::from_slice(nonce);
-        cipher.decrypt(nonce, ciphertext).map_err(|_| AppError::Crypto)
+        let cipher =
+            ChaCha20Poly1305::new_from_slice(&*self.0).map_err(|_| AppError::Crypto)?;
+        let nonce = Nonce::try_from(nonce).map_err(|_| AppError::Crypto)?;
+        cipher.decrypt(&nonce, ciphertext).map_err(|_| AppError::Crypto)
     }
 }
 

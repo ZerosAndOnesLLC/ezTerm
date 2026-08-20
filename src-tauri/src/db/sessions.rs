@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use crate::error::Result;
 
@@ -95,12 +95,12 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
     let sql = format!(
         "SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id"
     );
-    Ok(sqlx::query_as::<_, Session>(&sql).fetch_all(pool).await?)
+    Ok(sqlx::query_as::<_, Session>(AssertSqlSafe(sql)).fetch_all(pool).await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Session> {
     let sql = format!("SELECT {SELECT_COLS} FROM sessions WHERE id = ?");
-    sqlx::query_as::<_, Session>(&sql)
+    sqlx::query_as::<_, Session>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(pool)
         .await?

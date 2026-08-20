@@ -72,7 +72,7 @@ async fn heal_line_ending_checksums(pool: &SqlitePool) -> crate::error::Result<(
             continue;
         }
 
-        let lf = embedded.sql.replace("\r\n", "\n");
+        let lf = embedded.sql.as_str().replace("\r\n", "\n");
         let crlf = lf.replace('\n', "\r\n");
         let lf_hash = Sha384::digest(lf.as_bytes());
         let crlf_hash = Sha384::digest(crlf.as_bytes());
