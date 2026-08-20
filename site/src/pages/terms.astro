@@ -1,0 +1,163 @@
+---
+// site/src/pages/terms.astro
+import '../styles/global.css';
+import SiteFooter from '../components/SiteFooter.astro';
+import GoogleAnalytics from '../components/GoogleAnalytics.astro';
+
+const BASE = import.meta.env.BASE_URL;
+const SITE = 'https://ezterm.zerosandones.us';
+const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
+---
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>ezTerm Terms of Use</title>
+    <meta name="description" content="Terms of use for ezTerm, the free, open-source SSH client. Provided as-is under GPLv3, without warranty of any kind." />
+    <link rel="canonical" href={`${SITE}/terms/`} />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="ezTerm Terms of Use" />
+    <meta property="og:description" content="ezTerm is provided as-is under GPLv3, without warranty of any kind." />
+    <meta property="og:url" content={`${SITE}/terms/`} />
+    <meta property="og:image" content={`${SITE}/og.png`} />
+    <meta property="og:site_name" content="ezTerm" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ezTerm Terms of Use" />
+    <meta name="twitter:description" content="ezTerm is provided as-is under GPLv3, without warranty of any kind." />
+    <meta name="twitter:image" content={`${SITE}/og.png`} />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
+    <link rel="apple-touch-icon" href={`${BASE}ezterm-icon-192.png`} />
+    <link rel="manifest" href={`${BASE}manifest.json`} />
+    <GoogleAnalytics />
+  </head>
+  <body class="bg-site-bg text-site-fg">
+    <header class="border-b border-site-border">
+      <div class="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <a href={BASE} class="flex items-center font-bold tracking-tight">
+          <img src={`${BASE}ezterm-icon.png`} alt="ezTerm" width="40" height="40" class="h-10 w-auto" />
+        </a>
+        <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
+          <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>
+          <a href={`${BASE}screenshots/`} class="hover:text-site-fg">Screenshots</a>
+          <a href={`${BASE}changelog/`} class="hover:text-site-fg">Changelog</a>
+          <a href="https://github.com/ZerosAndOnesLLC/ezTerm" class="hover:text-site-fg">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-6 py-12">
+      <h1 class="text-4xl font-bold tracking-tight mb-2">Terms of Use</h1>
+      <p class="text-site-fg-muted mb-10">Effective date: August 20, 2026</p>
+
+      <div class="prose prose-invert max-w-none">
+        <p>
+          These terms apply to the <strong>ezTerm</strong> desktop application and the
+          <strong>ezterm.zerosandones.us</strong> website, operated by Zeros and Ones LLC
+          ("we", "us"). By downloading, installing, or using ezTerm, or by using this website,
+          you agree to these terms. If you do not agree, do not use the software or the site.
+        </p>
+
+        <h2>License</h2>
+        <p>
+          ezTerm is free, open-source software licensed under the
+          <a href={`${REPO}/blob/main/LICENSE`}>GNU General Public License, version 3 (GPLv3)</a>.
+          The GPLv3 governs your rights to use, copy, modify, and redistribute the software.
+          Nothing in these terms restricts the rights the GPLv3 grants you; these terms
+          supplement it with respect to the website, downloads, and your use of the software.
+        </p>
+
+        <h2>Disclaimer of warranty</h2>
+        <p>
+          TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE AND THE WEBSITE ARE
+          PROVIDED <strong>"AS IS"</strong> AND <strong>"AS AVAILABLE"</strong>, WITHOUT WARRANTY
+          OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
+          MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. WE DO
+          NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, SECURE, OR UNINTERRUPTED, THAT DEFECTS
+          WILL BE CORRECTED, OR THAT THE SOFTWARE IS FREE OF VULNERABILITIES. THE ENTIRE RISK AS
+          TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH YOU. SHOULD THE SOFTWARE PROVE
+          DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION.
+        </p>
+
+        <h2>Limitation of liability</h2>
+        <p>
+          TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL ZEROS AND ONES LLC,
+          ITS MEMBERS, CONTRIBUTORS, OR COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT, INDIRECT,
+          INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES WHATSOEVER —
+          INCLUDING WITHOUT LIMITATION LOSS OF DATA, LOSS OF CREDENTIALS, DATA BEING RENDERED
+          INACCURATE, UNAUTHORIZED ACCESS TO YOUR SYSTEMS, BUSINESS INTERRUPTION, LOST PROFITS,
+          OR FAILURE OF THE SOFTWARE TO OPERATE WITH ANY OTHER SOFTWARE — ARISING OUT OF OR IN
+          CONNECTION WITH THE USE OF OR INABILITY TO USE THE SOFTWARE OR THE WEBSITE, HOWEVER
+          CAUSED AND UNDER ANY THEORY OF LIABILITY (CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY,
+          OR OTHERWISE), EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. WHERE LIABILITY
+          CANNOT BE EXCLUDED, IT IS LIMITED TO THE AMOUNT YOU PAID FOR THE SOFTWARE, WHICH IS
+          ZERO. SOME JURISDICTIONS DO NOT ALLOW THE EXCLUSION OR LIMITATION OF CERTAIN WARRANTIES
+          OR DAMAGES, SO SOME OF THE ABOVE MAY NOT APPLY TO YOU; IN THAT CASE, LIABILITY IS
+          LIMITED TO THE GREATEST EXTENT PERMITTED BY LAW.
+        </p>
+
+        <h2>Your responsibilities</h2>
+        <p>
+          ezTerm is a tool for connecting to remote systems. You are solely responsible for:
+        </p>
+        <ul>
+          <li>
+            Only connecting to systems you own or are authorized to access, and complying with
+            all applicable laws and the policies of the systems and networks you use.
+          </li>
+          <li>
+            Safeguarding your master password, credentials, and keys. If you lose your master
+            password, your vault cannot be recovered — by you or by us.
+          </li>
+          <li>
+            Maintaining backups of your data. Verify host key fingerprints and exercise your own
+            judgment when accepting new hosts.
+          </li>
+          <li>
+            Anything you do on remote systems through ezTerm, including commands executed and
+            files transferred or deleted.
+          </li>
+        </ul>
+
+        <h2>Third-party services and software</h2>
+        <p>
+          Updates are distributed via GitHub Releases, and the optional X server component
+          (VcXsrv) is downloaded from SourceForge. These are independent services with their own
+          terms; we are not responsible for their availability or content. VcXsrv is separate
+          software with its own license and is not part of ezTerm.
+        </p>
+
+        <h2>Indemnification</h2>
+        <p>
+          You agree to indemnify and hold harmless Zeros and Ones LLC and the project's
+          contributors from any claims, damages, or expenses (including reasonable attorneys'
+          fees) arising from your use or misuse of the software, your violation of these terms,
+          or your violation of any law or third-party right.
+        </p>
+
+        <h2>Changes to these terms</h2>
+        <p>
+          We may update these terms from time to time; changes take effect when posted on this
+          page with an updated effective date. Continued use of the software or site after
+          changes are posted constitutes acceptance. The full history of this document is
+          available in the <a href={REPO}>public repository</a>.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about these terms? Open an issue on
+          <a href={`${REPO}/issues`}>GitHub</a>, or use the channels in our
+          <a href={`${REPO}/blob/main/SECURITY.md`}>security policy</a> for anything sensitive.
+        </p>
+
+        <p>
+          See also our <a href="/privacy/">Privacy Policy</a>.
+        </p>
+      </div>
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>

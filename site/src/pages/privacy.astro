@@ -1,0 +1,143 @@
+---
+// site/src/pages/privacy.astro
+import '../styles/global.css';
+import SiteFooter from '../components/SiteFooter.astro';
+import GoogleAnalytics from '../components/GoogleAnalytics.astro';
+
+const BASE = import.meta.env.BASE_URL;
+const SITE = 'https://ezterm.zerosandones.us';
+const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
+---
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>ezTerm Privacy Policy</title>
+    <meta name="description" content="Privacy policy for ezTerm, the free, open-source SSH client. The app collects no personal data and contains no telemetry, analytics, or accounts." />
+    <link rel="canonical" href={`${SITE}/privacy/`} />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="ezTerm Privacy Policy" />
+    <meta property="og:description" content="ezTerm collects no personal data. No telemetry, no analytics, no accounts." />
+    <meta property="og:url" content={`${SITE}/privacy/`} />
+    <meta property="og:image" content={`${SITE}/og.png`} />
+    <meta property="og:site_name" content="ezTerm" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ezTerm Privacy Policy" />
+    <meta name="twitter:description" content="ezTerm collects no personal data. No telemetry, no analytics, no accounts." />
+    <meta name="twitter:image" content={`${SITE}/og.png`} />
+    <link rel="icon" type="image/png" href={`${BASE}ezterm-icon.png`} />
+    <link rel="apple-touch-icon" href={`${BASE}ezterm-icon-192.png`} />
+    <link rel="manifest" href={`${BASE}manifest.json`} />
+    <GoogleAnalytics />
+  </head>
+  <body class="bg-site-bg text-site-fg">
+    <header class="border-b border-site-border">
+      <div class="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <a href={BASE} class="flex items-center font-bold tracking-tight">
+          <img src={`${BASE}ezterm-icon.png`} alt="ezTerm" width="40" height="40" class="h-10 w-auto" />
+        </a>
+        <nav class="flex items-center gap-6 text-sm text-site-fg-muted">
+          <a href={`${BASE}docs/`} class="hover:text-site-fg">Docs</a>
+          <a href={`${BASE}screenshots/`} class="hover:text-site-fg">Screenshots</a>
+          <a href={`${BASE}changelog/`} class="hover:text-site-fg">Changelog</a>
+          <a href="https://github.com/ZerosAndOnesLLC/ezTerm" class="hover:text-site-fg">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-6 py-12">
+      <h1 class="text-4xl font-bold tracking-tight mb-2">Privacy Policy</h1>
+      <p class="text-site-fg-muted mb-10">Effective date: August 20, 2026</p>
+
+      <div class="prose prose-invert max-w-none">
+        <p>
+          This policy covers the <strong>ezTerm</strong> desktop application and the
+          <strong>ezterm.zerosandones.us</strong> website, both operated by Zeros and Ones LLC
+          ("we", "us"). The short version: <strong>the ezTerm application collects no personal
+          data.</strong> It has no telemetry, no analytics, no advertising, and no user accounts.
+          We never see your hostnames, usernames, passwords, keys, or terminal traffic.
+        </p>
+
+        <h2>Data stored on your device</h2>
+        <p>
+          ezTerm stores its data in a local SQLite database on your computer. This includes your
+          saved sessions and folders (hostnames, ports, usernames), known-host fingerprints,
+          application settings, and — if you use the credential vault — your saved credentials.
+        </p>
+        <p>
+          Vault credentials are encrypted at rest with ChaCha20-Poly1305 using a key derived from
+          your master password with Argon2id. Your master password is never stored; without it,
+          the vault cannot be decrypted — by you, by us, or by anyone else. Decrypted secrets
+          exist only in memory while in use and are wiped afterwards.
+        </p>
+        <p>
+          None of this data ever leaves your device, and we have no ability to access it.
+          Uninstalling ezTerm (and removing its data directory) deletes it entirely.
+        </p>
+
+        <h2>Network connections the app makes</h2>
+        <p>ezTerm connects to the network only in these cases:</p>
+        <ul>
+          <li>
+            <strong>Your SSH / SFTP / SCP sessions.</strong> The app connects directly to the
+            servers you configure, at your instruction. This traffic goes between your computer
+            and your servers; it does not pass through, and is not visible to, any service we
+            operate.
+          </li>
+          <li>
+            <strong>Update checks.</strong> ezTerm checks GitHub Releases
+            (<code>github.com</code>) for new versions and downloads updates from there. Like any
+            web request, GitHub receives your IP address and a user-agent string; we receive
+            nothing. See the
+            <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>.
+          </li>
+          <li>
+            <strong>Optional X server download (Windows).</strong> If you enable X11 support and
+            choose to install the bundled X server, ezTerm downloads VcXsrv from SourceForge
+            (<code>sourceforge.net</code>), which is governed by the
+            <a href="https://slashdotmedia.com/privacy-statement/">Slashdot Media privacy policy</a>.
+            This happens only when you request it.
+          </li>
+        </ul>
+
+        <h2>Website analytics</h2>
+        <p>
+          This website (not the app) uses Google Analytics 4 to count page views, configured with
+          IP anonymization and with Google signals and ad-personalization disabled. We use it only
+          to understand aggregate site traffic. See the
+          <a href="https://policies.google.com/privacy">Google Privacy Policy</a>. The ezTerm
+          application itself contains no analytics of any kind.
+        </p>
+
+        <h2>Children's privacy</h2>
+        <p>
+          ezTerm does not collect personal data from anyone, including children.
+        </p>
+
+        <h2>Changes to this policy</h2>
+        <p>
+          If we change this policy, we will update this page and the effective date above.
+          Because the site and the app are open source, the full history of this document is
+          available in the <a href={REPO}>public repository</a>.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about this policy? Open an issue on
+          <a href={`${REPO}/issues`}>GitHub</a>, or use the reporting channels described in our
+          <a href={`${REPO}/blob/main/SECURITY.md`}>security policy</a> for anything sensitive.
+        </p>
+
+        <p>
+          See also our <a href="/terms/">Terms of Use</a>, which cover the disclaimer of
+          warranty and limitation of liability for the software and this site.
+        </p>
+      </div>
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>
