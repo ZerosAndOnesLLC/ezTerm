@@ -52,6 +52,19 @@ jobs:
         env:
           NODE_ENV: production
 
+      # The MS Store requires a redirect-free installer URL, and GitHub
+      # release asset links always 302 to a signed CDN URL. Pages serves
+      # files directly, so bundle the latest release's MSI into the site
+      # under /dl/.
+      - name: Bundle latest MSI for direct download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site/dist/dl
+          gh release download --repo "$GITHUB_REPOSITORY" \
+            --pattern '*_x64_en-US.msi' --dir site/dist/dl
+          ls -la site/dist/dl
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
