@@ -17,7 +17,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^7.2.4",
+    "astro": "^7.3.2",
     "isomorphic-dompurify": "^3.13.0",
     "marked": "^18.0.3",
     "sharp": "^0.35.3",
