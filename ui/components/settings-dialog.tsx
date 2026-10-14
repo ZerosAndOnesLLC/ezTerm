@@ -247,17 +247,22 @@ function BoolRow({ k, label, hint }: { k: BoolKey; label: string; hint?: string 
 function IntRow({ k, label, hint, step = 1 }: { k: IntKey; label: string; hint?: string; step?: number }) {
   const value = useSettings((s) => s.settings[k]);
   const set = useSettings((s) => s.set);
-  // Local draft so the user can clear the field while typing; the store
-  // only sees valid integers (blur or a valid keystroke commits). When
-  // the store value changes underneath (clamped, or reverted after a
-  // failed save) the draft follows — adjusted during render, not in an
-  // effect, per the React guidance for derived state.
+  // Local draft while typing; the store is written once, on blur or
+  // Enter, so an intermediate prefix below the minimum ("1" on the way
+  // to "13") is never clamped out from under the user and each edit is
+  // one IPC write. When the store value changes underneath (reverted
+  // after a failed save) the draft follows — adjusted during render,
+  // not in an effect, per the React guidance for derived state.
   const [draft, setDraft] = useState(String(value));
   const [seen, setSeen] = useState(value);
   if (seen !== value) {
     setSeen(value);
     setDraft(String(value));
   }
+  const commit = () => {
+    if (draft !== '' && set(k, Number(draft))) return;
+    setDraft(String(useSettings.getState().settings[k]));
+  };
   return (
     <Row label={label} hint={hint}>
       <input
@@ -265,11 +270,9 @@ function IntRow({ k, label, hint, step = 1 }: { k: IntKey; label: string; hint?:
         step={step}
         value={draft}
         aria-label={label}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (e.target.value !== '') set(k, Number(e.target.value));
-        }}
-        onBlur={() => setDraft(String(useSettings.getState().settings[k]))}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         className="input w-28 text-right tabular-nums"
       />
     </Row>

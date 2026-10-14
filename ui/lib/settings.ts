@@ -174,8 +174,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
         const legacy = localStorage.getItem(LEGACY_PRE_RELEASE_KEY);
         if (legacy === 'true') {
           next['updates.preRelease'] = true;
-          void api.settingsSet('updates.preRelease', 'true').catch(() => {});
-          localStorage.removeItem(LEGACY_PRE_RELEASE_KEY);
+          // Drop the legacy key only once the DB holds the value.
+          void api.settingsSet('updates.preRelease', 'true')
+            .then(() => localStorage.removeItem(LEGACY_PRE_RELEASE_KEY))
+            .catch(() => {});
         }
       } catch { /* localStorage unavailable */ }
     }
@@ -190,7 +192,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set((s) => ({ settings: { ...s.settings, [key]: clean } }));
     api.settingsSet(key, serializeSetting(key, clean)).catch((e: unknown) => {
       toast.danger('Setting not saved', errMessage(e));
-      set((s) => ({ settings: { ...s.settings, [key]: prev } }));
+      // Roll back only if nothing newer landed on this key meanwhile.
+      set((s) => (s.settings[key] === clean ? { settings: { ...s.settings, [key]: prev } } : {}));
     });
     return true;
   },
