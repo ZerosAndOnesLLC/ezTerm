@@ -5,7 +5,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, errMessage } from '@/lib/tauri';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
-import { subscribeSshEvents } from '@/lib/ssh';
+import { createOutputChannel, subscribeSshEvents } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { TerminalContextMenu } from './terminal-context-menu';
 import { FindOverlay } from './find-overlay';
@@ -118,11 +118,14 @@ export function TerminalView({ tab, visible }: Props) {
         resize:     isLocal ? api.localResize     : api.sshResize,
         disconnect: isLocal ? api.localDisconnect : api.sshDisconnect,
       };
+      // Output channel is created before the connect call so the backend
+      // can never emit into a listener that doesn't exist yet.
+      const output = createOutputChannel((bytes) => bundle.terminal.write(bytes));
       let result: { connection_id: number };
       try {
         result = isLocal
-          ? await api.localConnect(tab.session.id, cols, rows)
-          : await api.sshConnect(tab.session.id, cols, rows, trustAny, disableX11);
+          ? await api.localConnect(tab.session.id, cols, rows, output)
+          : await api.sshConnect(tab.session.id, cols, rows, trustAny, disableX11, output);
       } catch (e) {
         const code = (e as { code?: string })?.code;
         // Host-key prompts are SSH-specific; local kinds can't produce them.
@@ -167,7 +170,6 @@ export function TerminalView({ tab, visible }: Props) {
       // Local PTYs reuse the ssh:* event topics so the subscriber doesn't
       // need to branch — the backend emits ssh:data/close for both.
       const unlisten = await subscribeSshEvents(result.connection_id, {
-        onData:  (bytes) => bundle.terminal.write(bytes),
         onClose: () => setStatus(tab.tabId, 'closed'),
         onError: (msg) => fail(msg),
       });

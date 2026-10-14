@@ -21,6 +21,7 @@ pub async fn ssh_connect(
     rows: u16,
     trust_any: bool,
     disable_x11: Option<bool>,
+    output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<ConnectResult> {
     super::require_unlocked(&state).await?;
     let deps = ssh::ConnectDeps::from_state(&state);
@@ -33,6 +34,7 @@ pub async fn ssh_connect(
             rows,
             trust_any,
             disable_x11: disable_x11.unwrap_or(false),
+            output,
         },
     )
     .await?;

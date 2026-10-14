@@ -17,9 +17,10 @@ pub async fn local_connect(
     session_id: i64,
     cols: u16,
     rows: u16,
+    output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<LocalConnectResult> {
     require_unlocked(&state).await?;
-    let out = local::spawn_from_session(&state, app, session_id, cols, rows).await?;
+    let out = local::spawn_from_session(&state, app, session_id, cols, rows, output).await?;
     Ok(LocalConnectResult {
         connection_id: out.connection_id,
     })

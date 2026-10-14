@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { OutputChannel } from './ssh';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialDetail, CredentialKind, VaultStatus,
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
@@ -104,8 +105,11 @@ export const api = {
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
 
   // SSH
-  sshConnect:    (sessionId: number, cols: number, rows: number, trustAny: boolean, disableX11?: boolean) =>
-    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11 }),
+  sshConnect:    (
+    sessionId: number, cols: number, rows: number, trustAny: boolean,
+    disableX11: boolean | undefined, output: OutputChannel,
+  ) =>
+    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11, output }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('ssh_write', { connectionId, bytes }),
   sshResize:     (connectionId: number, cols: number, rows: number) =>
@@ -153,8 +157,8 @@ export const api = {
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
   // Local PTY (WSL / cmd / pwsh)
-  localConnect:    (sessionId: number, cols: number, rows: number) =>
-    invoke<{ connection_id: number }>('local_connect', { sessionId, cols, rows }),
+  localConnect:    (sessionId: number, cols: number, rows: number, output: OutputChannel) =>
+    invoke<{ connection_id: number }>('local_connect', { sessionId, cols, rows, output }),
   localWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('local_write', { connectionId, bytes }),
   localResize:     (connectionId: number, cols: number, rows: number) =>

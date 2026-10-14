@@ -5,6 +5,7 @@ use russh::keys::agent::client::AgentClient;
 use russh::keys::agent::AgentIdentity;
 use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::Channel;
+use tauri::ipc::{Channel as IpcChannel, InvokeResponseBody};
 use tauri::AppHandle;
 use tauri::Emitter;
 use tokio::sync::mpsc;
@@ -32,6 +33,13 @@ pub struct ConnectRequest {
     /// X11" button in the VcXsrv-missing dialog so the user can reach
     /// the host right now without editing the session.
     pub disable_x11: bool,
+    /// Where shell output goes. A Tauri IPC channel created by the
+    /// frontend before it invokes `ssh_connect`, so a listener is
+    /// guaranteed to exist before the first byte arrives. Payloads are
+    /// sent as `InvokeResponseBody::Raw` and land in JS as an
+    /// `ArrayBuffer` — the previous `ssh:data` event carried a JSON
+    /// `number[]`, 5–7 bytes on the wire per byte of output.
+    pub output: IpcChannel<InvokeResponseBody>,
 }
 
 pub struct ConnectOutcome {
@@ -557,6 +565,7 @@ async fn connect_impl(
     let xserver_reg = deps.xserver.clone();
     tokio::spawn(drive_channel(
         app,
+        req.output,
         id,
         handle_arc,
         channel,
@@ -768,6 +777,7 @@ async fn check_known_host(
 
 async fn drive_channel(
     app: AppHandle,
+    output: IpcChannel<InvokeResponseBody>,
     id: u64,
     handle: Arc<Handle<ClientHandler>>,
     mut channel: Channel<Msg>,
@@ -777,18 +787,20 @@ async fn drive_channel(
     xserver_reg: Arc<XServerManager>,
     x11_display: Option<u8>,
 ) {
-    let ev_data = format!("ssh:data:{id}");
     let ev_close = format!("ssh:close:{id}");
     let ev_error = format!("ssh:error:{id}");
     loop {
         tokio::select! {
             maybe_msg = channel.wait() => {
                 match maybe_msg {
+                    // Send errors mean the webview side of the channel is
+                    // gone (tab closed, window reloaded); the Close path
+                    // below tears the connection down shortly after.
                     Some(russh::ChannelMsg::Data { data }) => {
-                        let _ = app.emit(&ev_data, data.to_vec());
+                        let _ = output.send(InvokeResponseBody::Raw(data.to_vec()));
                     }
                     Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                        let _ = app.emit(&ev_data, data.to_vec());
+                        let _ = output.send(InvokeResponseBody::Raw(data.to_vec()));
                     }
                     Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
                         let _ = app.emit(&ev_close, exit_status);
