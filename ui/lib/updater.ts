@@ -1,20 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { getSetting, useSettings } from './settings';
 
-/** localStorage key for the last-check timestamp (RFC3339 string). Used
- *  to enforce the monthly cadence without a DB round-trip. */
+/** localStorage key for the last-check timestamp (RFC3339 string). State,
+ *  not a preference — it stays in localStorage. */
 const LAST_CHECK_KEY = 'ezterm.updater.lastCheckAt';
-
-/** localStorage key for the pre-release opt-in. When 'true', the updater
- *  tracks the beta channel (newest release including pre-releases) instead
- *  of stable-only. Lets a user test a build before it's promoted to the
- *  public latest release. */
-const PRE_RELEASE_KEY = 'ezterm.updater.preRelease';
-
-/** Auto-check cadence. v0.14 default: once every 30 days. User can
- *  still trigger a manual check from the sidebar menu any time. */
-const AUTO_CHECK_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Metadata about an available update. Mirrors the Rust `UpdateInfo`
  *  (snake_case fields), returned by the `updater_check` command. */
@@ -26,12 +17,14 @@ export interface UpdateInfo {
   pre_release: boolean;
 }
 
+/** Channel preference — `updates.preRelease` in the settings store. When
+ *  true the updater tracks the newest release including pre-releases. */
 export function getPreReleaseOptIn(): boolean {
-  return localStorage.getItem(PRE_RELEASE_KEY) === 'true';
+  return getSetting('updates.preRelease');
 }
 
 export function setPreReleaseOptIn(on: boolean): void {
-  localStorage.setItem(PRE_RELEASE_KEY, on ? 'true' : 'false');
+  useSettings.getState().set('updates.preRelease', on);
 }
 
 /** Check the requested channel for an update. The backend stashes the
@@ -43,15 +36,19 @@ export async function checkForUpdate(preRelease = getPreReleaseOptIn()): Promise
   return u ?? null;
 }
 
-/** Silent auto-check — only runs if the configured interval has elapsed
- *  since the last check. Uses the persisted channel preference. Returns the
- *  UpdateInfo when one is available and cadence allows; returns null
- *  otherwise (including "still within window" which isn't an error). */
+/** Silent auto-check — only runs if `updates.checkOnLaunch` is on and the
+ *  configured interval (`updates.intervalDays`) has elapsed since the last
+ *  check. Uses the persisted channel preference. Returns the UpdateInfo
+ *  when one is available and cadence allows; returns null otherwise
+ *  (including "still within window" which isn't an error). Call after
+ *  the settings store is hydrated. */
 export async function maybeAutoCheck(): Promise<UpdateInfo | null> {
+  if (!getSetting('updates.checkOnLaunch')) return null;
+  const intervalMs = getSetting('updates.intervalDays') * 24 * 60 * 60 * 1000;
   const last = localStorage.getItem(LAST_CHECK_KEY);
   if (last) {
     const lastMs = Date.parse(last);
-    if (Number.isFinite(lastMs) && Date.now() - lastMs < AUTO_CHECK_INTERVAL_MS) {
+    if (Number.isFinite(lastMs) && Date.now() - lastMs < intervalMs) {
       return null;
     }
   }

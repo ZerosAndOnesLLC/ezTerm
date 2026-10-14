@@ -43,6 +43,7 @@ import type {
 import { forwardLabel } from '@/lib/forwards';
 import { ForwardDialog } from './forward-dialog';
 import { CredentialPicker } from './credential-picker';
+import { useSettings } from '@/lib/settings';
 
 type Mode =
   | { mode: 'create'; folderId: number | null }
@@ -64,24 +65,30 @@ type TabKey = 'general' | 'terminal' | 'advanced' | 'forwards';
 // connections. 60s matches MobaXterm's default. Users can still set 0 to
 // disable. Existing rows are backfilled by migration
 // 20260423120000_keepalive_default_60.sql.
-const DEFAULTS: Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'username'> = {
-  auth_type: 'agent',
-  credential_id: null,
-  key_passphrase_credential_id: null,
-  color: null,
-  initial_command: null,
-  scrollback_lines: 5000,
-  font_size: 13,
-  font_family: '',
-  cursor_style: 'block',
-  compression: 0,
-  keepalive_secs: 60,
-  connect_timeout_secs: 15,
-  env: [],
-  session_kind: 'ssh',
-  forward_x11: 0,
-  starting_dir: null,
-};
+// Display and connection defaults come from the Settings panel
+// (lib/settings.ts, `terminal.*` / `sessions.*`); the values there are
+// the ones described above.
+function makeDefaults(): Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'port' | 'username'> {
+  const s = useSettings.getState().settings;
+  return {
+    auth_type: 'agent',
+    credential_id: null,
+    key_passphrase_credential_id: null,
+    color: null,
+    initial_command: null,
+    scrollback_lines: s['terminal.scrollback'],
+    font_size: s['terminal.fontSize'],
+    font_family: s['terminal.fontFamily'],
+    cursor_style: s['terminal.cursorStyle'],
+    compression: 0,
+    keepalive_secs: s['sessions.keepaliveSecs'],
+    connect_timeout_secs: s['sessions.connectTimeoutSecs'],
+    env: [],
+    session_kind: 'ssh',
+    forward_x11: 0,
+    starting_dir: null,
+  };
+}
 
 // Palette for the tab-color dot. Slate stores null = "no accent".
 const SWATCHES = [
@@ -130,7 +137,7 @@ export function SessionDialog(props: Props) {
       host: '',
       port: 22,
       username: '',
-      ...DEFAULTS,
+      ...makeDefaults(),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId, newRoot, props.mode]);

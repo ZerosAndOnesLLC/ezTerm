@@ -47,6 +47,15 @@ on those platforms.
 - Per-session font size, scrollback depth, cursor style, env vars, keepalive,
   connect timeout, initial command, compression.
 
+### Settings
+
+- **Settings panel** (sidebar menu or the status-bar gear). Every control
+  saves on change. Defaults for new sessions (scrollback, font, cursor,
+  keepalive, connect timeout), copy-on-select, right-click paste, a
+  warning before multi-line pastes, the OSC 52 clipboard switch, bell
+  behaviour, confirm-before-close / quit, auto-open the file pane, update
+  channel and cadence, and an idle auto-lock timer for the vault.
+
 ### Workspace
 - **Sessions sidebar** — folders + drag-and-drop (sessions into folders, folders
   into folders, drop on the tree background to root). Folder session-count

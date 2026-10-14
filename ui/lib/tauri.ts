@@ -103,6 +103,7 @@ export const api = {
   // Settings
   settingsGet: (key: string) => invoke<string | null>('settings_get', { key }),
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
+  settingsList: () => invoke<[string, string][]>('settings_list'),
 
   // SSH
   sshConnect:    (

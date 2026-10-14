@@ -1,25 +1,22 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Lock, Monitor, Moon, Sparkles, Sun } from 'lucide-react';
+import { Lock, Monitor, Moon, Settings, Sparkles, Sun } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
-import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/theme';
+import { useTheme, type Theme } from '@/lib/theme';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
+import { useSettings } from '@/lib/settings';
 import type { XServerStatus } from '@/lib/types';
 
 type StatusBarProps = { onLock: () => void; onOpenUpdater: () => void };
 
 export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
-  const [theme, setTheme] = useState<Theme>(() =>
-    typeof document !== 'undefined' && document.documentElement.classList.contains('light')
-      ? 'light'
-      : 'dark',
-  );
+  const theme    = useTheme((s) => s.theme);
+  const setTheme = useTheme((s) => s.setTheme);
+  const openSettings = useSettings((s) => s.openPanel);
   const tabs     = useTabs((s) => s.tabs);
   const activeId = useTabs((s) => s.activeId);
   const active   = tabs.find((t) => t.tabId === activeId) ?? null;
-
-  useEffect(() => { loadTheme().then(setTheme); }, []);
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
@@ -44,9 +41,7 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
 
   async function toggleTheme() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    applyTheme(next);
-    await saveTheme(next);
+    await setTheme(next);
   }
 
   // Status dot colour tracks connection state. Animate pulse on
@@ -99,6 +94,15 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
         className="icon-btn w-5 h-5"
       >
         {theme === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
+      </button>
+      <button
+        type="button"
+        onClick={openSettings}
+        aria-label="Settings"
+        title="Settings"
+        className="icon-btn w-5 h-5"
+      >
+        <Settings size={12} />
       </button>
       <button
         type="button"
