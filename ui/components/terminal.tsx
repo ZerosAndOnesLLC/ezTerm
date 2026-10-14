@@ -168,7 +168,15 @@ export function TerminalView({ tab, visible }: Props) {
       // need to branch — the backend emits ssh:data/close for both.
       const unlisten = await subscribeSshEvents(result.connection_id, {
         onData:  (bytes) => bundle.terminal.write(bytes),
-        onClose: () => setStatus(tab.tabId, 'closed'),
+        // A non-zero exit status is worth showing (a shell that died on
+        // its init script, a remote `exit 1`); zero and "no status" (the
+        // server closed the channel without one) both read as a plain
+        // disconnect.
+        onClose: (exitStatus) => setStatus(
+          tab.tabId,
+          'closed',
+          exitStatus != null && exitStatus !== 0 ? `exit ${exitStatus}` : null,
+        ),
         onError: (msg) => fail(msg),
       });
       if (cancelledRef.current) {
@@ -533,7 +541,9 @@ export function TerminalView({ tab, visible }: Props) {
             {tab.status === 'closed' && (
               <>
                 <PlugZap size={28} className="text-muted mx-auto mb-2" />
-                <div className="text-sm font-medium">Disconnected</div>
+                <div className="text-sm font-medium">
+                  Disconnected{tab.errorMessage ? ` (${tab.errorMessage})` : ''}
+                </div>
                 <div className="text-muted text-xs mt-1 font-mono">{summary}</div>
                 <button
                   type="button"

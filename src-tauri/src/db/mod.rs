@@ -1,7 +1,6 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
-use std::str::FromStr;
 
 pub mod credentials;
 pub mod folders;
@@ -16,8 +15,10 @@ pub async fn init_pool(db_path: &Path) -> crate::error::Result<SqlitePool> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let url = format!("sqlite://{}", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&url)?
+    // Pass the path directly: a profile directory containing `?` or `#`
+    // would otherwise be parsed as URL query / fragment syntax.
+    let opts = SqliteConnectOptions::new()
+        .filename(db_path)
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ezTerm is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. Upstream repo: `github.com/ZerosAndOnesLLC/ezTerm`. Target feature set for v0.1: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, SCP, and an xterm-compatible terminal.
+ezTerm is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. Upstream repo: `github.com/ZerosAndOnesLLC/ezTerm`. Target feature set for v0.1: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, and an xterm-compatible terminal.
 
 ## UX Requirements (non-negotiable for v0.1)
 
