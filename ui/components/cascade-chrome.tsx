@@ -30,7 +30,7 @@ const HANDLES: readonly { edge: ResizeEdge; cls: string; cursor: string }[] = [
 export function CascadeChrome({ tab, areaRef, areaW, areaH, setDragging, maximized }: Props) {
   const minimize  = useTabs((s) => s.minimize);
   const toggleMax = useTabs((s) => s.toggleMaximize);
-  const close     = useTabs((s) => s.close);
+  const close     = useTabs((s) => s.requestClose);
 
   // Latch setDragging into a ref so the drag/resize hooks always call the
   // current setter even if the parent rebinds (e.g. a hot-reload swaps the

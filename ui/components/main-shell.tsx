@@ -10,6 +10,11 @@ import { TabsShell } from './tabs-shell';
 import { StatusBar } from './status-bar';
 import { ToastRegion } from './toast-region';
 import { UpdateDialog } from './update-dialog';
+import { SettingsDialog } from './settings-dialog';
+import { ConfirmDialog } from './confirm-dialog';
+import { getSetting, useSettings } from '@/lib/settings';
+import { useTheme } from '@/lib/theme';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ResizeHandle } from './resize-handle';
 import { FORWARDS_PANE_W, TERMINAL_MIN_W } from '@/lib/layout';
 
@@ -73,6 +78,10 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     if (autoUpdateChecked.current) return;
     autoUpdateChecked.current = true;
     (async () => {
+      // Settings first: the auto-check honours `updates.*`, and every
+      // other consumer (session defaults, OSC 52 switch, …) reads the
+      // store non-reactively.
+      await useSettings.getState().hydrate();
       const u = await maybeAutoCheck();
       if (u) {
         setAutoUpdate(u);
@@ -144,6 +153,54 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Settings panel (sidebar menu / status-bar gear both open it).
+  const settingsOpen = useSettings((s) => s.panelOpen);
+  const closeSettings = useSettings((s) => s.closePanel);
+  // Theme store is seeded from the <html> class applied before unlock;
+  // keep it in sync in case the class changed (e.g. unlock screen toggle).
+  useEffect(() => {
+    const cls = document.documentElement.classList.contains('light') ? 'light' : 'dark';
+    if (useTheme.getState().theme !== cls) useTheme.setState({ theme: cls });
+  }, []);
+
+  // Idle auto-lock (#5): any input anywhere in the window resets the
+  // clock; a 15 s ticker locks once the configured silence has elapsed.
+  // Webview-side on purpose — "idle" means the user walked away, which
+  // only the UI can observe; the backend lock is the same one the
+  // status-bar button calls.
+  const idleMinutes = useSettings((s) => s.settings['security.idleLockMinutes']);
+  useEffect(() => {
+    if (idleMinutes <= 0) return;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const events = ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const;
+    for (const ev of events) window.addEventListener(ev, bump, { capture: true, passive: true });
+    const tick = window.setInterval(() => {
+      if (Date.now() - last >= idleMinutes * 60_000) onLock();
+    }, 15_000);
+    return () => {
+      for (const ev of events) window.removeEventListener(ev, bump, { capture: true });
+      window.clearInterval(tick);
+    };
+  }, [idleMinutes, onLock]);
+
+  // Confirm on quit while tabs are connected. Tauri fires close-requested
+  // for the title-bar X and Alt+F4; preventing it keeps the window, and
+  // the confirm's Quit calls destroy() which bypasses this hook.
+  const [exitConfirm, setExitConfirm] = useState(false);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    getCurrentWindow().onCloseRequested((e) => {
+      const live = useTabs.getState().tabs.some((t) => t.status === 'connected');
+      if (live && getSetting('sessions.confirmExit')) {
+        e.preventDefault();
+        setExitConfirm(true);
+      }
+    }).then((u) => { if (disposed) u(); else unlisten = u; }).catch(() => {});
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
+
   // Global Ctrl+B toggles the sidebar.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -206,6 +263,17 @@ export function MainShell({ onLock }: { onLock: () => void }) {
       </div>
       <StatusBar onLock={onLock} onOpenUpdater={() => setUpdateDialogOpen(true)} />
       <ToastRegion />
+      {settingsOpen && <SettingsDialog onClose={closeSettings} />}
+      {exitConfirm && (
+        <ConfirmDialog
+          kind="danger"
+          title="Quit ezTerm?"
+          body="Connected sessions will be closed."
+          confirmText="Quit"
+          onCancel={() => setExitConfirm(false)}
+          onConfirm={() => { getCurrentWindow().destroy().catch(() => setExitConfirm(false)); }}
+        />
+      )}
       {updateDialogOpen && (
         <UpdateDialog
           initialUpdate={autoUpdate}

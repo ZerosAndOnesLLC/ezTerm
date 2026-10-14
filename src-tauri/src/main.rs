@@ -64,6 +64,7 @@ async fn main() {
             commands::import::mobaxterm_preview,
             commands::import::mobaxterm_commit,
             commands::settings::settings_get,
+            commands::settings::settings_list,
             commands::settings::settings_set,
             commands::vault::vault_status,
             commands::vault::vault_init,

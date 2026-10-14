@@ -30,6 +30,12 @@ export interface TerminalOptionsOverride {
    *  usable from the webview on every platform. Rejections are reported
    *  through `onClipboardError` (if given) and never propagate. */
   onClipboardWrite?: (text: string) => Promise<void>;
+  /** Consulted per OSC 52 sequence, so the Settings switch applies to
+   *  open tabs immediately. Defaults to allowed. */
+  allowClipboardWrite?: () => boolean;
+  /** BEL (0x07) received. */
+  onBell?: () => void;
+  cursorBlink?: boolean;
   /** Called when an OSC 52 write fails, e.g. no xclip / wl-clipboard on
    *  Linux, so the user learns the copy did not land. */
   onClipboardError?: (error: unknown) => void;
@@ -68,7 +74,7 @@ export function resolveFontFamily(value: string | undefined | null): string {
  *  MobaXterm-aligned defaults below. */
 export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBundle {
   const terminal = new Terminal({
-    cursorBlink: true,
+    cursorBlink: opts.cursorBlink ?? true,
     cursorStyle: opts.cursorStyle ?? 'block',
     fontFamily: resolveFontFamily(opts.fontFamily),
     fontSize: opts.fontSize ?? 14,
@@ -131,7 +137,7 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
   if (write) {
     terminal.parser.registerOscHandler(52, (data) => {
       const req = parseOsc52(data);
-      if (req.kind === 'write') {
+      if (req.kind === 'write' && (opts.allowClipboardWrite?.() ?? true)) {
         // Promise.resolve().then(...) also catches a synchronous throw
         // from the sink; nothing may escape into xterm's parse loop.
         void Promise.resolve()
@@ -141,6 +147,8 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
       return true;
     });
   }
+
+  if (opts.onBell) terminal.onBell(opts.onBell);
 
   return {
     terminal, fit, search, links,

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Session } from './types';
+import { getSetting } from './settings';
 
 export type TabStatus = 'connecting' | 'connected' | 'closed' | 'error';
 
@@ -82,6 +83,8 @@ interface TabsState {
   tabs:       Tab[];
   activeId:   string | null;
   sidebarCollapsed: boolean;
+  /** Tab awaiting the "close a connected tab?" confirmation. */
+  pendingClose: string | null;
 
   viewMode:   ViewMode;
   tileGrid:   { rows: number; cols: number };
@@ -95,6 +98,11 @@ interface TabsState {
   setConnection: (tabId: string, connectionId: number) => void;
   setActive:  (tabId: string | null) => void;
   close:      (tabId: string) => void;
+  /** Close, or park in `pendingClose` when the tab is connected and
+   *  `sessions.confirmCloseLive` is on. All UI close affordances go
+   *  through here; `close` is the unconditional form. */
+  requestClose: (tabId: string) => void;
+  setPendingClose: (tabId: string | null) => void;
   clear:      () => void;
   setSftpOpen:     (tabId: string, open: boolean) => void;
   setForwardsOpen: (tabId: string, open: boolean) => void;
@@ -146,6 +154,7 @@ export const useTabs = create<TabsState>((set, get) => ({
   tabs: [],
   activeId: null,
   sidebarCollapsed: false,
+  pendingClose: null,
 
   viewMode:  readViewMode(),
   tileGrid:  readTileGrid(),
@@ -202,7 +211,16 @@ export const useTabs = create<TabsState>((set, get) => ({
       minimized.delete(tabId);
       return { tabs, activeId, cascade, minimized };
     }),
-  clear: () => set({ tabs: [], activeId: null, cascade: {}, minimized: new Set() }),
+  requestClose: (tabId) => {
+    const t = get().tabs.find((x) => x.tabId === tabId);
+    if (t && t.status === 'connected' && getSetting('sessions.confirmCloseLive')) {
+      set({ pendingClose: tabId });
+    } else {
+      get().close(tabId);
+    }
+  },
+  setPendingClose: (tabId) => set({ pendingClose: tabId }),
+  clear: () => set({ tabs: [], activeId: null, cascade: {}, minimized: new Set(), pendingClose: null }),
   setSftpOpen: (tabId, open) =>
     set((s) => ({
       tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, sftpOpen: open } : t)),

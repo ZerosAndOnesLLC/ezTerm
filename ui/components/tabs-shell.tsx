@@ -6,6 +6,8 @@ import { beginPointerDrag } from '@/lib/pointer-drag';
 import { MdiArea } from './mdi-area';
 import { ViewModeToolbar } from './view-mode-toolbar';
 import { StatusDot } from './status-dot';
+import { ConfirmDialog } from './confirm-dialog';
+import { useSettings } from '@/lib/settings';
 
 type DropTarget = { index: number; side: 'left' | 'right' };
 
@@ -22,8 +24,11 @@ export function TabsShell() {
   const tabs      = useTabs((s) => s.tabs);
   const activeId  = useTabs((s) => s.activeId);
   const setActive = useTabs((s) => s.setActive);
-  const close     = useTabs((s) => s.close);
+  const close     = useTabs((s) => s.requestClose);
   const reorder   = useTabs((s) => s.reorder);
+  const pendingClose = useTabs((s) => s.pendingClose);
+  const pendingTab = pendingClose ? tabs.find((t) => t.tabId === pendingClose) : undefined;
+  const tabLabel  = useSettings((s) => s.settings['appearance.tabLabel']);
 
   // Pointer-event drag-reorder (NOT HTML5 DnD — WebKitGTK's native drag can
   // hold the pointer grab forever and freeze the app on Linux, see #109).
@@ -240,7 +245,9 @@ export function TabsShell() {
                     t.errorMessage ? `\n${t.errorMessage}` : ''
                   }`}
                 >
-                  {t.session.name}
+                  {tabLabel === 'userhost' && t.session.username
+                    ? `${t.session.username}@${t.session.host}`
+                    : t.session.name}
                 </span>
                 {(t.session.session_kind === 'ssh' || t.session.session_kind === 'wsl') && (
                   <button
@@ -300,6 +307,19 @@ export function TabsShell() {
       <div className="flex-1 min-h-0 relative">
         <MdiArea />
       </div>
+      {pendingTab && (
+        <ConfirmDialog
+          kind="danger"
+          title={`Close "${pendingTab.session.name}"?`}
+          body="This tab is connected. Closing it ends the session."
+          confirmText="Close tab"
+          onCancel={() => useTabs.getState().setPendingClose(null)}
+          onConfirm={() => {
+            useTabs.getState().setPendingClose(null);
+            useTabs.getState().close(pendingTab.tabId);
+          }}
+        />
+      )}
     </div>
   );
 }

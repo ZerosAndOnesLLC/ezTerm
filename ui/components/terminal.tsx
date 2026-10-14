@@ -16,6 +16,23 @@ import { AuthFixOverlay } from './auth-fix-overlay';
 import { XServerMissingDialog } from './xserver-missing-dialog';
 import { resolveFontFamily } from '@/lib/xterm';
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
+import { getSetting } from '@/lib/settings';
+import { ConfirmDialog } from './confirm-dialog';
+
+/** Short 880 Hz tick via WebAudio — no asset to ship, ~80 ms. */
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 880;
+    gain.gain.value = 0.05;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
+    osc.onended = () => { void ctx.close(); };
+  } catch { /* no audio device */ }
+}
 
 /** One toast per failure burst: a program retrying OSC 52 in a loop must
  *  not flood the toast region. */
@@ -76,6 +93,14 @@ export function TerminalView({ tab, visible }: Props) {
   const connectionIdRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [pendingPaste, setPendingPaste] = useState<string | null>(null);
+  const [bellFlash, setBellFlash] = useState(false);
+  const bellTimer = useRef<number | null>(null);
+  function flashBell() {
+    setBellFlash(true);
+    if (bellTimer.current) window.clearTimeout(bellTimer.current);
+    bellTimer.current = window.setTimeout(() => setBellFlash(false), 120);
+  }
   const [find, setFind] = useState(false);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [authFix, setAuthFix] = useState(false);
@@ -177,6 +202,12 @@ export function TerminalView({ tab, visible }: Props) {
       connectionIdRef.current = result.connection_id;
       setConn(tab.tabId, result.connection_id);
       setStatus(tab.tabId, 'connected');
+      if (
+        getSetting('sessions.autoOpenSftp') &&
+        (tab.session.session_kind === 'ssh' || tab.session.session_kind === 'wsl')
+      ) {
+        useTabs.getState().setSftpOpen(tab.tabId, true);
+      }
 
       // Local PTYs reuse the ssh:* event topics so the subscriber doesn't
       // need to branch — the backend emits ssh:data/close for both.
@@ -248,9 +279,23 @@ export function TerminalView({ tab, visible }: Props) {
       fontFamily: tab.session.font_family,
       scrollback: tab.session.scrollback_lines,
       cursorStyle: tab.session.cursor_style,
+      cursorBlink: getSetting('terminal.cursorBlink'),
       // Same native clipboard path as doCopy — see the note there.
       onClipboardWrite: writeText,
       onClipboardError: reportClipboardError,
+      allowClipboardWrite: () => getSetting('terminal.osc52Clipboard'),
+      onBell: () => {
+        const mode = getSetting('terminal.bell');
+        if (mode === 'sound') beep();
+        else if (mode === 'visual') flashBell();
+      },
+    });
+    // Copy-on-select (off by default): mirrors PuTTY / MobaXterm. Read
+    // per event so the Settings switch applies without a reopen.
+    bundle.terminal.onSelectionChange(() => {
+      if (!getSetting('terminal.copyOnSelect')) return;
+      const sel = bundle.terminal.getSelection();
+      if (sel) writeText(sel).catch(() => {});
     });
     bundleRef.current = bundle;
     cancelledRef.current = false;
@@ -393,6 +438,12 @@ export function TerminalView({ tab, visible }: Props) {
     // the subsequent action — and any keystrokes after it — land in the
     // terminal without an extra left-click.
     getCurrentWindow().setFocus().catch(() => {});
+    // Right-click-to-paste (PuTTY / MobaXterm convention) is a setting;
+    // Ctrl + right-click always reaches the menu so nothing is lost.
+    if (getSetting('terminal.rightClick') === 'paste' && !e.ctrlKey) {
+      void doPaste();
+      return;
+    }
     setMenu({ x: e.clientX, y: e.clientY });
   }
 
@@ -487,6 +538,17 @@ export function TerminalView({ tab, visible }: Props) {
     // cross-platform reliability on Linux/macOS.
     const txt = await readText();
     if (!txt || !tab.connectionId) return;
+    // A newline anywhere before the end means the shell would execute
+    // lines as they land. Ask first unless the user turned that off.
+    if (getSetting('terminal.warnMultilinePaste') && /[\r\n]/.test(txt.trimEnd())) {
+      setPendingPaste(txt);
+      return;
+    }
+    pasteText(txt);
+  }
+
+  function pasteText(txt: string) {
+    if (!tab.connectionId) return;
     const bundle = bundleRef.current;
     if (!bundle) return;
     // Go through xterm's own `paste()` instead of encoding + writing to
@@ -521,12 +583,22 @@ export function TerminalView({ tab, visible }: Props) {
 
   return (
     <div
-      className="relative h-full w-full bg-bg"
+      className={`relative h-full w-full bg-bg ${bellFlash ? 'ring-2 ring-inset ring-warning' : ''}`}
       onContextMenu={handleContextMenu}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       <div ref={containerRef} className="h-full w-full p-1" />
+      {pendingPaste !== null && (
+        <ConfirmDialog
+          kind="danger"
+          title="Paste multiple lines?"
+          body={`The clipboard holds ${pendingPaste.trimEnd().split(/\r\n|\r|\n/).length} lines. Each one will run as you paste it.`}
+          confirmText="Paste"
+          onCancel={() => setPendingPaste(null)}
+          onConfirm={() => { const t = pendingPaste; setPendingPaste(null); pasteText(t); }}
+        />
+      )}
       {showOverlay && (
         <div className="absolute inset-0 bg-bg/70 backdrop-blur-sm flex items-center justify-center overlay-in pointer-events-none">
           <div className="bg-surface border border-border rounded-md shadow-dialog px-5 py-4 w-[360px] max-w-[90%] text-center pointer-events-auto dialog-in">

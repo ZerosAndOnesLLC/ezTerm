@@ -56,6 +56,7 @@ import { MoveToFolderDialog } from './move-to-folder-dialog';
 import { ChangePasswordDialog } from './change-password-dialog';
 import { RecoveryCodeDialog } from './recovery-code-dialog';
 import { CredentialsDialog } from './credentials-dialog';
+import { useSettings } from '@/lib/settings';
 
 interface TreeNode {
   folder: TFolder | null; // null = root
@@ -396,6 +397,8 @@ export function SessionsSidebar() {
         { label: 'Restore\u2026', onClick: pickRestoreFile },
         { separator: true },
         { label: 'Cloud sync\u2026', onClick: () => setSyncOpen(true) },
+        { separator: true },
+        { label: 'Settings\u2026', onClick: () => useSettings.getState().openPanel() },
         { separator: true },
         { label: 'Credentials\u2026', onClick: () => setCredentialsOpen(true) },
         { label: 'Change master password\u2026', onClick: () => setChangePwOpen(true) },

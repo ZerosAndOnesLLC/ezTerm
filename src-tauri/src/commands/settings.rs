@@ -19,6 +19,14 @@ pub async fn settings_get(state: State<'_, AppState>, key: String) -> Result<Opt
     settings::get(&state.db, &key).await
 }
 
+/// Every stored key/value pair. Used once at unlock to hydrate the
+/// frontend settings store instead of one round trip per key.
+#[tauri::command]
+pub async fn settings_list(state: State<'_, AppState>) -> Result<Vec<(String, String)>> {
+    require_unlocked(&state).await?;
+    settings::list_all(&state.db).await
+}
+
 #[tauri::command]
 pub async fn settings_set(state: State<'_, AppState>, key: String, value: String) -> Result<()> {
     require_unlocked(&state).await?;
