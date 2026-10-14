@@ -12,20 +12,20 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.0",
-    "@fontsource/inter": "^5.2.8",
-    "@fontsource/jetbrains-mono": "^5.2.8",
-    "@fontsource/space-grotesk": "^5.2.10",
-    "@tailwindcss/vite": "^4.3.0",
-    "astro": "^7.3.2",
-    "isomorphic-dompurify": "^4.2.0",
-    "marked": "^18.0.12",
-    "sharp": "^0.35.4",
+    "@astrojs/starlight": "^0.42.6",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.3.8",
+    "isomorphic-dompurify": "^4.5.0",
+    "marked": "^18.1.1",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
-    "@tailwindcss/typography": "^0.5.19",
-    "@types/node": "^25.9.6",
-    "vitest": "^5.0.0"
+    "@tailwindcss/typography": "^0.5.20",
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.4"
   }
 }

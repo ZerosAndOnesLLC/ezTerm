@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use russh::client::{self, Config, Handle, Msg};
 use russh::keys::agent::client::AgentClient;
 use russh::keys::agent::AgentIdentity;
-use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
+use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::Channel;
 use tauri::AppHandle;
 use tauri::Emitter;
@@ -74,11 +74,17 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &ssh_key::PublicKey,
+        server_key: &russh::keys::PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
+        // russh 0.63+ may hand us an OpenSSH host *certificate* instead of
+        // a bare key. We fingerprint the host key in either case (for a
+        // certificate, the key it certifies) — the CA signature isn't
+        // validated here, so a cert-bearing host is pinned by its key
+        // exactly like a plain one and existing `known_hosts` rows stay
+        // valid.
+        let server_public_key = server_key.public_key();
         // `to_bytes()` encodes the `KeyData` into the SSH-wire public-key
-        // blob — same bytes we fingerprint in `fingerprint_sha256`, so
-        // existing `known_hosts` rows stay valid.
+        // blob — same bytes we fingerprint in `fingerprint_sha256`.
         let blob = server_public_key.to_bytes()?;
         let fp = fingerprint_sha256(&blob);
         let alg = server_public_key.algorithm().as_str().to_string();
