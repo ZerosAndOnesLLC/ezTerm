@@ -51,7 +51,10 @@ on those platforms.
   row. Resizable with a grab-strip on the right edge (180 – 520 px, persisted).
 - **Tab bar** with coloured status dots (pulse on connecting, green on
   connected, red on error), middle-click to close, per-tab SFTP toggle.
-- **SFTP side-pane** docked on the active SSH or WSL tab — breadcrumb
+  Tabs auto-size down to a readable floor, then the strip scrolls (mouse
+  wheel or edge chevrons) and keeps the active tab in view.
+- **SFTP side-pane** docked on the active SSH or WSL tab — resizable with a
+  grab-strip on its right edge (200 – 640 px, persisted) — breadcrumb
   navigation, right-click context menu (Download, Rename, Delete), drag-drop
   upload from Explorer with streaming 32 KiB chunks and live progress. WSL
   tabs browse the distro's filesystem through the Plan 9 bridge

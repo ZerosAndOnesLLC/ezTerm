@@ -4,7 +4,9 @@ import { FolderPlus, Inbox, Loader2, RefreshCw, Upload, UploadCloud } from 'luci
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
 import type { SftpEntry } from '@/lib/types';
-import { useTabs, type Tab } from '@/lib/tabs-store';
+import {
+  useTabs, type Tab, SFTP_PANE_MIN, SFTP_PANE_MAX, SFTP_PANE_DEFAULT,
+} from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { SftpBreadcrumb } from './sftp-breadcrumb';
@@ -13,6 +15,7 @@ import { TransferStatus, type TrackedTransfer } from './transfer-status';
 import { ConfirmDialog } from './confirm-dialog';
 import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
+import { ResizeHandle } from './resize-handle';
 
 /** Hard upper bound on per-file streaming upload. SFTP itself has no
  *  meaningful limit; this is purely a "you probably meant to use a
@@ -102,6 +105,7 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<TrackedTransfer[]>([]);
+  const paneWidth = useTabs((s) => s.sftpPaneWidth);
   const [opened, setOpened] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
@@ -497,7 +501,8 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
 
   return (
     <div
-      className="h-full w-72 border-r border-border bg-surface flex flex-col min-h-0 shrink-0 relative"
+      className="h-full border-r border-border bg-surface flex flex-col min-h-0 shrink-0 relative"
+      style={{ width: paneWidth }}
       onDragOver={(ev) => {
         ev.preventDefault();
         // WebView2 needs the explicit copy effect to actually fire `drop`
@@ -673,6 +678,14 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           }}
         />
       )}
+      <ResizeHandle
+        width={paneWidth}
+        min={SFTP_PANE_MIN}
+        max={SFTP_PANE_MAX}
+        onChange={useTabs.getState().setSftpPaneWidth}
+        onReset={() => useTabs.getState().setSftpPaneWidth(SFTP_PANE_DEFAULT)}
+        label="Resize file pane"
+      />
     </div>
   );
 }

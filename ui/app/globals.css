@@ -201,3 +201,16 @@ body {
     transition-duration: 0s !important;
   }
 }
+
+/* Scroller with no visible scrollbar — the tab strip is 32 px tall and a
+   6 px bar inside it would sit on top of the active-tab indicator. The
+   strip still scrolls via wheel, chevrons, drag auto-scroll, and
+   scrollIntoView. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
