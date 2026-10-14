@@ -62,11 +62,6 @@ pub enum AppError {
     #[error("sftp: {0}")]
     Sftp(String),
 
-    // Consumed by Bundle 3 (`commands::scp::scp_upload/scp_download`).
-    #[allow(dead_code)]
-    #[error("scp: {0}")]
-    Scp(String),
-
     #[error("path traversal rejected")]
     PathTraversal,
 
@@ -114,7 +109,6 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::HostKeyUntrusted => "host_key_untrusted",
         AppError::ChannelClosed => "channel_closed",
         AppError::Sftp(_) => "sftp",
-        AppError::Scp(_) => "scp",
         AppError::PathTraversal => "path_traversal",
         AppError::XServerMissing => "xserver_missing",
         AppError::TransferCancelled => "transfer_cancelled",
