@@ -265,33 +265,41 @@ pub async fn reorder(
     Ok(())
 }
 
+/// Columns copied verbatim from the source row. Everything in the table
+/// except `id` (auto), `name` (suffixed) and `sort` (left at its default so
+/// the copy lands at the end of its folder, like `create`).
+const DUPLICATE_COLS: &str = "folder_id, host, port, username, auth_type, \
+credential_id, key_passphrase_credential_id, color, \
+initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
+keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
+
+/// Copy a session and its env rows server-side in one transaction — no
+/// read-modify-write round trip through Rust, and no window where the
+/// source can change (or vanish) between the read and the insert.
 pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
-    let src = get(pool, id).await?;
-    let env = env_get(pool, id).await?;
-    let input = SessionInput {
-        folder_id: src.folder_id,
-        name: format!("{} (copy)", src.name),
-        host: src.host,
-        port: src.port,
-        username: src.username,
-        auth_type: src.auth_type,
-        credential_id: src.credential_id,
-        key_passphrase_credential_id: src.key_passphrase_credential_id,
-        color: src.color,
-        initial_command: src.initial_command,
-        scrollback_lines: src.scrollback_lines,
-        font_size: src.font_size,
-        font_family: src.font_family,
-        cursor_style: src.cursor_style,
-        compression: src.compression,
-        keepalive_secs: src.keepalive_secs,
-        connect_timeout_secs: src.connect_timeout_secs,
-        env,
-        session_kind: src.session_kind,
-        forward_x11: src.forward_x11,
-        starting_dir: src.starting_dir,
-    };
-    create(pool, &input).await
+    let mut tx = pool.begin().await?;
+    let sql = format!(
+        "INSERT INTO sessions (name, {DUPLICATE_COLS}) \
+         SELECT name || ' (copy)', {DUPLICATE_COLS} FROM sessions WHERE id = ?"
+    );
+    let inserted = sqlx::query(AssertSqlSafe(sql))
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if inserted.rows_affected() == 0 {
+        return Err(crate::error::AppError::NotFound);
+    }
+    let new_id = inserted.last_insert_rowid();
+    sqlx::query(
+        "INSERT INTO session_env (session_id, key, value) \
+         SELECT ?, key, value FROM session_env WHERE session_id = ?",
+    )
+    .bind(new_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    get(pool, new_id).await
 }
 
 #[cfg(test)]
@@ -333,6 +341,39 @@ mod tests {
             forward_x11: 0,
             starting_dir: None,
         }
+    }
+
+    #[tokio::test]
+    async fn duplicate_copies_fields_and_env_atomically() {
+        let p = pool().await;
+        let mut src = input("alpha");
+        src.port = 2222;
+        src.color = Some("#ff0000".into());
+        src.env = vec![
+            EnvPair { key: "LANG".into(), value: "C.UTF-8".into() },
+            EnvPair { key: "TERM".into(), value: "xterm-256color".into() },
+        ];
+        let s = create(&p, &src).await.unwrap();
+
+        let dupe = duplicate(&p, s.id).await.unwrap();
+        assert_ne!(dupe.id, s.id);
+        assert_eq!(dupe.name, "alpha (copy)");
+        assert_eq!(dupe.port, 2222);
+        assert_eq!(dupe.color.as_deref(), Some("#ff0000"));
+        let mut env = env_get(&p, dupe.id).await.unwrap();
+        env.sort_by(|a, b| a.key.cmp(&b.key));
+        assert_eq!(env.len(), 2);
+        assert_eq!(env[0].key, "LANG");
+        assert_eq!(env[1].value, "xterm-256color");
+        // Source env is untouched (not moved).
+        assert_eq!(env_get(&p, s.id).await.unwrap().len(), 2);
+
+        // Unknown source id surfaces as NotFound with nothing inserted.
+        assert!(matches!(
+            duplicate(&p, 999_999).await,
+            Err(crate::error::AppError::NotFound)
+        ));
+        assert_eq!(list(&p).await.unwrap().len(), 2);
     }
 
     #[tokio::test]

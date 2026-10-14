@@ -1,0 +1,153 @@
+name: ci
+
+# Runs on every pull request and on pushes to main. Four independent jobs
+# so a UI lint failure doesn't hide a Rust test failure (and vice versa):
+#
+#   rust   — cargo check (warnings are errors), clippy, tests
+#   audit  — cargo audit against the RustSec database (.cargo/audit.toml
+#            lists the accepted, unfixable advisories)
+#   ui     — typecheck, lint, Next.js static export
+#   site   — Astro build + vitest
+#
+# The release workflow (release.yml) is the only place installers are
+# built; nothing here produces artifacts.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Tauri's generate_context! embeds `frontendDist` (../ui/out) at
+      # compile time and fails if the directory is missing, so the UI is
+      # exported first even though this job never runs it.
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI (Next.js static export)
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      # Same set as release.yml: webkit2gtk 4.1 plus the desktop libs the
+      # tauri / wry / gtk crates link against.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            build-essential \
+            curl wget file xz-utils patchelf
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Warnings are errors here, matching the repo rule that cargo check
+      # must be clean before every commit.
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
+        env:
+          RUSTFLAGS: -D warnings
+
+      # Clippy is advisory for now: the codebase has a backlog of lint
+      # hits that are being worked down separately. Once it is clean,
+      # add `-- -D warnings` to make it blocking.
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Reads .cargo/audit.toml for the ignore list. Fails on any new
+      # vulnerability; unmaintained / unsound notices stay warnings.
+      - name: cargo audit
+        run: cargo audit
+
+  ui:
+    name: ui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm --prefix ui ci
+
+      - name: Typecheck
+        run: npm --prefix ui run typecheck
+
+      - name: Lint
+        run: npm --prefix ui run lint
+
+      - name: Build (Next.js static export)
+        run: npm --prefix ui run build
+
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install
+        run: npm --prefix site ci
+
+      - name: Test
+        run: npm --prefix site test
+
+      - name: Build
+        run: npm --prefix site run build

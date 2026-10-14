@@ -7,7 +7,6 @@ mod error;
 mod import;
 mod local;
 mod log_redacted;
-mod scp;
 mod sftp;
 mod ssh;
 mod state;
@@ -100,8 +99,6 @@ async fn main() {
             commands::sftp::sftp_upload_chunk,
             commands::sftp::sftp_upload_finish,
             commands::sftp::sftp_upload_abort,
-            commands::scp::scp_upload,
-            commands::scp::scp_download,
             commands::local::local_connect,
             commands::local::local_write,
             commands::local::local_resize,

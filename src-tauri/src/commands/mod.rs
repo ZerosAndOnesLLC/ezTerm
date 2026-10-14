@@ -4,7 +4,6 @@ pub mod folders;
 pub mod forwards;
 pub mod import;
 pub mod local;
-pub mod scp;
 pub mod sessions;
 pub mod settings;
 pub mod sftp;
