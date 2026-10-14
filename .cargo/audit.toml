@@ -1,0 +1,7 @@
+# cargo-audit policy for CI (see .github/workflows/ci.yml).
+[advisories]
+ignore = [
+  # rsa: Marvin timing side-channel. Pulled in transitively by russh; no
+  # patched release exists upstream. Re-check when bumping russh.
+  "RUSTSEC-2023-0071",
+]
