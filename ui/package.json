@@ -7,7 +7,8 @@
     "dev": "next dev -p 5173",
     "build": "next build",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.3",
@@ -36,6 +37,7 @@
     "eslint-config-next": "^16.4.0",
     "postcss": "^8.5.30",
     "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.4"
   }
 }

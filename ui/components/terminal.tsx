@@ -237,6 +237,8 @@ export function TerminalView({ tab, visible }: Props) {
       fontFamily: tab.session.font_family,
       scrollback: tab.session.scrollback_lines,
       cursorStyle: tab.session.cursor_style,
+      // Same native clipboard path as doCopy — see the note there.
+      onClipboardWrite: writeText,
     });
     bundleRef.current = bundle;
     cancelledRef.current = false;

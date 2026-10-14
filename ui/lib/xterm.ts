@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import type { CursorStyle } from './types';
+import { parseOsc52 } from './osc52';
 
 export interface TerminalBundle {
   terminal: Terminal;
@@ -22,6 +23,12 @@ export interface TerminalOptionsOverride {
    *  picker / session dialog are stored verbatim — we re-wrap unquoted
    *  single-name stacks in quotes so CSS doesn't split them on spaces. */
   fontFamily?: string;
+  /** Sink for OSC 52 clipboard writes (see lib/osc52.ts). Programs on
+   *  the far end of an SSH session — Claude Code, neovim, tmux — copy
+   *  through this. Omit to leave OSC 52 unhandled. The caller supplies
+   *  the Tauri clipboard plugin's writer; navigator.clipboard is not
+   *  usable from the webview on every platform. */
+  onClipboardWrite?: (text: string) => Promise<void>;
 }
 
 /** Cross-OS default stack. `ui-monospace` resolves to the OS's native
@@ -104,6 +111,20 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
   terminal.loadAddon(fit);
   terminal.loadAddon(search);
   terminal.loadAddon(links);
+
+  // OSC 52 clipboard writes. Registered per terminal, so output from any
+  // tab — visible or not — can set the clipboard, the same as Windows
+  // Terminal or tmux. Reads (`?`) are consumed but never answered.
+  // Returning true tells the parser the sequence was handled either way.
+  // The handler is disposed along with the terminal.
+  const write = opts.onClipboardWrite;
+  if (write) {
+    terminal.parser.registerOscHandler(52, (data) => {
+      const req = parseOsc52(data);
+      if (req.kind === 'write') void write(req.text).catch(() => {});
+      return true;
+    });
+  }
 
   return {
     terminal, fit, search, links,
