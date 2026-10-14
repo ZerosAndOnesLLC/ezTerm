@@ -25,6 +25,7 @@ use std::io::{Read, Write};
 use std::thread;
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
@@ -62,6 +63,7 @@ pub async fn spawn(
     state: &AppState,
     app: AppHandle,
     req: SpawnRequest,
+    output: Channel<InvokeResponseBody>,
 ) -> Result<SpawnOutcome> {
     let cmd = build_command(&req.kind, &req.program, &req.extra, req.starting_dir.as_deref())?;
     let id = state.local.alloc_id();
@@ -108,7 +110,8 @@ pub async fn spawn(
         .map_err(|e| AppError::Ssh(format!("writer: {e}")))?;
     let master = pair.master;
 
-    // Reader: bytes → "ssh:data:<id>"; EOF → "ssh:close:<id>".
+    // Reader: bytes → the frontend's IPC `output` channel (raw bytes, no
+    // JSON); EOF → "ssh:close:<id>" event.
     //
     // Blocks on `ready_rx.recv()` until `local_ready` fires (see module
     // docs — prevents prompt bytes from outrunning the frontend listener).
@@ -129,8 +132,7 @@ pub async fn spawn(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let payload: Vec<u8> = buf[..n].to_vec();
-                    let _ = reader_app.emit(&format!("ssh:data:{reader_id}"), payload);
+                    let _ = output.send(InvokeResponseBody::Raw(buf[..n].to_vec()));
                 }
                 Err(_) => break,
             }
@@ -272,6 +274,7 @@ pub async fn spawn_from_session(
     session_id: i64,
     cols: u16,
     rows: u16,
+    output: Channel<InvokeResponseBody>,
 ) -> Result<SpawnOutcome> {
     let session = crate::db::sessions::get(&state.db, session_id).await?;
     spawn(
@@ -285,6 +288,7 @@ pub async fn spawn_from_session(
             cols,
             rows,
         },
+        output,
     )
     .await
 }
