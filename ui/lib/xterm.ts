@@ -27,8 +27,12 @@ export interface TerminalOptionsOverride {
    *  the far end of an SSH session — Claude Code, neovim, tmux — copy
    *  through this. Omit to leave OSC 52 unhandled. The caller supplies
    *  the Tauri clipboard plugin's writer; navigator.clipboard is not
-   *  usable from the webview on every platform. */
+   *  usable from the webview on every platform. Rejections are reported
+   *  through `onClipboardError` (if given) and never propagate. */
   onClipboardWrite?: (text: string) => Promise<void>;
+  /** Called when an OSC 52 write fails, e.g. no xclip / wl-clipboard on
+   *  Linux, so the user learns the copy did not land. */
+  onClipboardError?: (error: unknown) => void;
 }
 
 /** Cross-OS default stack. `ui-monospace` resolves to the OS's native
@@ -117,11 +121,23 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
   // Terminal or tmux. Reads (`?`) are consumed but never answered.
   // Returning true tells the parser the sequence was handled either way.
   // The handler is disposed along with the terminal.
+  //
+  // A hand-rolled handler rather than @xterm/addon-clipboard: that addon
+  // does accept a custom provider, but it answers `?` reads from the
+  // provider and lets a rejected write surface as an unhandled rejection
+  // inside the parser. Owning the 50 lines keeps both rules enforceable.
   const write = opts.onClipboardWrite;
+  const onError = opts.onClipboardError;
   if (write) {
     terminal.parser.registerOscHandler(52, (data) => {
       const req = parseOsc52(data);
-      if (req.kind === 'write') void write(req.text).catch(() => {});
+      if (req.kind === 'write') {
+        // Promise.resolve().then(...) also catches a synchronous throw
+        // from the sink; nothing may escape into xterm's parse loop.
+        void Promise.resolve()
+          .then(() => write(req.text))
+          .catch((e: unknown) => onError?.(e));
+      }
       return true;
     });
   }

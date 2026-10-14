@@ -31,7 +31,7 @@ cargo tauri dev
 - `cargo check` must pass clean (no warnings; remove unused code, don't
   `#[allow(...)]` past warnings).
 - `cargo test --manifest-path src-tauri/Cargo.toml` passes.
-- `npm --prefix ui run typecheck` and `npm --prefix ui run lint` pass.
+- `npm --prefix ui run typecheck`, `npm --prefix ui run lint` and `npm --prefix ui test` pass.
 - Bump `Cargo.toml` version per the convention: major = breaking, minor =
   features, patch = fixes. Site/docs-only commits don't bump.
 - Migrations are added with `sqlx migrate add` so the timestamp is correct,

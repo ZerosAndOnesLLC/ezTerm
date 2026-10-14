@@ -37,11 +37,20 @@ describe('parseOsc52', () => {
     expect(parseOsc52(`c;${wrapped}`)).toEqual({ kind: 'write', text: 'a somewhat longer string' });
   });
 
+  it('accepts unpadded base64', () => {
+    expect(parseOsc52('c;aGVsbG8')).toEqual({ kind: 'write', text: 'hello' });   // 'hello', pad stripped
+    expect(parseOsc52('c;aGk')).toEqual({ kind: 'write', text: 'hi' });          // 2 chars of padding missing
+  });
+
+  it('strips NUL bytes from the decoded text', () => {
+    expect(parseOsc52(`c;${b64('ab\0cd')}`)).toEqual({ kind: 'write', text: 'abcd' });
+  });
+
   it('ignores malformed input without throwing', () => {
     expect(parseOsc52('c').kind).toBe('ignore');
     expect(parseOsc52('c;').kind).toBe('ignore');
     expect(parseOsc52('c;not base64!').kind).toBe('ignore');
-    expect(parseOsc52('c;abc').kind).toBe('ignore'); // bad length
+    expect(parseOsc52('c;abcde').kind).toBe('ignore'); // length 1 mod 4
   });
 
   it('refuses payloads over the size cap before decoding', () => {

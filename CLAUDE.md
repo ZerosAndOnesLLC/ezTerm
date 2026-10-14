@@ -47,6 +47,7 @@ No code has been scaffolded yet. Once `src-tauri/` and `ui/` exist, the expected
 - `cargo check` — must pass before every commit (see global rules)
 - `cd src-tauri && cargo test` — Rust unit/integration tests
 - `cd ui && npm run lint` — frontend lint (fix properly, no ignores)
+- `cd ui && npm test` — frontend unit tests (vitest)
 - `cargo tauri dev` — run the app in dev mode
 - `cargo tauri build` — produce a Windows installer
 - `sqlx migrate add <name>` — create migration (use `date` for correct timestamp naming)

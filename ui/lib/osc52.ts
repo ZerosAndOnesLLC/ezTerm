@@ -41,13 +41,16 @@ export function parseOsc52(data: string): Osc52Request {
   if (payload === '?') return { kind: 'read' };
   if (payload === '') return { kind: 'ignore', reason: 'empty payload' };
 
-  // Base64 as specified by RFC 4648 §4, whitespace tolerated (some
-  // senders wrap long payloads). Reject anything else before atob so a
-  // malformed sequence can't throw out of the parser callback.
-  const clean = payload.replace(/\s+/g, '');
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 !== 0) {
+  // Base64 per RFC 4648 §4. Whitespace is tolerated (some senders wrap
+  // long payloads) and so is missing padding (Rust's STANDARD_NO_PAD, Go's
+  // RawStdEncoding), which atob also accepts; a length of 1 mod 4 can
+  // never be valid. Reject anything else before atob so a malformed
+  // sequence can't throw out of the parser callback.
+  const stripped = payload.replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(stripped) || stripped.length % 4 === 1) {
     return { kind: 'ignore', reason: 'payload is not base64' };
   }
+  const clean = stripped.replace(/=+$/, '');
   // 3 decoded bytes per 4 base64 chars; check before decoding.
   if ((clean.length / 4) * 3 > MAX_OSC52_BYTES) {
     return { kind: 'ignore', reason: 'payload exceeds size cap' };
@@ -56,6 +59,8 @@ export function parseOsc52(data: string): Osc52Request {
   const binary = atob(clean);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const text = new TextDecoder('utf-8').decode(bytes);
+  // NUL terminates CF_UNICODETEXT on Windows and is rejected by some
+  // Linux clipboard backends; drop it rather than lose everything after it.
+  const text = new TextDecoder('utf-8').decode(bytes).replace(/\0/g, '');
   return { kind: 'write', text };
 }
