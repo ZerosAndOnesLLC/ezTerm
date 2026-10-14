@@ -10,12 +10,20 @@ import { StatusDot } from './status-dot';
 type DropTarget = { index: number; side: 'left' | 'right' };
 
 /** Tab width bounds (px). Applied as inline style — Tailwind can't JIT
- *  arbitrary-value classes built from template strings. */
-const TAB_MIN_W = 120;
+ *  arbitrary-value classes built from template strings. The floor must
+ *  clear an SSH tab's fixed chrome (padding, dots, three icon buttons,
+ *  gaps: ~140 px) with room for a few characters of name. */
+const TAB_MIN_W = 180;
 const TAB_MAX_W = 260;
 
 export function TabsShell() {
-  const { tabs, activeId, setActive, close, reorder } = useTabs();
+  // Slice subscriptions — a whole-store subscription would re-render the
+  // strip on every SFTP-pane resize frame and cascade-drag frame.
+  const tabs      = useTabs((s) => s.tabs);
+  const activeId  = useTabs((s) => s.activeId);
+  const setActive = useTabs((s) => s.setActive);
+  const close     = useTabs((s) => s.close);
+  const reorder   = useTabs((s) => s.reorder);
 
   // Pointer-event drag-reorder (NOT HTML5 DnD — WebKitGTK's native drag can
   // hold the pointer grab forever and freeze the app on Linux, see #109).
@@ -64,16 +72,18 @@ export function TabsShell() {
     };
   }, [tabs.length]);
 
-  // Keep the active tab visible — a newly opened tab lands at the far
-  // right of an overflowing strip, and Ctrl+Tab-style switching would
-  // otherwise move focus off-screen.
+  // Keep the active tab visible — a newly opened tab becomes active and
+  // lands at the far right of an overflowing strip, and keyboard tab
+  // switching would otherwise move focus off-screen. Keyed on activeId
+  // only: closing a non-active tab must not yank a manually scrolled
+  // strip back to the active one.
   useEffect(() => {
     if (!activeId) return;
     const el = stripRef.current?.querySelector<HTMLElement>(
       `[data-tab-id="${CSS.escape(activeId)}"]`,
     );
     el?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }, [activeId, tabs.length]);
+  }, [activeId]);
 
   const scrollBy = (dir: -1 | 1) => {
     const strip = stripRef.current;
@@ -102,8 +112,11 @@ export function TabsShell() {
 
   /** Tab-strip drop target under the pointer, by hit-testing tab rects.
    *  Past either horizontal end of the strip snaps to the first/last edge;
-   *  vertically outside the strip (plus tolerance) is no target at all. */
-  const dropTargetAt = (x: number, y: number): DropTarget | null => {
+   *  vertically outside the strip (plus tolerance) is no target at all.
+   *  The pointer x is clamped to the strip's visible box first: tabs
+   *  scrolled out of view still have rects, and a pointer over the chevron
+   *  zone must resolve to the visible edge tab, not a hidden one. */
+  const dropTargetAt = (px: number, y: number): DropTarget | null => {
     const strip = stripRef.current;
     if (!strip) return null;
     const stripRect = strip.getBoundingClientRect();
@@ -113,6 +126,7 @@ export function TabsShell() {
     ) {
       return null;
     }
+    const x = Math.max(stripRect.left, Math.min(stripRect.right - 1, px));
     const els = Array.from(strip.querySelectorAll<HTMLElement>('[data-tab-index]'));
     if (els.length === 0) return null;
     let firstLeft = Infinity;
@@ -199,7 +213,7 @@ export function TabsShell() {
                 // span is the only shrinkable child (truncate => overflow
                 // hidden => min-width 0); every icon is shrink-0.
                 style={{ minWidth: TAB_MIN_W, maxWidth: TAB_MAX_W }}
-                className={`group relative flex items-center gap-2 px-3 cursor-grab active:cursor-grabbing select-none border-r border-border ${
+                className={`group relative flex items-center gap-2 px-3 overflow-hidden cursor-grab active:cursor-grabbing select-none border-r border-border ${
                   on ? 'bg-bg text-fg' : 'text-muted hover:text-fg hover:bg-surface2/40'
                 } ${dragging ? 'opacity-50' : ''}`}
                 role="tab"

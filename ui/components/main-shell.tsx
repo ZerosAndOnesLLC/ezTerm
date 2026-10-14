@@ -11,6 +11,17 @@ import { StatusBar } from './status-bar';
 import { ToastRegion } from './toast-region';
 import { UpdateDialog } from './update-dialog';
 import { ResizeHandle } from './resize-handle';
+import { FORWARDS_PANE_W, TERMINAL_MIN_W } from '@/lib/layout';
+
+/** Space the sidebar must leave free: a usable terminal plus whichever
+ *  side panes the active tab has docked. Read at drag start. */
+function sidebarReserve(): number {
+  const s = useTabs.getState();
+  const active = s.tabs.find((t) => t.tabId === s.activeId);
+  return TERMINAL_MIN_W
+    + (active?.sftpOpen ? s.sftpPaneWidth : 0)
+    + (active?.forwardsOpen ? FORWARDS_PANE_W : 0);
+}
 
 const SIDEBAR_WIDTH_KEY = 'ezterm.sidebarWidth';
 const SIDEBAR_MIN = 180;
@@ -34,9 +45,9 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     }
     return SIDEBAR_DEFAULT;
   });
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-  }, [width]);
+  const persistWidth = (w: number) => {
+    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)); } catch { /* disabled */ }
+  };
 
   // Block ALL in-page native drag initiation. WebKitGTK's HTML5 drag can
   // take the pointer grab and never release it, hard-freezing the app on
@@ -181,8 +192,10 @@ export function MainShell({ onLock }: { onLock: () => void }) {
               width={width}
               min={SIDEBAR_MIN}
               max={SIDEBAR_MAX}
+              defaultWidth={SIDEBAR_DEFAULT}
               onChange={setWidth}
-              onReset={() => setWidth(SIDEBAR_DEFAULT)}
+              onChangeEnd={persistWidth}
+              reserve={sidebarReserve}
               label="Resize sidebar"
             />
           </aside>

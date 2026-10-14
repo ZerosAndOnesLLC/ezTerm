@@ -16,6 +16,7 @@ import { ConfirmDialog } from './confirm-dialog';
 import { PromptDialog } from './prompt-dialog';
 import { EmptyState } from './empty-state';
 import { ResizeHandle } from './resize-handle';
+import { FORWARDS_PANE_W, TERMINAL_MIN_W } from '@/lib/layout';
 
 /** Hard upper bound on per-file streaming upload. SFTP itself has no
  *  meaningful limit; this is purely a "you probably meant to use a
@@ -682,8 +683,10 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
         width={paneWidth}
         min={SFTP_PANE_MIN}
         max={SFTP_PANE_MAX}
+        defaultWidth={SFTP_PANE_DEFAULT}
         onChange={useTabs.getState().setSftpPaneWidth}
-        onReset={() => useTabs.getState().setSftpPaneWidth(SFTP_PANE_DEFAULT)}
+        onChangeEnd={useTabs.getState().persistSftpPaneWidth}
+        reserve={() => TERMINAL_MIN_W + (tab.forwardsOpen ? FORWARDS_PANE_W : 0)}
         label="Resize file pane"
       />
     </div>

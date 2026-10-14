@@ -104,6 +104,9 @@ interface TabsState {
   setSidebarCollapsed: (v: boolean) => void;
   toggleSidebar:       () => void;
   setSftpPaneWidth:    (w: number) => void;
+  /** Write the current width to localStorage. Called once per gesture,
+   *  not per frame — see ResizeHandle.onChangeEnd. */
+  persistSftpPaneWidth: () => void;
 
   setViewMode:    (m: ViewMode) => void;
   cycleViewMode:  () => void;
@@ -238,6 +241,10 @@ export const useTabs = create<TabsState>((set, get) => ({
   setSftpPaneWidth:    (w) => set({
     sftpPaneWidth: Math.round(Math.max(SFTP_PANE_MIN, Math.min(SFTP_PANE_MAX, w))),
   }),
+  persistSftpPaneWidth: () => {
+    try { localStorage.setItem(SFTP_WIDTH_KEY, String(get().sftpPaneWidth)); }
+    catch { /* localStorage may be disabled — silently skip */ }
+  },
 
   setViewMode: (m) => set({ viewMode: m }),
   cycleViewMode: () => {
@@ -325,9 +332,6 @@ if (typeof window !== 'undefined') {
       }
       if (s.minimized !== prev.minimized) {
         localStorage.setItem(MINIMIZED_KEY, JSON.stringify(Array.from(s.minimized)));
-      }
-      if (s.sftpPaneWidth !== prev.sftpPaneWidth) {
-        localStorage.setItem(SFTP_WIDTH_KEY, String(s.sftpPaneWidth));
       }
     } catch { /* localStorage may be disabled — silently skip */ }
   });
