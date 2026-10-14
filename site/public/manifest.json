@@ -1,7 +1,7 @@
 {
   "name": "ezTerm",
   "short_name": "ezTerm",
-  "description": "Free, open-source SSH client. MobaXterm-style sessions, Rust-native protocol stack, encrypted vault. Cross-platform.",
+  "description": "Free, open-source SSH client. Folder-based session manager, Rust-native protocol stack, encrypted vault. Cross-platform.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#050708",

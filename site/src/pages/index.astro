@@ -10,7 +10,7 @@ import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 const BASE = import.meta.env.BASE_URL;
 const SITE = 'https://ezterm.zerosandones.us';
 const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
-const DESC = 'Free, open-source SSH client — MobaXterm-style sessions, SFTP side-pane, WSL tabs, X11 & port forwarding, encrypted vault. Rust-fast on Windows, Linux, macOS.';
+const DESC = 'Free, open-source SSH client — folder-based session manager, SFTP side-pane, WSL tabs, X11 & port forwarding, encrypted vault. Rust-fast on Windows, Linux, macOS.';
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -83,7 +83,7 @@ const jsonLd = {
     <div class="tagline"><span class="accent">&gt;</span> ssh · sftp · wsl · x11 · vault</div>
     <h1>The free, open-source SSH client <span class="grad">built for the next decade.</span></h1>
     <p class="lede">
-      MobaXterm-style sessions. Rust-native protocol stack. Encrypted vault by default. One binary on Windows, Linux, and macOS — and zero compromises.
+      Folder-based session manager. Rust-native protocol stack. Encrypted vault by default. One binary on Windows, Linux, and macOS — and zero compromises.
     </p>
     <div class="cta-row">
       <a class="btn btn-primary" href={`${REPO}/releases`}>Get ezTerm →</a>
@@ -169,7 +169,7 @@ const jsonLd = {
         <div class="num">08 / UX</div>
         <h3>Workspace you already know</h3>
         <p>Sessions sidebar with folders + drag-drop. Tabbed terminals, status dots, find, scrollback, font scaling, copy-on-select.</p>
-        <span class="tag">mobaxterm-style</span>
+        <span class="tag">familiar layout</span>
       </div>
       <div class="feat">
         <div class="num">09 / OSS</div>
