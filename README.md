@@ -41,6 +41,9 @@ on those platforms.
 - Copy / Paste (`Ctrl+Shift+C` / `Ctrl+Shift+V` / `Shift+Insert`), Select All,
   Clear Scrollback, Find (`Ctrl+Shift+F`) with case-sensitive / regex toggles.
 - **Ctrl + mouse wheel** zoom (8–48 pt, SSH channel resized on every step).
+- **OSC 52 clipboard writes** — programs on the remote end (Claude Code,
+  neovim, tmux) can copy to your local clipboard through SSH. Reads are
+  refused so a remote host can never pull clipboard contents.
 - Per-session font size, scrollback depth, cursor style, env vars, keepalive,
   connect timeout, initial command, compression.
 
@@ -144,6 +147,7 @@ If you must use `cargo run`, build the UI first:
 cargo test --manifest-path src-tauri/Cargo.toml
 npm --prefix ui run typecheck
 npm --prefix ui run lint
+npm --prefix ui test
 ```
 
 ### Local release build
@@ -199,5 +203,5 @@ Third-party components retain their own licences:
 ## Contributing
 
 Issues and PRs welcome at <https://github.com/ZerosAndOnesLLC/ezTerm>. Please
-run `cargo test`, `npm --prefix ui run typecheck`, and `npm --prefix ui run lint`
+run `cargo test`, `npm --prefix ui run typecheck`, `npm --prefix ui run lint`, and `npm --prefix ui test`
 before opening a PR.

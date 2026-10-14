@@ -127,6 +127,9 @@ jobs:
       - name: Lint
         run: npm --prefix ui run lint
 
+      - name: Test
+        run: npm --prefix ui test
+
       - name: Build (Next.js static export)
         run: npm --prefix ui run build
 

@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, PlugZap } from 'lucide-react';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, errMessage } from '@/lib/tauri';
+import { toast } from '@/lib/toast';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { createOutputChannel, subscribeSshEvents } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
@@ -15,6 +16,16 @@ import { AuthFixOverlay } from './auth-fix-overlay';
 import { XServerMissingDialog } from './xserver-missing-dialog';
 import { resolveFontFamily } from '@/lib/xterm';
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
+
+/** One toast per failure burst: a program retrying OSC 52 in a loop must
+ *  not flood the toast region. */
+let lastClipboardToast = 0;
+function reportClipboardError(e: unknown) {
+  const now = Date.now();
+  if (now - lastClipboardToast < 5000) return;
+  lastClipboardToast = now;
+  toast.danger('Clipboard write failed', errMessage(e));
+}
 
 /** True when the error looks like bad auth (wrong user, bad password,
  *  unreadable key, rejected key, missing credential) — anything the
@@ -237,6 +248,9 @@ export function TerminalView({ tab, visible }: Props) {
       fontFamily: tab.session.font_family,
       scrollback: tab.session.scrollback_lines,
       cursorStyle: tab.session.cursor_style,
+      // Same native clipboard path as doCopy — see the note there.
+      onClipboardWrite: writeText,
+      onClipboardError: reportClipboardError,
     });
     bundleRef.current = bundle;
     cancelledRef.current = false;
