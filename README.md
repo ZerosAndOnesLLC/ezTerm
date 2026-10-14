@@ -116,10 +116,10 @@ Pre-built binaries live on the
 
 | Platform | Archive |
 |---|---|
-| Windows x86_64 | `ezterm-windows-x86_64.tar.xz` |
-| Linux x86_64 | `ezterm-linux-x86_64.tar.xz` |
-| Linux aarch64 | `ezterm-linux-aarch64.tar.xz` |
-| macOS aarch64 | `ezterm-macos-aarch64.tar.xz` |
+| Windows x86_64 | `ezTerm_<version>_windows-x64-portable.tar.xz` |
+| Linux x86_64 | `ezTerm_<version>_linux-amd64-portable.tar.xz` |
+| Linux aarch64 | `ezTerm_<version>_linux-aarch64-portable.tar.xz` |
+| macOS aarch64 | `ezTerm_<version>_macos-aarch64-portable.tar.xz` |
 
 Extract, run the `ezterm` / `ezterm.exe` binary. No install step required — the
 UI is embedded in the executable.

@@ -26,22 +26,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `asset` is the platform token in published file names:
+          # ezTerm_<version>_<asset>-portable.tar.xz, matching the
+          # Tauri bundler's ezTerm_<version>_<arch>… installers.
           - name: windows-x86_64
+            asset: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin_name: ezterm.exe
             bundles: "msi nsis"
           - name: linux-x86_64
+            asset: linux-amd64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin_name: ezterm
             bundles: "appimage deb"
           - name: linux-aarch64
+            asset: linux-aarch64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             bin_name: ezterm
             bundles: "appimage deb"
           - name: macos-aarch64
+            asset: macos-aarch64
             os: macos-latest
             target: aarch64-apple-darwin
             bin_name: ezterm
@@ -231,7 +238,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          STAGE="stage/ezterm-${{ matrix.name }}"
+          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
+          PORTABLE="ezTerm_${VER}_${{ matrix.asset }}-portable"
+          STAGE="stage/${PORTABLE}"
           mkdir -p "$STAGE"
           cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
           cp README.md "$STAGE/"
@@ -244,8 +253,8 @@ jobs:
             mkdir -p "$STAGE/vcxsrv"
             cp -r src-tauri/vcxsrv/. "$STAGE/vcxsrv/"
           fi
-          tar -C stage -cJf "ezterm-${{ matrix.name }}.tar.xz" "ezterm-${{ matrix.name }}"
-          ls -l "ezterm-${{ matrix.name }}.tar.xz"
+          tar -C stage -cJf "${PORTABLE}.tar.xz" "${PORTABLE}"
+          ls -l "${PORTABLE}.tar.xz"
 
           # Copy installer bundles (+ .sig files produced by the tauri
           # bundler when signing is configured) into a flat directory so
@@ -264,12 +273,28 @@ jobs:
           fi
           echo "--- installers collected ---"
           ls -la installers/ || true
+      # The bundler names the macOS updater bundle after the product only
+      # (`ezTerm.app.tar.gz`). Give it the same version + platform shape as
+      # every other asset; latest.json is generated from the final names.
+      - name: Normalise macOS updater bundle name
+        if: matrix.name == 'macos-aarch64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
+          for f in installers/*.app.tar.gz installers/*.app.tar.gz.sig; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            mv "$f" "installers/ezTerm_${VER}_${{ matrix.asset }}${base#ezTerm}"
+          done
+          ls -la installers/
+
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v5
         with:
           name: portable-${{ matrix.name }}
-          path: ezterm-${{ matrix.name }}.tar.xz
+          path: ezTerm_*-portable.tar.xz
           if-no-files-found: error
           retention-days: 7
 

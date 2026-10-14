@@ -8,10 +8,15 @@ draft GitHub Release that you review and publish by hand.
 
 | Platform | Runner | Rust target | Archive |
 |---|---|---|---|
-| Windows x86_64 | `windows-latest` | `x86_64-pc-windows-msvc` | `ezterm-windows-x86_64.tar.xz` |
-| Linux x86_64 | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `ezterm-linux-x86_64.tar.xz` |
-| Linux aarch64 | `ubuntu-24.04-arm` | `aarch64-unknown-linux-gnu` | `ezterm-linux-aarch64.tar.xz` |
-| macOS aarch64 | `macos-latest` | `aarch64-apple-darwin` | `ezterm-macos-aarch64.tar.xz` |
+| Windows x86_64 | `windows-latest` | `x86_64-pc-windows-msvc` | `ezTerm_<version>_windows-x64-portable.tar.xz` |
+| Linux x86_64 | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `ezTerm_<version>_linux-amd64-portable.tar.xz` |
+| Linux aarch64 | `ubuntu-24.04-arm` | `aarch64-unknown-linux-gnu` | `ezTerm_<version>_linux-aarch64-portable.tar.xz` |
+| macOS aarch64 | `macos-latest` | `aarch64-apple-darwin` | `ezTerm_<version>_macos-aarch64-portable.tar.xz` |
+
+Every published file follows `ezTerm_<version>_<platform>…`: the Tauri
+bundler's installers (`_x64_en-US.msi`, `_x64-setup.exe`, `_amd64.deb`,
+`_arm64.deb`, `_amd64.AppImage`, `_aarch64.AppImage`), the macOS updater
+bundle (`_macos-aarch64.app.tar.gz`), and the portable archives above.
 
 Each archive contains a single self-contained binary (Tauri embeds the
 Next.js static export at build time), `README.md`, and `LICENSE`. No
