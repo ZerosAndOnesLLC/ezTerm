@@ -35,8 +35,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 directories = "6"
 
-russh = "0.62"
-russh-sftp = "2.4"
+russh = "0.64"
+russh-sftp = "3.0"
 sha2 = "0.11"
 base64 = "0.23"
 async-channel = "2"
@@ -47,7 +47,7 @@ portable-pty = "0.9"
 # MinIO, DigitalOcean Spaces, etc.). Narrow feature set — we only need
 # PUT/HEAD/GET on a single object per bucket. Default features bring
 # rustls so we avoid a system OpenSSL dep on Windows.
-rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
+rust-s3 = { version = "0.38", default-features = false, features = ["tokio-rustls-tls"] }
 
 # Used by the in-app VcXsrv installer (see `xserver::install`). Already
 # pulled in transitively by tauri-plugin-updater; listing it directly
