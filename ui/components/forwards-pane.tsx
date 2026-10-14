@@ -10,6 +10,7 @@ import { toast } from '@/lib/toast';
 import { forwardLabel } from '@/lib/forwards';
 import { ForwardDialog } from './forward-dialog';
 import { ContextMenu, type MenuItem } from './context-menu';
+import { FORWARDS_PANE_W } from '@/lib/layout';
 
 const KIND_TONE: Record<ForwardKind, string> = {
   local:   'text-blue-400',
@@ -135,11 +136,10 @@ export function ForwardsPane({ tab, isVisible }: { tab: Tab; isVisible: boolean 
   }, [runtime]);
   const empty = persistent.length === 0 && ephemeral.length === 0;
 
-  // 256px wide, like the SFTP pane's default footprint.
   return (
     <div
       className="h-full flex flex-col bg-surface border-r border-border"
-      style={{ width: 280, display: isVisible ? 'flex' : 'none' }}
+      style={{ width: FORWARDS_PANE_W, display: isVisible ? 'flex' : 'none' }}
     >
       <div className="px-3 py-2 flex items-center justify-between border-b border-border">
         <div className="text-sm font-medium">Forwards</div>

@@ -27,6 +27,13 @@ export interface Tab {
 const VIEW_MODE_KEY  = 'ezterm.viewMode';
 const TILE_GRID_KEY  = 'ezterm.tileGrid';
 const MINIMIZED_KEY  = 'ezterm.minimizedTabs';
+const SFTP_WIDTH_KEY = 'ezterm.sftpPaneWidth';
+
+/** SFTP side-pane width bounds (px). One global width shared by every
+ *  tab's pane — resizing one resizes them all, like MobaXterm. */
+export const SFTP_PANE_MIN     = 200;
+export const SFTP_PANE_MAX     = 640;
+export const SFTP_PANE_DEFAULT = 288;
 
 const VIEW_MODES: readonly ViewMode[] = [
   'tabs', 'tile-h', 'tile-v', 'tile-grid', 'cascade', 'auto',
@@ -52,6 +59,15 @@ function readTileGrid(): { rows: number; cols: number } {
   } catch { return { rows: 2, cols: 2 }; }
 }
 
+function readSftpPaneWidth(): number {
+  if (typeof window === 'undefined') return SFTP_PANE_DEFAULT;
+  try {
+    const v = Number(localStorage.getItem(SFTP_WIDTH_KEY));
+    if (Number.isFinite(v) && v >= SFTP_PANE_MIN && v <= SFTP_PANE_MAX) return Math.round(v);
+    return SFTP_PANE_DEFAULT;
+  } catch { return SFTP_PANE_DEFAULT; }
+}
+
 function readMinimized(): Set<string> {
   if (typeof window === 'undefined') return new Set();
   try {
@@ -72,6 +88,7 @@ interface TabsState {
   cascade:    Record<string, CascadeGeometry>;
   minimized:  Set<string>;
   nextZ:      number;
+  sftpPaneWidth: number;
 
   open:       (session: Session) => string;
   setStatus:  (tabId: string, status: TabStatus, errorMessage?: string | null) => void;
@@ -86,6 +103,10 @@ interface TabsState {
   reorder:     (fromIndex: number, toIndex: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   toggleSidebar:       () => void;
+  setSftpPaneWidth:    (w: number) => void;
+  /** Write the current width to localStorage. Called once per gesture,
+   *  not per frame — see ResizeHandle.onChangeEnd. */
+  persistSftpPaneWidth: () => void;
 
   setViewMode:    (m: ViewMode) => void;
   cycleViewMode:  () => void;
@@ -131,6 +152,7 @@ export const useTabs = create<TabsState>((set, get) => ({
   cascade:   {},
   minimized: readMinimized(),
   nextZ:     1,
+  sftpPaneWidth: readSftpPaneWidth(),
 
   open: (session) => {
     const tabId = uid();
@@ -216,6 +238,13 @@ export const useTabs = create<TabsState>((set, get) => ({
     }),
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
   toggleSidebar:       () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  setSftpPaneWidth:    (w) => set({
+    sftpPaneWidth: Math.round(Math.max(SFTP_PANE_MIN, Math.min(SFTP_PANE_MAX, w))),
+  }),
+  persistSftpPaneWidth: () => {
+    try { localStorage.setItem(SFTP_WIDTH_KEY, String(get().sftpPaneWidth)); }
+    catch { /* localStorage may be disabled — silently skip */ }
+  },
 
   setViewMode: (m) => set({ viewMode: m }),
   cycleViewMode: () => {

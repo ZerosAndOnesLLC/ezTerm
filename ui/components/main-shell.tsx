@@ -10,6 +10,18 @@ import { TabsShell } from './tabs-shell';
 import { StatusBar } from './status-bar';
 import { ToastRegion } from './toast-region';
 import { UpdateDialog } from './update-dialog';
+import { ResizeHandle } from './resize-handle';
+import { FORWARDS_PANE_W, TERMINAL_MIN_W } from '@/lib/layout';
+
+/** Space the sidebar must leave free: a usable terminal plus whichever
+ *  side panes the active tab has docked. Read at drag start. */
+function sidebarReserve(): number {
+  const s = useTabs.getState();
+  const active = s.tabs.find((t) => t.tabId === s.activeId);
+  return TERMINAL_MIN_W
+    + (active?.sftpOpen ? s.sftpPaneWidth : 0)
+    + (active?.forwardsOpen ? FORWARDS_PANE_W : 0);
+}
 
 const SIDEBAR_WIDTH_KEY = 'ezterm.sidebarWidth';
 const SIDEBAR_MIN = 180;
@@ -33,9 +45,9 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     }
     return SIDEBAR_DEFAULT;
   });
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-  }, [width]);
+  const persistWidth = (w: number) => {
+    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)); } catch { /* disabled */ }
+  };
 
   // Block ALL in-page native drag initiation. WebKitGTK's HTML5 drag can
   // take the pointer grab and never release it, hard-freezing the app on
@@ -156,34 +168,6 @@ export function MainShell({ onLock }: { onLock: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Sidebar resize via a 4px grab-strip on the right edge. Mouse events are
-  // captured on window while dragging so fast mouse movement outside the
-  // strip doesn't lose focus. The `resizingRef` flag suppresses pointer
-  // events on the terminal area while dragging — prevents xterm from
-  // stealing the mouse mid-resize.
-  const resizingRef = useRef(false);
-  const [resizing, setResizing] = useState(false);
-
-  function startResize(e: React.MouseEvent) {
-    e.preventDefault();
-    resizingRef.current = true;
-    setResizing(true);
-
-    function onMove(ev: MouseEvent) {
-      if (!resizingRef.current) return;
-      const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, ev.clientX));
-      setWidth(next);
-    }
-    function onUp() {
-      resizingRef.current = false;
-      setResizing(false);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }
-
   return (
     <div className="h-full grid grid-rows-[1fr_auto] bg-bg text-fg">
       <div className="flex min-h-0">
@@ -204,33 +188,19 @@ export function MainShell({ onLock }: { onLock: () => void }) {
             aria-label="Sessions sidebar"
           >
             <SessionsSidebar />
-            {/* Resize handle — a 4px hit zone at the right edge with a
-                visible accent strip on hover/drag. Double-click resets
-                the width to the default. */}
-            <div
-              onMouseDown={startResize}
-              onDoubleClick={() => setWidth(SIDEBAR_DEFAULT)}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize sidebar"
-              title="Drag to resize · Double-click to reset"
-              className={`absolute top-0 right-0 h-full w-1 cursor-col-resize group ${
-                resizing ? 'bg-accent/60' : 'hover:bg-accent/40'
-              } transition-colors`}
-            >
-              <span
-                className={`absolute inset-y-0 right-0 w-[2px] ${
-                  resizing ? 'bg-accent' : 'bg-transparent group-hover:bg-accent/60'
-                }`}
-                aria-hidden
-              />
-            </div>
+            <ResizeHandle
+              width={width}
+              min={SIDEBAR_MIN}
+              max={SIDEBAR_MAX}
+              defaultWidth={SIDEBAR_DEFAULT}
+              onChange={setWidth}
+              onChangeEnd={persistWidth}
+              reserve={sidebarReserve}
+              label="Resize sidebar"
+            />
           </aside>
         )}
-        <div
-          className="flex-1 min-w-0 min-h-0"
-          style={{ pointerEvents: resizing ? 'none' : undefined }}
-        >
+        <div className="flex-1 min-w-0 min-h-0">
           <TabsShell />
         </div>
       </div>
