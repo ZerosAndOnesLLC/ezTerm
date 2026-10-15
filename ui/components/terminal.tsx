@@ -65,6 +65,16 @@ function isAuthError(e: unknown): boolean {
   );
 }
 
+/** Frontend state for one backend connection. */
+interface LiveConnection {
+  id: number;
+  output: OutputChannel;
+  stopWatchdog: (() => void) | null;
+  onData: { dispose(): void } | null;
+  unlisten: (() => void) | null;
+  disconnect: (id: number) => Promise<void>;
+}
+
 interface Props { tab: Tab; visible: boolean; }
 
 type Prompt =
@@ -87,12 +97,10 @@ function safeFit(bundle: TerminalBundle) {
 export function TerminalView({ tab, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bundleRef    = useRef<TerminalBundle | null>(null);
-  const unlistenRef  = useRef<null | (() => void)>(null);
-  /** Live output channel + its watchdog + the keystroke listener for the
-   *  current connection. Each reconnect replaces all three. */
-  const outputRef    = useRef<OutputChannel | null>(null);
-  const watchdogRef  = useRef<null | (() => void)>(null);
-  const onDataRef    = useRef<null | { dispose(): void }>(null);
+  /** Everything tied to the current backend connection. Replaced as a
+   *  unit on reconnect and torn down as a unit on close, stall and
+   *  unmount — see teardownConnection. */
+  const connRef = useRef<LiveConnection | null>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
   const resizeRafRef = useRef<null | (() => void)>(null);
   const connectionIdRef = useRef<number | null>(null);
@@ -140,9 +148,29 @@ export function TerminalView({ tab, visible }: Props) {
   const setSession  = useTabs((s) => s.setSession);
   const closeTab    = useTabs((s) => s.close);
 
+  /** Drop the current connection's frontend state: stop the watchdog,
+   *  detach output (Rust keeps sending until it processes the
+   *  disconnect, and xterm throws on write after dispose), dispose the
+   *  keystroke listener, unlisten close/error. `disconnect: false` is for
+   *  the close event, where the backend side is already gone. */
+  const teardownConnection = useCallback((opts: { disconnect: boolean }) => {
+    const c = connRef.current;
+    if (!c) return;
+    connRef.current = null;
+    c.stopWatchdog?.();
+    c.output.detach();
+    c.onData?.dispose();
+    c.unlisten?.();
+    if (connectionIdRef.current === c.id) connectionIdRef.current = null;
+    if (opts.disconnect) c.disconnect(c.id).catch(() => {});
+  }, []);
+
   const runConnect = useCallback(async (trustAny: boolean, disableX11 = false) => {
     const bundle = bundleRef.current;
     if (!bundle) return;
+    // A retry replaces the previous connection wholesale; its listeners
+    // must not outlive it or its close event would act on the new one.
+    teardownConnection({ disconnect: true });
     // Error surface is the overlay + tab-bar status dot + status bar. No
     // ANSI fallback — it used to clutter scrollback on reconnect without
     // adding information the overlay doesn't already show.
@@ -162,10 +190,7 @@ export function TerminalView({ tab, visible }: Props) {
       // Output channel is created before the connect call so the backend
       // can never emit into a listener that doesn't exist yet. It buffers
       // until arm() below, once keystroke replies can flow back.
-      outputRef.current?.detach();
-      watchdogRef.current?.();
       const output = createOutputChannel((bytes) => bundle.terminal.write(bytes));
-      outputRef.current = output;
       let result: { connection_id: number };
       try {
         result = isLocal
@@ -210,8 +235,14 @@ export function TerminalView({ tab, visible }: Props) {
         await term.disconnect(result.connection_id);
         return;
       }
-      connectionIdRef.current = result.connection_id;
-      setConn(tab.tabId, result.connection_id);
+      const cid = result.connection_id;
+      const conn: LiveConnection = {
+        id: cid, output, stopWatchdog: null, onData: null, unlisten: null, disconnect: term.disconnect,
+      };
+      connRef.current = conn;
+      const isLive = () => connRef.current === conn;
+      connectionIdRef.current = cid;
+      setConn(tab.tabId, cid);
       setStatus(tab.tabId, 'connected');
       if (
         getSetting('sessions.autoOpenSftp') &&
@@ -222,10 +253,10 @@ export function TerminalView({ tab, visible }: Props) {
 
       // Local PTYs reuse the ssh:* event topics (close / error) so the
       // subscriber doesn't need to branch.
-      const unlisten = await subscribeSshEvents(result.connection_id, {
+      const unlisten = await subscribeSshEvents(cid, {
         onClose: (reason) => {
-          watchdogRef.current?.();
-          watchdogRef.current = null;
+          if (!isLive()) return;
+          teardownConnection({ disconnect: false });
           // A non-zero exit status or a signal is worth showing; zero and
           // "no status" (the channel just ended) read as a plain
           // disconnect — unless an error was already reported for this
@@ -236,15 +267,14 @@ export function TerminalView({ tab, visible }: Props) {
           if (!text && cur?.status === 'error') return;
           setStatus(tab.tabId, 'closed', text);
         },
-        onError: (msg) => fail(msg),
+        onError: (msg) => { if (isLive()) fail(msg); },
       });
-      if (cancelledRef.current) {
+      if (!isLive() || cancelledRef.current) {
         unlisten();
-        output.detach();
-        await term.disconnect(result.connection_id);
+        teardownConnection({ disconnect: true });
         return;
       }
-      unlistenRef.current = unlisten;
+      conn.unlisten = unlisten;
 
       // Keystroke / terminal-reply handler. Bash emits a DSR
       // cursor-position query (`ESC [ 6 n`) during prompt setup and
@@ -253,23 +283,21 @@ export function TerminalView({ tab, visible }: Props) {
       // channel has been buffering since before connect precisely so
       // nothing reaches the parser until this listener exists. One
       // listener per connection — a reconnect disposes the previous one.
-      onDataRef.current?.dispose();
-      onDataRef.current = bundle.terminal.onData((data) => {
+      conn.onData = bundle.terminal.onData((data) => {
         const bytes = new TextEncoder().encode(data);
-        term.write(result.connection_id, Array.from(bytes)).catch(() => {});
+        term.write(cid, Array.from(bytes)).catch(() => {});
       });
       output.arm();
 
       // Stall watchdog: see startOutputWatchdog. Fails the tab visibly
       // instead of leaving a frozen terminal.
-      const cid = result.connection_id;
-      watchdogRef.current = startOutputWatchdog(
+      conn.stopWatchdog = startOutputWatchdog(
         output,
         () => api.terminalOutputSent(cid),
         () => {
-          output.detach();
+          if (!isLive()) return;
+          teardownConnection({ disconnect: true });
           fail('Terminal output stalled — the connection was dropped. Reconnect to continue.');
-          term.disconnect(cid).catch(() => {});
         },
       );
 
@@ -279,7 +307,7 @@ export function TerminalView({ tab, visible }: Props) {
     } catch (e) {
       fail(errMessage(e));
     }
-  }, [tab.tabId, tab.session.id, tab.session.session_kind, setStatus, setConn]);
+  }, [tab.tabId, tab.session.id, tab.session.session_kind, setStatus, setConn, teardownConnection]);
 
   // Mount xterm and start the first connect attempt.
   //
@@ -362,17 +390,8 @@ export function TerminalView({ tab, visible }: Props) {
     return () => {
       cancelledRef.current = true;
       window.clearTimeout(openTimer);
-      // Stop output before the terminal goes away: Rust keeps sending
-      // until it processes the disconnect, and xterm throws on write
-      // after dispose.
-      watchdogRef.current?.();
-      watchdogRef.current = null;
-      outputRef.current?.detach();
-      outputRef.current = null;
-      onDataRef.current?.dispose();
-      onDataRef.current = null;
-      unlistenRef.current?.();
-      unlistenRef.current = null;
+      // Stop output before the terminal goes away (see teardownConnection).
+      teardownConnection({ disconnect: true });
       resizeObsRef.current?.disconnect();
       resizeObsRef.current = null;
       resizeRafRef.current?.();
@@ -383,9 +402,7 @@ export function TerminalView({ tab, visible }: Props) {
         try { bundle.dispose(); } catch { /* xterm race on unmount */ }
       }
       bundleRef.current = null;
-      const cid = connectionIdRef.current;
       connectionIdRef.current = null;
-      if (cid !== null) termApiRef.current.disconnect(cid).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.tabId]);

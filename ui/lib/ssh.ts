@@ -84,9 +84,17 @@ export async function subscribeSshEvents(connectionId: number, h: SshEventHandle
  *  index order; a chunk whose transfer fails is logged by Tauri and never
  *  delivered, after which every later chunk queues forever and the
  *  terminal silently freezes. Rust counts chunks it has sent; the
- *  frontend counts chunks it has received. If Rust is ahead and the
- *  received count stays put across two consecutive polls, the stream is
- *  wedged. Returns a stop function. */
+ *  frontend counts chunks it has received.
+ *
+ *  A tick first checks for local progress — if the received count moved
+ *  since the last tick the channel is demonstrably alive and Rust is not
+ *  asked. Only a quiet tab costs an IPC call. If Rust is ahead and the
+ *  received count stays put across two consecutive ticks, the stream is
+ *  wedged. Ticks never overlap (an await in flight skips the next tick),
+ *  so a frozen main thread cannot replay queued ticks back to back. The
+ *  count query failing with `not_found` means the connection is gone and
+ *  the watchdog stops; any other failure is transient and polling
+ *  continues. Returns a stop function. */
 export function startOutputWatchdog(
   output: OutputChannel,
   sentCount: () => Promise<number>,
@@ -96,16 +104,36 @@ export function startOutputWatchdog(
   let lastReceived = output.received();
   let behindPolls = 0;
   let stopped = false;
-  const timer = setInterval(async () => {
-    let sent: number;
-    try { sent = await sentCount(); } catch { stop(); return; }
-    if (stopped) return;
-    const now = output.received();
-    if (sent > now && now === lastReceived) behindPolls += 1;
-    else behindPolls = 0;
-    lastReceived = now;
-    if (behindPolls >= 2) { stop(); onStall(); }
-  }, intervalMs);
+  let inFlight = false;
   const stop = () => { stopped = true; clearInterval(timer); };
+  const tick = async () => {
+    if (stopped || inFlight) return;
+    const before = output.received();
+    if (before !== lastReceived) {
+      lastReceived = before;
+      behindPolls = 0;
+      return;
+    }
+    inFlight = true;
+    let sent: number;
+    try {
+      sent = await sentCount();
+    } catch (e: unknown) {
+      inFlight = false;
+      if ((e as { code?: string })?.code === 'not_found') stop();
+      return;
+    }
+    inFlight = false;
+    if (stopped) return;
+    const after = output.received();
+    if (after !== before) {
+      lastReceived = after;
+      behindPolls = 0;
+      return;
+    }
+    behindPolls = sent > before ? behindPolls + 1 : 0;
+    if (behindPolls >= 2) { stop(); onStall(); }
+  };
+  const timer = setInterval(() => { void tick(); }, intervalMs);
   return stop;
 }

@@ -89,13 +89,47 @@ describe('startOutputWatchdog', () => {
     expect(stall).not.toHaveBeenCalled();
   });
 
-  it('stops polling when the count query fails (connection gone)', async () => {
+  it('stops polling when the connection is reported gone', async () => {
     const out = createOutputChannel(() => {});
-    const sent = vi.fn(async () => { throw new Error('not_found'); });
+    const sent = vi.fn(async () => { throw { code: 'not_found', message: 'gone' }; });
     const stall = vi.fn();
     startOutputWatchdog(out, sent, stall, 1000);
     await vi.advanceTimersByTimeAsync(3000);
     expect(sent).toHaveBeenCalledTimes(1);
     expect(stall).not.toHaveBeenCalled();
+  });
+
+  it('keeps polling through a transient query failure', async () => {
+    const out = createOutputChannel(() => {});
+    let n = 0;
+    const sent = vi.fn(async () => { if (n++ === 0) throw new Error('ipc hiccup'); return 3; });
+    const stall = vi.fn();
+    startOutputWatchdog(out, sent, stall, 1000);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sent).toHaveBeenCalledTimes(3);
+    expect(stall).toHaveBeenCalledTimes(1); // two clean behind polls after the hiccup
+  });
+
+  it('does not query Rust while local progress is observed', async () => {
+    const { out, sent } = harness([9, 9, 9]);
+    for (let n = 0; n < 3; n++) {
+      out.channel.onmessage(chunk('x'));
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(sent).not.toHaveBeenCalled();
+  });
+
+  it('never overlaps ticks: a slow query is not double-counted', async () => {
+    const out = createOutputChannel(() => {});
+    out.arm();
+    let resolve: ((n: number) => void) | null = null;
+    const sent = vi.fn(() => new Promise<number>((r) => { resolve = r; }));
+    const stall = vi.fn();
+    startOutputWatchdog(out, sent, stall, 1000);
+    await vi.advanceTimersByTimeAsync(3500); // three intervals elapse during one slow query
+    expect(sent).toHaveBeenCalledTimes(1);
+    resolve!(5);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stall).not.toHaveBeenCalled(); // only one behind poll so far
   });
 });

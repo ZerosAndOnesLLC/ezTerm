@@ -817,7 +817,13 @@ async fn drive_channel(
                     // dropped sshd). Surface the signal as the close
                     // reason instead of a bare "Disconnected".
                     Some(russh::ChannelMsg::ExitSignal { signal_name, .. }) => {
-                        let _ = app.emit(&ev_close, format!("killed by SIG{signal_name:?}"));
+                        // Sig's Debug prints unit variants as their name;
+                        // Custom(name) carries the name as data.
+                        let name = match &signal_name {
+                            russh::Sig::Custom(s) => s.clone(),
+                            other => format!("{other:?}"),
+                        };
+                        let _ = app.emit(&ev_close, format!("killed by SIG{name}"));
                         log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }
