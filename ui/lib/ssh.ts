@@ -96,7 +96,7 @@ export function startOutputWatchdog(
   let lastReceived = output.received();
   let behindPolls = 0;
   let stopped = false;
-  const timer = window.setInterval(async () => {
+  const timer = setInterval(async () => {
     let sent: number;
     try { sent = await sentCount(); } catch { stop(); return; }
     if (stopped) return;
@@ -106,6 +106,6 @@ export function startOutputWatchdog(
     lastReceived = now;
     if (behindPolls >= 2) { stop(); onStall(); }
   }, intervalMs);
-  const stop = () => { stopped = true; window.clearInterval(timer); };
+  const stop = () => { stopped = true; clearInterval(timer); };
   return stop;
 }
