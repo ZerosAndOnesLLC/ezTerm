@@ -104,7 +104,7 @@ async fn main() {
             commands::local::local_write,
             commands::local::local_resize,
             commands::local::local_disconnect,
-            commands::local::local_ready,
+            commands::terminal::terminal_output_sent,
             commands::local::wsl_list_distros,
             commands::local::wsl_autodetect_seed,
             commands::local::local_shells_autodetect_seed,

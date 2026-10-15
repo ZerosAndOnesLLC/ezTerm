@@ -57,16 +57,6 @@ pub async fn local_disconnect(state: State<'_, AppState>, connection_id: u64) ->
     Ok(())
 }
 
-/// Signals the backend that the frontend has finished installing its
-/// `ssh:data:<id>` listener and the reader thread can start emitting.
-/// Idempotent — called exactly once per connect, but repeat calls are
-/// harmless no-ops. See `crate::local` module docs for the race this
-/// prevents.
-#[tauri::command]
-pub async fn local_ready(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
-    state.local.unlock_reader(connection_id).await;
-    Ok(())
-}
 
 /// Returns the list of installed WSL distros (trimmed, in registered order).
 /// Empty when WSL is not installed or the command fails.

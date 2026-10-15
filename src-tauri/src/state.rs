@@ -90,4 +90,16 @@ impl AppState {
         self.sftp.remove(id).await;
         self.ssh.close(id).await;
     }
+
+    /// Chunks pushed into a connection's frontend output channel. The SSH
+    /// and local id spaces are disjoint (local ids carry bit 48), so the
+    /// first registry that knows the id answers. `None` once the
+    /// connection is gone.
+    pub async fn output_sent(&self, id: u64) -> Option<u64> {
+        use std::sync::atomic::Ordering;
+        if let Some(c) = self.ssh.get(id).await {
+            return Some(c.output_sent.load(Ordering::Relaxed));
+        }
+        self.local.get(id).await.map(|c| c.output_sent.load(Ordering::Relaxed))
+    }
 }

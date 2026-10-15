@@ -298,6 +298,16 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
     .bind(id)
     .execute(&mut *tx)
     .await?;
+    sqlx::query(
+        "INSERT INTO session_forwards \
+         (session_id, name, kind, bind_addr, bind_port, dest_addr, dest_port, auto_start, sort) \
+         SELECT ?, name, kind, bind_addr, bind_port, dest_addr, dest_port, auto_start, sort \
+         FROM session_forwards WHERE session_id = ? ORDER BY sort, id",
+    )
+    .bind(new_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     get(pool, new_id).await
 }
@@ -368,12 +378,30 @@ mod tests {
         // Source env is untouched (not moved).
         assert_eq!(env_get(&p, s.id).await.unwrap().len(), 2);
 
+        // Saved port forwards come along too (#158 review).
+        let fwd = crate::db::forwards::ForwardInput {
+            name: "db".into(),
+            kind: "local".into(),
+            bind_addr: "127.0.0.1".into(),
+            bind_port: 15432,
+            dest_addr: "db.internal".into(),
+            dest_port: 5432,
+            auto_start: 1,
+        };
+        crate::db::forwards::create(&p, s.id, &fwd).await.unwrap();
+        let dupe2 = duplicate(&p, s.id).await.unwrap();
+        let copied = crate::db::forwards::list_for_session(&p, dupe2.id).await.unwrap();
+        assert_eq!(copied.len(), 1);
+        assert_eq!(copied[0].bind_port, 15432);
+        assert_eq!(copied[0].dest_addr, "db.internal");
+        assert_eq!(crate::db::forwards::list_for_session(&p, s.id).await.unwrap().len(), 1);
+
         // Unknown source id surfaces as NotFound with nothing inserted.
         assert!(matches!(
             duplicate(&p, 999_999).await,
             Err(crate::error::AppError::NotFound)
         ));
-        assert_eq!(list(&p).await.unwrap().len(), 2);
+        assert_eq!(list(&p).await.unwrap().len(), 3);
     }
 
     #[tokio::test]

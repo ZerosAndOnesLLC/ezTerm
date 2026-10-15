@@ -179,9 +179,13 @@ ezTerm/
 - **Command boundary** — all SSH / SFTP / vault / local-PTY / X-server ops live
   in Rust behind Tauri commands. The UI is a renderer + keyboard capture; no
   protocol logic in TypeScript.
-- **Events** — bytes flow from Rust to the UI via `ssh:data:<id>` /
-  `ssh:close:<id>` events (reused by both SSH and local PTY drivers).
-  Keystrokes flow the other way through `ssh_write` / `local_write` commands.
+- **Terminal data path** — shell output flows from Rust to the UI as raw
+  bytes over a Tauri IPC channel the UI creates before it calls
+  `ssh_connect` / `local_connect`; the UI buffers until its keystroke
+  handler is wired, then arms the channel. Close and error are
+  `ssh:close:<id>` / `ssh:error:<id>` events (shared by SSH and local PTY
+  drivers). Keystrokes flow the other way through `ssh_write` /
+  `local_write` commands. A watchdog fails the tab if the channel stalls.
 - **Session kinds** — a single `sessions` table with a `session_kind` column
   (`ssh` / `wsl` / `local`) re-purposes `host` + `username` per kind. The
   connect flow dispatches to either the russh client (SSH) or the
