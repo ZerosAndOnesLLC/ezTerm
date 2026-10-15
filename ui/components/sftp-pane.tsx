@@ -5,7 +5,9 @@ import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialo
 import { api, errMessage } from '@/lib/tauri';
 import type { SftpEntry } from '@/lib/types';
 import {
-  useTabs, type Tab, SFTP_PANE_MIN, SFTP_PANE_MAX, SFTP_PANE_DEFAULT,
+  useTabs, type Tab, type SftpColumns,
+  SFTP_PANE_MIN, SFTP_PANE_MAX, SFTP_PANE_DEFAULT,
+  SFTP_COL_MIN, SFTP_COL_MAX, SFTP_COL_DEFAULT, SFTP_MODE_COL_W,
 } from '@/lib/tabs-store';
 import { toast } from '@/lib/toast';
 import { ContextMenu, type MenuItem } from './context-menu';
@@ -101,12 +103,32 @@ type PendingPrompt =
 type PendingConfirm =
   | { kind: 'delete'; entry: SftpEntry };
 
+/** Row gap and horizontal padding of a list row (Tailwind gap-2 / px-2),
+ *  counted when deciding how wide the list must be before it scrolls. */
+const ROW_GAP_PX = 8;
+const ROW_PAD_PX = 8;
+
+/** `grid-template-columns` for header and file rows. Name is at least the
+ *  stored width and grows to fill spare pane width; Size is fixed to its
+ *  stored width; Mode never changes (nine monospace chars). */
+function sftpGridTemplate(c: SftpColumns): string {
+  return `minmax(${c.name}px, 1fr) ${c.size}px ${SFTP_MODE_COL_W}px`;
+}
+
+/** Total width the columns need; past the pane width the list scrolls
+ *  horizontally rather than squeezing Name below its stored width. */
+function sftpColumnsMinWidth(c: SftpColumns): number {
+  return c.name + c.size + SFTP_MODE_COL_W + 2 * ROW_GAP_PX + 2 * ROW_PAD_PX;
+}
+
 export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: boolean }) {
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<TrackedTransfer[]>([]);
   const paneWidth = useTabs((s) => s.sftpPaneWidth);
+  const columns = useTabs((s) => s.sftpColumns);
+  const template = sftpGridTemplate(columns);
   const [opened, setOpened] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
@@ -120,6 +142,10 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const [anchor, setAnchor] = useState<string | null>(null);
   const nextDirJobId = useRef(1);
   const setCwd = useTabs((s) => s.setCwd);
+  const setSftpColumn = useTabs((s) => s.setSftpColumn);
+  const persistSftpColumns = useTabs((s) => s.persistSftpColumns);
+  const setNameWidth = useCallback((w: number) => setSftpColumn('name', w), [setSftpColumn]);
+  const setSizeWidth = useCallback((w: number) => setSftpColumn('size', w), [setSftpColumn]);
 
   const refresh = useCallback(async () => {
     if (tab.connectionId == null || !opened) return;
@@ -573,34 +599,68 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
       )}
 
       <div role="table" aria-label="Remote files" className="flex-1 overflow-auto">
+        {/* Rows are at least as wide as the columns add up to, so when the
+            user drags Name wider than the pane the list scrolls sideways
+            instead of truncating, and row backgrounds span the full width. */}
         <div
-          role="row"
-          className="grid grid-cols-[1fr_70px_72px] gap-2 px-2 py-1 text-[11px] text-muted sticky top-0 bg-surface border-b border-border uppercase tracking-wider font-medium"
+          className="min-h-full flex flex-col"
+          style={{ minWidth: `max(100%, ${sftpColumnsMinWidth(columns)}px)` }}
         >
-          <span>Name</span>
-          <span className="text-right">Size</span>
-          <span>Mode</span>
-        </div>
-        {!opened && tab.sftpOpen && (
-          <div className="h-full flex items-center justify-center text-muted text-xs gap-2">
-            <Loader2 size={14} className="animate-spin" />
-            <span>Opening SFTP…</span>
+          <div
+            role="row"
+            style={{ gridTemplateColumns: template }}
+            className="grid gap-2 px-2 py-1 text-[11px] text-muted sticky top-0 bg-surface border-b border-border uppercase tracking-wider font-medium z-10"
+          >
+            <span role="columnheader" className="relative">
+              Name
+              <ResizeHandle
+                width={columns.name}
+                min={SFTP_COL_MIN.name}
+                max={SFTP_COL_MAX.name}
+                defaultWidth={SFTP_COL_DEFAULT.name}
+                onChange={setNameWidth}
+                onChangeEnd={persistSftpColumns}
+                reserve={0}
+                label="Resize Name column"
+              />
+            </span>
+            <span role="columnheader" className="relative text-right pr-1.5">
+              Size
+              <ResizeHandle
+                width={columns.size}
+                min={SFTP_COL_MIN.size}
+                max={SFTP_COL_MAX.size}
+                defaultWidth={SFTP_COL_DEFAULT.size}
+                onChange={setSizeWidth}
+                onChangeEnd={persistSftpColumns}
+                reserve={0}
+                label="Resize Size column"
+              />
+            </span>
+            <span role="columnheader">Mode</span>
           </div>
-        )}
-        {opened && entries.length === 0 && (
-          <EmptyState icon={Inbox} title="Empty directory" compact />
-        )}
-        {entries.map((e) => (
-          <SftpFileRow
-            key={e.full_path}
-            entry={e}
-            selected={selected.has(e.full_path)}
-            onOpen={navigateInto}
-            onContext={openContext}
-            onFolderDrop={handleFolderDrop}
-            onSelectMouseDown={handleRowMouseDown}
-          />
-        ))}
+          {!opened && tab.sftpOpen && (
+            <div className="flex-1 flex items-center justify-center text-muted text-xs gap-2">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Opening SFTP…</span>
+            </div>
+          )}
+          {opened && entries.length === 0 && (
+            <EmptyState icon={Inbox} title="Empty directory" compact />
+          )}
+          {entries.map((e) => (
+            <SftpFileRow
+              key={e.full_path}
+              entry={e}
+              template={template}
+              selected={selected.has(e.full_path)}
+              onOpen={navigateInto}
+              onContext={openContext}
+              onFolderDrop={handleFolderDrop}
+              onSelectMouseDown={handleRowMouseDown}
+            />
+          ))}
+        </div>
       </div>
       <DirectoryJobs jobs={dirJobs} onClear={(id) =>
         setDirJobs((js) => js.filter((j) => j.id !== id))

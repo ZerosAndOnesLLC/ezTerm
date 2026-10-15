@@ -29,6 +29,7 @@ const VIEW_MODE_KEY  = 'ezterm.viewMode';
 const TILE_GRID_KEY  = 'ezterm.tileGrid';
 const MINIMIZED_KEY  = 'ezterm.minimizedTabs';
 const SFTP_WIDTH_KEY = 'ezterm.sftpPaneWidth';
+const SFTP_COLS_KEY  = 'ezterm.sftpColumns';
 
 /** SFTP side-pane width bounds (px). One global width shared by every
  *  tab's pane — resizing one resizes them all, like MobaXterm. */
@@ -58,6 +59,46 @@ function readTileGrid(): { rows: number; cols: number } {
     const c = Math.max(1, Math.min(8, Number(v.cols) || 2));
     return { rows: r, cols: c };
   } catch { return { rows: 2, cols: 2 }; }
+}
+
+/** SFTP file-list column widths (px). The Mode column is fixed — the
+ *  rwx string is always nine monospace characters. Name and Size are
+ *  user-resizable from the header; like the pane width, one global set
+ *  shared by every tab's pane. */
+export type SftpColumn = 'name' | 'size';
+export type SftpColumns = Record<SftpColumn, number>;
+export const SFTP_COL_MIN: SftpColumns     = { name: 80,  size: 48 };
+export const SFTP_COL_MAX: SftpColumns     = { name: 1200, size: 160 };
+export const SFTP_COL_DEFAULT: SftpColumns = { name: 140, size: 70 };
+export const SFTP_MODE_COL_W = 72;
+
+export function clampSftpColumn(col: SftpColumn, w: number): number {
+  if (!Number.isFinite(w)) return SFTP_COL_DEFAULT[col];
+  return Math.round(Math.max(SFTP_COL_MIN[col], Math.min(SFTP_COL_MAX[col], w)));
+}
+
+/** Parse a persisted column-width blob. Unknown keys are dropped, missing
+ *  or out-of-range values fall back to the default for that column. */
+export function parseSftpColumns(raw: string | null): SftpColumns {
+  const out = { ...SFTP_COL_DEFAULT };
+  if (!raw) return out;
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    if (!v || typeof v !== 'object') return out;
+    for (const col of Object.keys(SFTP_COL_DEFAULT) as SftpColumn[]) {
+      const n = Number(v[col]);
+      if (Number.isFinite(n) && n >= SFTP_COL_MIN[col] && n <= SFTP_COL_MAX[col]) {
+        out[col] = Math.round(n);
+      }
+    }
+    return out;
+  } catch { return out; }
+}
+
+function readSftpColumns(): SftpColumns {
+  if (typeof window === 'undefined') return { ...SFTP_COL_DEFAULT };
+  try { return parseSftpColumns(localStorage.getItem(SFTP_COLS_KEY)); }
+  catch { return { ...SFTP_COL_DEFAULT }; }
 }
 
 function readSftpPaneWidth(): number {
@@ -92,6 +133,7 @@ interface TabsState {
   minimized:  Set<string>;
   nextZ:      number;
   sftpPaneWidth: number;
+  sftpColumns:   SftpColumns;
 
   open:       (session: Session) => string;
   setStatus:  (tabId: string, status: TabStatus, errorMessage?: string | null) => void;
@@ -115,6 +157,9 @@ interface TabsState {
   /** Write the current width to localStorage. Called once per gesture,
    *  not per frame — see ResizeHandle.onChangeEnd. */
   persistSftpPaneWidth: () => void;
+  setSftpColumn:        (col: SftpColumn, w: number) => void;
+  /** Write the current column widths to localStorage. Once per gesture. */
+  persistSftpColumns:   () => void;
 
   setViewMode:    (m: ViewMode) => void;
   cycleViewMode:  () => void;
@@ -162,6 +207,7 @@ export const useTabs = create<TabsState>((set, get) => ({
   minimized: readMinimized(),
   nextZ:     1,
   sftpPaneWidth: readSftpPaneWidth(),
+  sftpColumns:   readSftpColumns(),
 
   open: (session) => {
     const tabId = uid();
@@ -261,6 +307,13 @@ export const useTabs = create<TabsState>((set, get) => ({
   }),
   persistSftpPaneWidth: () => {
     try { localStorage.setItem(SFTP_WIDTH_KEY, String(get().sftpPaneWidth)); }
+    catch { /* localStorage may be disabled — silently skip */ }
+  },
+  setSftpColumn: (col, w) => set((s) => ({
+    sftpColumns: { ...s.sftpColumns, [col]: clampSftpColumn(col, w) },
+  })),
+  persistSftpColumns: () => {
+    try { localStorage.setItem(SFTP_COLS_KEY, JSON.stringify(get().sftpColumns)); }
     catch { /* localStorage may be disabled — silently skip */ }
   },
 
