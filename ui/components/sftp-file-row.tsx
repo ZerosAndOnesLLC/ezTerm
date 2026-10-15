@@ -5,6 +5,9 @@ import type { SftpEntry } from '@/lib/types';
 
 interface Props {
   entry: SftpEntry;
+  /** `grid-template-columns` shared with the header row so the cells line
+   *  up — see `sftpGridTemplate` in sftp-pane. */
+  template: string;
   selected?: boolean;
   onOpen:    (e: SftpEntry) => void;
   onContext: (e: SftpEntry, cx: number, cy: number) => void;
@@ -38,7 +41,7 @@ function formatMode(mode: number): string {
 }
 
 export function SftpFileRow({
-  entry, selected, onOpen, onContext, onFolderDrop, onSelectMouseDown,
+  entry, template, selected, onOpen, onContext, onFolderDrop, onSelectMouseDown,
 }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -81,7 +84,8 @@ export function SftpFileRow({
       onContextMenu={(e) => { e.preventDefault(); onContext(entry, e.clientX, e.clientY); }}
       onMouseDown={handleMouseDown}
       {...folderDnD}
-      className={`grid grid-cols-[1fr_70px_72px] gap-2 px-2 h-6 items-center text-xs cursor-default select-none ${
+      style={{ gridTemplateColumns: template }}
+      className={`grid gap-2 px-2 h-6 items-center text-xs cursor-default select-none ${
         dragOver
           ? 'bg-accent/20 ring-1 ring-accent ring-inset'
           : selected
