@@ -6,7 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, errMessage } from '@/lib/tauri';
 import { toast } from '@/lib/toast';
 import { createTerminal, type TerminalBundle } from '@/lib/xterm';
-import { createOutputChannel, subscribeSshEvents } from '@/lib/ssh';
+import { createOutputChannel, startOutputWatchdog, subscribeSshEvents, type OutputChannel } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { TerminalContextMenu } from './terminal-context-menu';
 import { FindOverlay } from './find-overlay';
@@ -88,6 +88,11 @@ export function TerminalView({ tab, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bundleRef    = useRef<TerminalBundle | null>(null);
   const unlistenRef  = useRef<null | (() => void)>(null);
+  /** Live output channel + its watchdog + the keystroke listener for the
+   *  current connection. Each reconnect replaces all three. */
+  const outputRef    = useRef<OutputChannel | null>(null);
+  const watchdogRef  = useRef<null | (() => void)>(null);
+  const onDataRef    = useRef<null | { dispose(): void }>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
   const resizeRafRef = useRef<null | (() => void)>(null);
   const connectionIdRef = useRef<number | null>(null);
@@ -155,14 +160,19 @@ export function TerminalView({ tab, visible }: Props) {
         disconnect: isLocal ? api.localDisconnect : api.sshDisconnect,
       };
       // Output channel is created before the connect call so the backend
-      // can never emit into a listener that doesn't exist yet.
+      // can never emit into a listener that doesn't exist yet. It buffers
+      // until arm() below, once keystroke replies can flow back.
+      outputRef.current?.detach();
+      watchdogRef.current?.();
       const output = createOutputChannel((bytes) => bundle.terminal.write(bytes));
+      outputRef.current = output;
       let result: { connection_id: number };
       try {
         result = isLocal
-          ? await api.localConnect(tab.session.id, cols, rows, output)
-          : await api.sshConnect(tab.session.id, cols, rows, trustAny, disableX11, output);
+          ? await api.localConnect(tab.session.id, cols, rows, output.channel)
+          : await api.sshConnect(tab.session.id, cols, rows, trustAny, disableX11, output.channel);
       } catch (e) {
+        output.detach();
         const code = (e as { code?: string })?.code;
         // Host-key prompts are SSH-specific; local kinds can't produce them.
         if (!isLocal && code === 'host_key_untrusted') {
@@ -196,6 +206,7 @@ export function TerminalView({ tab, visible }: Props) {
         return;
       }
       if (cancelledRef.current) {
+        output.detach();
         await term.disconnect(result.connection_id);
         return;
       }
@@ -209,50 +220,58 @@ export function TerminalView({ tab, visible }: Props) {
         useTabs.getState().setSftpOpen(tab.tabId, true);
       }
 
-      // Local PTYs reuse the ssh:* event topics so the subscriber doesn't
-      // need to branch — the backend emits ssh:data/close for both.
+      // Local PTYs reuse the ssh:* event topics (close / error) so the
+      // subscriber doesn't need to branch.
       const unlisten = await subscribeSshEvents(result.connection_id, {
-        // A non-zero exit status is worth showing (a shell that died on
-        // its init script, a remote `exit 1`); zero and "no status" (the
-        // server closed the channel without one) both read as a plain
-        // disconnect.
-        onClose: (exitStatus) => setStatus(
-          tab.tabId,
-          'closed',
-          exitStatus != null && exitStatus !== 0 ? `exit ${exitStatus}` : null,
-        ),
+        onClose: (reason) => {
+          watchdogRef.current?.();
+          watchdogRef.current = null;
+          // A non-zero exit status or a signal is worth showing; zero and
+          // "no status" (the channel just ended) read as a plain
+          // disconnect — unless an error was already reported for this
+          // connection, in which case the error and its message stay.
+          const text =
+            typeof reason === 'number' ? (reason !== 0 ? `exit ${reason}` : null) : reason;
+          const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+          if (!text && cur?.status === 'error') return;
+          setStatus(tab.tabId, 'closed', text);
+        },
         onError: (msg) => fail(msg),
       });
       if (cancelledRef.current) {
         unlisten();
+        output.detach();
         await term.disconnect(result.connection_id);
         return;
       }
       unlistenRef.current = unlisten;
 
-      // Register the keystroke / terminal-reply handler BEFORE unblocking
-      // the reader. Bash on WSL emits an early DSR cursor-position query
-      // (`ESC [ 6 n`, 4 bytes) as part of prompt setup and waits for
-      // the terminal to reply with `ESC [ <row> ; <col> R`. xterm.js
-      // generates that reply synchronously inside its parser and fires
-      // `onData`; if no listener is subscribed at that instant the
-      // reply is discarded and bash hangs forever with just a blinking
-      // cursor. Registering here — before the backend reader can emit
-      // anything — closes that window.
-      bundle.terminal.onData((data) => {
+      // Keystroke / terminal-reply handler. Bash emits a DSR
+      // cursor-position query (`ESC [ 6 n`) during prompt setup and
+      // waits for `ESC [ <row> ; <col> R`; xterm.js generates that reply
+      // synchronously inside its parser and fires `onData`. The output
+      // channel has been buffering since before connect precisely so
+      // nothing reaches the parser until this listener exists. One
+      // listener per connection — a reconnect disposes the previous one.
+      onDataRef.current?.dispose();
+      onDataRef.current = bundle.terminal.onData((data) => {
         const bytes = new TextEncoder().encode(data);
         term.write(result.connection_id, Array.from(bytes)).catch(() => {});
       });
+      output.arm();
 
-      // Now unblock the local reader thread. ConPTY writes the shell
-      // prompt microseconds after spawn; without this gate (backend-side)
-      // the first tab ever opened in a fresh app session would miss those
-      // bytes because `listen()` above hadn't finished its IPC round trip
-      // yet. SSH doesn't need this — network RTT is slower than listen
-      // registration — so we only signal for local kinds.
-      if (isLocal) {
-        await api.localReady(result.connection_id).catch(() => {});
-      }
+      // Stall watchdog: see startOutputWatchdog. Fails the tab visibly
+      // instead of leaving a frozen terminal.
+      const cid = result.connection_id;
+      watchdogRef.current = startOutputWatchdog(
+        output,
+        () => api.terminalOutputSent(cid),
+        () => {
+          output.detach();
+          fail('Terminal output stalled — the connection was dropped. Reconnect to continue.');
+          term.disconnect(cid).catch(() => {});
+        },
+      );
 
       // Connection is up. The mount-time ResizeObserver / window
       // 'resize' handler reads `connectionIdRef.current` and forwards
@@ -343,6 +362,15 @@ export function TerminalView({ tab, visible }: Props) {
     return () => {
       cancelledRef.current = true;
       window.clearTimeout(openTimer);
+      // Stop output before the terminal goes away: Rust keeps sending
+      // until it processes the disconnect, and xterm throws on write
+      // after dispose.
+      watchdogRef.current?.();
+      watchdogRef.current = null;
+      outputRef.current?.detach();
+      outputRef.current = null;
+      onDataRef.current?.dispose();
+      onDataRef.current = null;
       unlistenRef.current?.();
       unlistenRef.current = null;
       resizeObsRef.current?.disconnect();

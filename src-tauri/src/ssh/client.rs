@@ -37,8 +37,9 @@ pub struct ConnectRequest {
     /// frontend before it invokes `ssh_connect`, so a listener is
     /// guaranteed to exist before the first byte arrives. Payloads are
     /// sent as `InvokeResponseBody::Raw` and land in JS as an
-    /// `ArrayBuffer` — the previous `ssh:data` event carried a JSON
-    /// `number[]`, 5–7 bytes on the wire per byte of output.
+    /// `ArrayBuffer`. Chunks of 1 KiB and up travel as raw bytes; Tauri
+    /// still inlines smaller ones as a JSON array, so the win is for
+    /// bulk output, not keystroke echo.
     pub output: IpcChannel<InvokeResponseBody>,
 }
 
@@ -476,6 +477,7 @@ async fn connect_impl(
         forwarded_tcpip_dispatch.clone(),
     ));
     let forwards_for_scan = forwards.clone();
+    let output_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
     deps.ssh
         .insert(Connection {
             id,
@@ -486,6 +488,7 @@ async fn connect_impl(
             ssh_handle: handle_arc.clone(),
             x11_display,
             forwards,
+            output_sent: output_sent.clone(),
         })
         .await;
 
@@ -566,6 +569,7 @@ async fn connect_impl(
     tokio::spawn(drive_channel(
         app,
         req.output,
+        output_sent,
         id,
         handle_arc,
         channel,
@@ -778,6 +782,7 @@ async fn check_known_host(
 async fn drive_channel(
     app: AppHandle,
     output: IpcChannel<InvokeResponseBody>,
+    output_sent: Arc<std::sync::atomic::AtomicU64>,
     id: u64,
     handle: Arc<Handle<ClientHandler>>,
     mut channel: Channel<Msg>,
@@ -793,17 +798,26 @@ async fn drive_channel(
         tokio::select! {
             maybe_msg = channel.wait() => {
                 match maybe_msg {
-                    // Send errors mean the webview side of the channel is
-                    // gone (tab closed, window reloaded); the Close path
-                    // below tears the connection down shortly after.
-                    Some(russh::ChannelMsg::Data { data }) => {
-                        let _ = output.send(InvokeResponseBody::Raw(data.to_vec()));
-                    }
-                    Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                        let _ = output.send(InvokeResponseBody::Raw(data.to_vec()));
+                    // `send` only fails once the webview itself is gone;
+                    // a closed tab is torn down by the frontend's
+                    // disconnect call arriving as ConnectionInput::Close
+                    // below, not by anything observed here.
+                    Some(russh::ChannelMsg::Data { data })
+                    | Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
+                        if output.send(InvokeResponseBody::Raw(data.to_vec())).is_ok() {
+                            output_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                     Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
                         let _ = app.emit(&ev_close, exit_status);
+                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
+                        break;
+                    }
+                    // Shell killed by a signal (OOM killer, kill -9, a
+                    // dropped sshd). Surface the signal as the close
+                    // reason instead of a bare "Disconnected".
+                    Some(russh::ChannelMsg::ExitSignal { signal_name, .. }) => {
+                        let _ = app.emit(&ev_close, format!("killed by SIG{signal_name:?}"));
                         log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }

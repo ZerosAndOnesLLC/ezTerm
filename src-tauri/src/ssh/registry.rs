@@ -40,6 +40,10 @@ pub struct Connection {
     /// time; populated by `commands::forwards::forward_start` and by
     /// the auto-start scan in `connect_impl`.
     pub forwards: std::sync::Arc<crate::ssh::forwards::Forwards>,
+    /// Chunks pushed into the frontend's output channel. The driver
+    /// increments it; `terminal_output_sent` reads it so the frontend's
+    /// stall watchdog can compare against what it has received.
+    pub output_sent: Arc<AtomicU64>,
 }
 
 pub enum ConnectionInput {

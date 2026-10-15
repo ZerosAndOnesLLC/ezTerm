@@ -35,7 +35,7 @@ ezTerm/
 ## Architecture Notes
 
 - **Command boundary**: All SSH/SFTP/vault operations live in Rust; the webview calls them via Tauri commands. The frontend is a dumb renderer plus UI state — no protocol logic in TypeScript.
-- **Terminal data path**: Rust opens the SSH shell channel; bytes flow to the frontend via Tauri events (`ssh:data`, `ssh:close`), keystrokes flow back through a Tauri command. xterm.js only renders and captures input.
+- **Terminal data path**: Rust opens the SSH shell channel; output bytes flow to the frontend over a Tauri IPC channel passed into the connect command (raw bytes, buffered on the frontend until the keystroke handler is wired), close / error arrive as `ssh:close` / `ssh:error` events, and keystrokes flow back through a Tauri command. xterm.js only renders and captures input.
 - **SFTP pane follows the session** (MobaXterm-style): when a tab connects, an optional side pane opens an SFTP subsystem on the *same* connection — no second auth.
 - **Vault**: master password unlocks the app. Argon2id derives the vault key; credentials are stored as `(nonce, ciphertext)` rows. Plaintext secrets exist only in memory during use and are zeroized on drop. Never log, serialize, or return plaintext credentials to the frontend except as ephemeral auth material.
 - **Known hosts**: TOFU on first connect; mismatch is a hard failure. Stored in SQLite, not `~/.ssh/known_hosts`.

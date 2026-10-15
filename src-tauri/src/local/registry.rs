@@ -1,19 +1,15 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
 use tokio::sync::{mpsc, RwLock};
 
 pub struct Connection {
     pub id: u64,
     pub stdin: mpsc::UnboundedSender<LocalInput>,
-    /// Gates the reader thread on the frontend signalling that its
-    /// `ssh:data:<id>` listener is installed. Without this, ConPTY's
-    /// prompt bytes race the Tauri `listen()` round-trip on first
-    /// connect and the terminal shows blank until a reconnect. Once
-    /// `unlock_reader` takes the sender and sends `()`, the reader
-    /// thread enters its normal read loop. Subsequent calls are no-ops.
-    pub reader_gate: StdMutex<Option<std::sync::mpsc::Sender<()>>>,
+    /// Chunks pushed into the frontend's output channel by the reader
+    /// thread; read by `terminal_output_sent` for the stall watchdog.
+    pub output_sent: Arc<AtomicU64>,
     /// Set when this connection is a WSL tab. Records the distro
     /// (and optional user) so the file-browser commands can
     /// resolve `\\wsl.localhost\<distro>\` paths and shell out to
@@ -89,17 +85,5 @@ impl LocalRegistry {
     /// flows that need to tear every active local shell down.
     pub async fn list_ids(&self) -> Vec<u64> {
         self.inner.read().await.keys().copied().collect()
-    }
-
-    /// Signals the reader thread to start emitting data. Called by the
-    /// `local_ready` command once the frontend has its `ssh:data:<id>`
-    /// listener installed. Idempotent — subsequent calls are no-ops.
-    pub async fn unlock_reader(&self, id: u64) {
-        if let Some(c) = self.get(id).await {
-            let tx = c.reader_gate.lock().expect("reader_gate poisoned").take();
-            if let Some(tx) = tx {
-                let _ = tx.send(());
-            }
-        }
     }
 }

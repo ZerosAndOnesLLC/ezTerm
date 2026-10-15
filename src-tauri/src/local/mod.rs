@@ -1,20 +1,13 @@
 //! Local PTY backend — WSL distros and local shells (cmd / pwsh / powershell).
 //!
-//! Uses `portable-pty`'s ConPTY-backed implementation on Windows. Event flow
-//! mirrors the SSH path so the frontend can use a single subscribe helper:
-//! the reader thread emits `ssh:data:<id>` for bytes and `ssh:close:<id>`
-//! on EOF, and `local_write` / `local_resize` / `local_disconnect` commands
-//! route through the per-connection mpsc to a writer thread that owns the
-//! `MasterPty`.
-//!
-//! The reader thread blocks on a ready gate (`std::sync::mpsc::Receiver<()>`)
-//! before reading any PTY bytes. Without this, ConPTY's shell writes its
-//! prompt into the pipe microseconds after spawn — faster than the frontend's
-//! Tauri `listen()` IPC can register a listener — and the initial bytes are
-//! silently dropped because Tauri events don't buffer for late subscribers.
-//! The `local_ready` command fires after `subscribeSshEvents` returns on the
-//! frontend, unblocking the reader. SSH has the same race in theory but
-//! network RTT masks it in practice, so only the local path is gated.
+//! Uses `portable-pty`'s ConPTY-backed implementation on Windows. Data flow
+//! mirrors the SSH path: the reader thread pushes PTY bytes into the
+//! frontend's IPC output channel (created before `local_connect` runs, so
+//! ConPTY's prompt — written microseconds after spawn — can never outrun a
+//! listener; the frontend buffers until its keystroke handler is wired) and
+//! emits `ssh:close:<id>` on EOF. `local_write` / `local_resize` /
+//! `local_disconnect` commands route through the per-connection mpsc to a
+//! writer thread that owns the `MasterPty`.
 //!
 //! The child process is not explicitly waited on — dropping the stdin
 //! sender closes the mpsc, the writer thread exits, the master drops,
@@ -22,6 +15,8 @@
 //! the close event.
 
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -112,27 +107,19 @@ pub async fn spawn(
 
     // Reader: bytes → the frontend's IPC `output` channel (raw bytes, no
     // JSON); EOF → "ssh:close:<id>" event.
-    //
-    // Blocks on `ready_rx.recv()` until `local_ready` fires (see module
-    // docs — prevents prompt bytes from outrunning the frontend listener).
-    // If the gate's Sender is dropped without signalling (e.g. tab closed
-    // mid-connect), `recv()` returns Err and the thread exits without
-    // emitting anything. The close event is only emitted when we actually
-    // got to read and saw EOF, so a cancelled-before-ready connection
-    // never surfaces a spurious "closed" dot in the UI.
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+    let output_sent = Arc::new(AtomicU64::new(0));
+    let reader_sent = output_sent.clone();
     let reader_app = app.clone();
     let reader_id = id;
     thread::spawn(move || {
-        if ready_rx.recv().is_err() {
-            return;
-        }
         let mut buf = vec![0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let _ = output.send(InvokeResponseBody::Raw(buf[..n].to_vec()));
+                    if output.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_ok() {
+                        reader_sent.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
                 Err(_) => break,
             }
@@ -173,7 +160,7 @@ pub async fn spawn(
         .insert(Connection {
             id,
             stdin: tx,
-            reader_gate: std::sync::Mutex::new(Some(ready_tx)),
+            output_sent,
             wsl_meta,
         })
         .await;

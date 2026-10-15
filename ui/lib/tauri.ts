@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { OutputChannel } from './ssh';
+import type { Channel } from '@tauri-apps/api/core';
 import type {
   Folder, Session, SessionInput, CredentialMeta, CredentialDetail, CredentialKind, VaultStatus,
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
@@ -108,7 +108,7 @@ export const api = {
   // SSH
   sshConnect:    (
     sessionId: number, cols: number, rows: number, trustAny: boolean,
-    disableX11: boolean | undefined, output: OutputChannel,
+    disableX11: boolean | undefined, output: Channel<ArrayBuffer>,
   ) =>
     invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11, output }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
@@ -158,7 +158,7 @@ export const api = {
   sftpDownload: (connectionId: number, remotePath: string, localPath: string) =>
     invoke<TransferTicket>('sftp_download', { connectionId, remotePath, localPath }),
   // Local PTY (WSL / cmd / pwsh)
-  localConnect:    (sessionId: number, cols: number, rows: number, output: OutputChannel) =>
+  localConnect:    (sessionId: number, cols: number, rows: number, output: Channel<ArrayBuffer>) =>
     invoke<{ connection_id: number }>('local_connect', { sessionId, cols, rows, output }),
   localWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('local_write', { connectionId, bytes }),
@@ -166,8 +166,10 @@ export const api = {
     invoke<void>('local_resize', { connectionId, cols, rows }),
   localDisconnect: (connectionId: number) =>
     invoke<void>('local_disconnect', { connectionId }),
-  localReady:      (connectionId: number) =>
-    invoke<void>('local_ready', { connectionId }),
+  /** Chunks the backend has pushed into a connection's output channel.
+   *  Works for SSH and local ids. See startOutputWatchdog in lib/ssh.ts. */
+  terminalOutputSent: (connectionId: number) =>
+    invoke<number>('terminal_output_sent', { connectionId }),
   wslListDistros:  () => invoke<string[]>('wsl_list_distros'),
   wslAutodetectSeed: () => invoke<number>('wsl_autodetect_seed'),
   localShellsAutodetectSeed: () => invoke<number>('local_shells_autodetect_seed'),
