@@ -33,3 +33,9 @@ Each session has independent **connect timeout** (initial handshake) and **keepa
 ## Compression
 
 Optional — enable in the session edit dialog. Useful on slow links; mostly invisible on LAN.
+
+## Disconnects
+
+When a session ends, the tab says why. A shell that exits with a non-zero status shows **Disconnected (exit N)**; one killed by a signal shows the signal name, such as **Disconnected (killed by SIGKILL)**. An error that happened earlier in the session is kept on the tab rather than being replaced by the final close.
+
+Terminal output also has a stall watchdog. The backend counts what it has sent, the terminal checks every few seconds that it is keeping up, and if output stops arriving while the backend is still ahead, the tab fails with a visible error instead of appearing frozen.

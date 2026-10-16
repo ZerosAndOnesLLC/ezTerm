@@ -16,13 +16,22 @@ Click the **SFTP toggle** on the active tab's right edge.
 
 ## What you can do
 
-- **Browse** — click folders to descend, breadcrumb at the top to ascend.
-- **Download** — right-click a file → Download. The file is streamed to your local Downloads folder.
-- **Upload** — drag a file from Windows Explorer into the pane. Uploads are 32 KiB-chunked with live progress.
-- **Rename / Delete** — right-click context menu.
+- **Browse** — double-click folders to descend, breadcrumb at the top to ascend.
+- **Download** — right-click a file → Download. The file is streamed to a location you choose.
+- **Upload** — drag files or whole folders from Explorer into the pane, or use the Upload button. Drop onto a folder row to upload into that folder. Uploads are 32 KiB-chunked with live progress; folder uploads show a per-file count.
+- **Select several** — Ctrl-click toggles a row, Shift-click selects a range.
+- **New folder, Rename, Delete** — toolbar button and right-click context menu.
+
+## Resizing
+
+The pane and its columns are both adjustable, and every width is remembered across restarts.
+
+- **Pane width** — drag the grab-strip on the pane's right edge (200–640 px). Double-click it to reset.
+- **Columns** — drag the right edge of the **Name** or **Size** header. Double-click a header edge to reset that column. When the columns add up to more than the pane width, the list scrolls sideways instead of cutting off long filenames.
+- **Keyboard** — Tab to any handle and use the arrow keys (Shift for larger steps); Home restores the default.
 
 ## What you can't do (yet)
 
 - Symbolic links are listed but not followed graphically.
-- No "Open in editor" (would need a local editor handoff — not in v1).
-- No multi-select for batch operations.
+- No "Open in editor" (would need a local editor handoff).
+- No chmod dialog; the Mode column is read-only.
