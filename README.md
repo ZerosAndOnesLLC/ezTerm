@@ -50,7 +50,10 @@ on those platforms.
 ### Settings
 
 - **Settings panel** (sidebar menu or the status-bar gear). Every control
-  saves on change. Defaults for new sessions (scrollback, font, cursor,
+  saves on change. Terminal colour palette (ezTerm dark / light, Campbell,
+  Solarized, Dracula, Gruvbox, Nord, One Dark, Monokai, Tango, and the
+  GNOME / GitHub / Google light + dark pairs from Ptyxis — applied live to
+  open tabs), defaults for new sessions (scrollback, font, cursor,
   keepalive, connect timeout), copy-on-select, right-click paste, a
   warning before multi-line pastes, the OSC 52 clipboard switch, bell
   behaviour, confirm-before-close / quit, auto-open the file pane, update

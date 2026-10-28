@@ -54,7 +54,7 @@ Justifications:
 
 ### 2.3 Terminal ANSI palette (identical in both themes)
 
-The terminal palette does **not** switch with the chrome theme. This is intentional: users configure xterm colors once and expect them to stay. Values below are a MobaXterm-leaning take on the Campbell/Windows Terminal defaults.
+The terminal palette does **not** switch with the chrome theme. This is intentional: users configure xterm colors once and expect them to stay. Since #176 the palette is a user setting (Settings → Appearance → Terminal colours, key `terminal.palette`); the built-in set lives in `ui/lib/palettes.ts` and the shipped default (`ezterm-dark`) is the palette `ui/lib/xterm.ts` hard-coded before the setting existed. Values below are a MobaXterm-leaning take on the Campbell/Windows Terminal defaults, offered as the `campbell` preset.
 
 | Index | Name    | Hex       |
 |-------|---------|-----------|
@@ -265,7 +265,7 @@ No decorative animations. No bouncing. Respect `prefers-reduced-motion: reduce` 
 
 ## 8. xterm.js Theme Objects
 
-Both themes pass the **same** `theme` object to xterm.js. Only the chrome changes on toggle.
+Both themes pass the **same** `theme` object to xterm.js. Only the chrome changes on toggle. The object is built by `buildXtermTheme()` in `ui/lib/palettes.ts` from the selected palette; the scrollbar-slider entries are derived (white on dark palettes, black on light ones) rather than stored per palette.
 
 ```json
 {
@@ -294,7 +294,7 @@ Both themes pass the **same** `theme` object to xterm.js. Only the chrome change
 }
 ```
 
-If a future version offers a "light terminal" preset, the object below ships as an optional user-selected palette — it is **not** auto-applied on light theme toggle.
+The "light terminal" preset below ships as the `ezterm-light` palette — a user-selected choice that is **not** auto-applied on light theme toggle.
 
 ```json
 {
