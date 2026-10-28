@@ -16,7 +16,8 @@ import { AuthFixOverlay } from './auth-fix-overlay';
 import { XServerMissingDialog } from './xserver-missing-dialog';
 import { resolveFontFamily } from '@/lib/xterm';
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
-import { getSetting } from '@/lib/settings';
+import { getSetting, useSettings } from '@/lib/settings';
+import { buildXtermTheme, getPalette } from '@/lib/palettes';
 import { ConfirmDialog } from './confirm-dialog';
 
 /** Short 880 Hz tick via WebAudio — no asset to ship, ~80 ms. */
@@ -97,6 +98,11 @@ function safeFit(bundle: TerminalBundle) {
 export function TerminalView({ tab, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bundleRef    = useRef<TerminalBundle | null>(null);
+  /** App-wide palette (Settings → Appearance). Subscribed so a change
+   *  repaints this tab live; the mount effect reads the same key once
+   *  for the initial theme. */
+  const paletteId = useSettings((s) => s.settings['terminal.palette']);
+  const palette = getPalette(paletteId);
   /** Everything tied to the current backend connection. Replaced as a
    *  unit on reconnect and torn down as a unit on close, stall and
    *  unmount — see teardownConnection. */
@@ -309,6 +315,17 @@ export function TerminalView({ tab, visible }: Props) {
     }
   }, [tab.tabId, tab.session.id, tab.session.session_kind, setStatus, setConn, teardownConnection]);
 
+  // Re-theme the live xterm instance when the palette setting changes.
+  // xterm.js re-renders every cell on a `theme` assignment, so no fit or
+  // backend resize is needed. On the first render this runs before the
+  // mount effect below, finds no bundle and does nothing; the mount
+  // effect reads the same key for the initial theme.
+  useEffect(() => {
+    const bundle = bundleRef.current;
+    if (!bundle) return;
+    bundle.terminal.options.theme = buildXtermTheme(palette);
+  }, [palette]);
+
   // Mount xterm and start the first connect attempt.
   //
   // React 18 Strict Mode (enabled in Next.js dev) invokes effects
@@ -327,6 +344,7 @@ export function TerminalView({ tab, visible }: Props) {
       scrollback: tab.session.scrollback_lines,
       cursorStyle: tab.session.cursor_style,
       cursorBlink: getSetting('terminal.cursorBlink'),
+      palette: getSetting('terminal.palette'),
       // Same native clipboard path as doCopy — see the note there.
       onClipboardWrite: writeText,
       onClipboardError: reportClipboardError,
@@ -633,7 +651,9 @@ export function TerminalView({ tab, visible }: Props) {
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <div ref={containerRef} className="h-full w-full p-1" />
+      {/* Padding ring painted in the palette background so a light
+          palette does not show a dark 4 px frame around the cells. */}
+      <div ref={containerRef} className="h-full w-full p-1" style={{ background: palette.background }} />
       {pendingPaste !== null && (
         <ConfirmDialog
           kind="danger"

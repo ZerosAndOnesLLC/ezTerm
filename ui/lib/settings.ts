@@ -17,6 +17,7 @@ import { create } from 'zustand';
 import { api } from './tauri';
 import { toast } from './toast';
 import { errMessage } from './tauri';
+import { DEFAULT_PALETTE, PALETTE_IDS, type PaletteId } from './palettes';
 
 export type CursorStyle = 'block' | 'underline' | 'bar';
 export type RightClick  = 'menu' | 'paste';
@@ -42,6 +43,9 @@ export interface Settings {
   'sessions.connectTimeoutSecs': number;
 
   'appearance.tabLabel':         TabLabel;
+  /** Built-in terminal colour palette (lib/palettes.ts). Applies to
+   *  every tab, open or not, the moment it changes. */
+  'terminal.palette':            PaletteId;
 
   'updates.checkOnLaunch':       boolean;
   'updates.preRelease':          boolean;
@@ -78,6 +82,7 @@ export const SPEC: { [K in SettingKey]: Spec<Settings[K]> } = {
   'sessions.connectTimeoutSecs': { kind: 'int', default: 15, min: 1, max: 600 },
 
   'appearance.tabLabel':         { kind: 'enum', default: 'name', values: ['name', 'userhost'] },
+  'terminal.palette':            { kind: 'enum', default: DEFAULT_PALETTE, values: PALETTE_IDS },
 
   'updates.checkOnLaunch':       { kind: 'bool', default: true },
   'updates.preRelease':          { kind: 'bool', default: false },
