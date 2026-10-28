@@ -1,7 +1,7 @@
 {
   "name": "ezterm-ui",
   "private": true,
-  "version": "1.13.1",
+  "version": "1.13.2",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 5173",
@@ -22,7 +22,7 @@
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
-    "next": "^16.4.0",
+    "next": "^16.4.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"
@@ -34,7 +34,7 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.6.1",
     "eslint": "^10.12.0",
-    "eslint-config-next": "^16.4.0",
+    "eslint-config-next": "^16.4.3",
     "postcss": "^8.5.30",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
