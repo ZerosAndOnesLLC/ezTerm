@@ -20,11 +20,11 @@ use crate::error::{AppError, Result};
 /// uniformly between real SFTP and the WSL adapter.
 pub struct WslFsHandle {
     distro: String,
-    user:   Option<String>,
+    user: Option<String>,
     /// Cached `$HOME` for the distro/user pair. Populated on first
     /// `sftp_realpath('.')` and reused for subsequent calls so we don't
     /// shell out to `wsl.exe` on every refresh.
-    home:   OnceCell<String>,
+    home: OnceCell<String>,
 }
 
 impl WslFsHandle {
@@ -43,9 +43,7 @@ impl WslFsHandle {
     pub async fn home(&self) -> Result<String> {
         self.home
             .get_or_try_init(|| async {
-                let out = self
-                    .wsl_exec(&["sh", "-c", "printf %s \"$HOME\""])
-                    .await?;
+                let out = self.wsl_exec(&["sh", "-c", "printf %s \"$HOME\""]).await?;
                 let home = out.trim().to_string();
                 if home.is_empty() {
                     Ok("/".to_string())

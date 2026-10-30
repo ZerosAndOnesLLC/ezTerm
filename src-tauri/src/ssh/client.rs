@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex as StdMutex};
 
-use russh::client::{self, Config, Handle, Msg};
-use russh::keys::agent::client::AgentClient;
-use russh::keys::agent::AgentIdentity;
-use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::Channel;
-use tauri::ipc::{Channel as IpcChannel, InvokeResponseBody};
+use russh::client::{self, Config, Handle, Msg};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::AgentClient;
+use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key};
 use tauri::AppHandle;
 use tauri::Emitter;
+use tauri::ipc::{Channel as IpcChannel, InvokeResponseBody};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
@@ -15,7 +15,8 @@ use crate::db;
 use crate::error::{AppError, Result};
 use crate::log_redacted;
 use crate::sftp::SftpRegistry;
-use crate::ssh::known_hosts::{fingerprint_sha256, KeyCheck};
+use crate::ssh::forwards::RemoteDispatch;
+use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
@@ -73,9 +74,7 @@ pub struct ClientHandler {
     /// holds the read lock long enough to clone an `mpsc::UnboundedSender`
     /// out — no awaits while held — and the russh event loop benefits
     /// from a non-blocking read path.
-    forwarded_tcpip_dispatch: std::sync::Arc<std::sync::RwLock<
-        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>
-    >>,
+    forwarded_tcpip_dispatch: RemoteDispatch,
 }
 
 impl client::Handler for ClientHandler {
@@ -120,7 +119,9 @@ impl client::Handler for ClientHandler {
         // Dropping `reply` without accepting sends the server an
         // AdministrativelyProhibited rejection — the right answer when
         // X11 wasn't negotiated on this connection.
-        let Some(display) = self.x11_display else { return Ok(()); };
+        let Some(display) = self.x11_display else {
+            return Ok(());
+        };
         reply.accept().await;
         let target = format!("127.0.0.1:{}", 6000 + display as u16);
         tokio::spawn(async move {
@@ -161,7 +162,8 @@ impl client::Handler for ClientHandler {
     ) -> std::result::Result<(), Self::Error> {
         let key = (connected_address.to_string(), connected_port);
         let tx = {
-            let map = self.forwarded_tcpip_dispatch
+            let map = self
+                .forwarded_tcpip_dispatch
                 .read()
                 .expect("forwarded_tcpip_dispatch poisoned");
             map.get(&key).cloned()
@@ -250,8 +252,9 @@ async fn connect_impl(
     // Duration as "no keepalives"), matching our `keepalive_secs` semantics.
     let mut config = Config::default();
     if session.keepalive_secs > 0 {
-        config.keepalive_interval =
-            Some(std::time::Duration::from_secs(session.keepalive_secs as u64));
+        config.keepalive_interval = Some(std::time::Duration::from_secs(
+            session.keepalive_secs as u64,
+        ));
     }
     if session.compression == 1 {
         // Prefer zlib variants when the server offers them, but keep "none"
@@ -281,9 +284,8 @@ async fn connect_impl(
     // `Connection.forwards.dispatch` (written by `remote::start` /
     // `remote::stop`). Reads run sync inside the russh event loop;
     // writes are rare (forward setup/teardown only).
-    let forwarded_tcpip_dispatch: Arc<std::sync::RwLock<
-        std::collections::HashMap<(String, u32), tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>>,
-    >> = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+    let forwarded_tcpip_dispatch: RemoteDispatch =
+        Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
     let handler = ClientHandler {
         server_key: server_key.clone(),
         x11_display,
@@ -297,11 +299,7 @@ async fn connect_impl(
     // from `session` across the connect await — capturing `&str` there trips
     // the `for<'a> &'a str: Send` HRTB check on russh 0.60.
     let host_owned = session.host.clone();
-    let connect_fut = client::connect(
-        config,
-        (host_owned, session.port as u16),
-        handler,
-    );
+    let connect_fut = client::connect(config, (host_owned, session.port as u16), handler);
     let mut handle = tokio::time::timeout(
         std::time::Duration::from_secs(session.connect_timeout_secs as u64),
         connect_fut,
@@ -501,7 +499,9 @@ async fn connect_impl(
     let handle_for_scan = handle_arc.clone();
     let session_id_for_scan = session.id;
     tokio::spawn(async move {
-        let auto = match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
+        let auto = match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan)
+            .await
+        {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!("auto-start db query failed: {e}");
@@ -549,10 +549,13 @@ async fn connect_impl(
                 handle_for_scan.clone(),
                 spec.clone(),
                 Some(f.id),
-            ).await {
+            )
+            .await
+            {
                 tracing::warn!(
                     "auto-start forward {}:{} failed: {e}",
-                    spec.bind_addr, spec.bind_port,
+                    spec.bind_addr,
+                    spec.bind_port,
                 );
             }
         }
@@ -563,21 +566,21 @@ async fn connect_impl(
     // SFTP + SSH state in every exit branch (EOF / Close / ExitStatus / error).
     // Without this the `SftpRegistry` entry would outlive the transport and
     // `SftpHandle`s would leak until app shutdown (audit I-1).
-    let ssh_reg = deps.ssh.clone();
-    let sftp_reg = deps.sftp.clone();
-    let xserver_reg = deps.xserver.clone();
+    let teardown = ConnectionTeardown {
+        id,
+        ssh_reg: deps.ssh.clone(),
+        sftp_reg: deps.sftp.clone(),
+        xserver_reg: deps.xserver.clone(),
+        x11_display,
+    };
     tokio::spawn(drive_channel(
         app,
         req.output,
         output_sent,
-        id,
         handle_arc,
         channel,
         rx,
-        ssh_reg,
-        sftp_reg,
-        xserver_reg,
-        x11_display,
+        teardown,
     ));
 
     Ok(ConnectOutcome {
@@ -618,10 +621,7 @@ async fn load_auth_material(
             let row = db::credentials::get(&deps.db, cred_id).await?;
             let vs = deps.vault.read().await;
             let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
-            Ok((
-                AuthMaterial::Password(Zeroizing::new(pt)),
-                Some(row.kind),
-            ))
+            Ok((AuthMaterial::Password(Zeroizing::new(pt)), Some(row.kind)))
         }
         "key" => {
             let cred_id = session
@@ -648,9 +648,7 @@ async fn load_auth_material(
                 Some(row.kind),
             ))
         }
-        other => Err(AppError::Validation(format!(
-            "unknown auth_type: {other}"
-        ))),
+        other => Err(AppError::Validation(format!("unknown auth_type: {other}"))),
     }
 }
 
@@ -751,14 +749,16 @@ async fn authenticate(
 /// site. On Windows we prefer the OpenSSH-for-Windows named pipe
 /// (`\\.\pipe\openssh-ssh-agent`); Pageant support is a follow-up.
 #[cfg(windows)]
-async fn connect_ssh_agent(
-) -> std::result::Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>, russh::keys::Error> {
+async fn connect_ssh_agent() -> std::result::Result<
+    AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>,
+    russh::keys::Error,
+> {
     AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await
 }
 
 #[cfg(unix)]
-async fn connect_ssh_agent(
-) -> std::result::Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
+async fn connect_ssh_agent()
+-> std::result::Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
     AgentClient::connect_env().await
 }
 
@@ -779,19 +779,44 @@ async fn check_known_host(
     })
 }
 
-async fn drive_channel(
-    app: AppHandle,
-    output: IpcChannel<InvokeResponseBody>,
-    output_sent: Arc<std::sync::atomic::AtomicU64>,
+/// Per-connection state the driver task releases when the channel ends,
+/// whichever way it ends (EOF / Close / ExitStatus / error).
+struct ConnectionTeardown {
     id: u64,
-    handle: Arc<Handle<ClientHandler>>,
-    mut channel: Channel<Msg>,
-    mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
     ssh_reg: Arc<ConnectionRegistry>,
     sftp_reg: Arc<SftpRegistry>,
     xserver_reg: Arc<XServerManager>,
     x11_display: Option<u8>,
+}
+
+impl ConnectionTeardown {
+    async fn run(self) {
+        // Drop SFTP state first (so any cached `SftpHandle` is released
+        // before the underlying russh transport is gone), then the SSH
+        // registry entry. `ConnectionRegistry::close` is idempotent — calling
+        // it here after a user-initiated `ConnectionInput::Close` (which
+        // landed via `AppState::close_connection`) is a harmless no-op.
+        // (audit I-1)
+        self.sftp_reg.remove(self.id).await;
+        self.ssh_reg.close(self.id).await;
+        // Release the X server ref so the VcXsrv process exits when no other
+        // sessions are using it.
+        if let Some(display) = self.x11_display {
+            self.xserver_reg.release(display).await;
+        }
+    }
+}
+
+async fn drive_channel(
+    app: AppHandle,
+    output: IpcChannel<InvokeResponseBody>,
+    output_sent: Arc<std::sync::atomic::AtomicU64>,
+    handle: Arc<Handle<ClientHandler>>,
+    mut channel: Channel<Msg>,
+    mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
+    teardown: ConnectionTeardown,
 ) {
+    let id = teardown.id;
     let ev_close = format!("ssh:close:{id}");
     let ev_error = format!("ssh:error:{id}");
     loop {
@@ -860,18 +885,7 @@ async fn drive_channel(
         }
     }
 
-    // Connection teardown: drop SFTP state first (so any cached `SftpHandle`
-    // is released before the underlying russh transport is gone), then the
-    // SSH registry entry. `ConnectionRegistry::close` is idempotent — calling
-    // it here after a user-initiated `ConnectionInput::Close` (which landed
-    // via `AppState::close_connection`) is a harmless no-op. (audit I-1)
-    sftp_reg.remove(id).await;
-    ssh_reg.close(id).await;
-    // Release the X server ref so the VcXsrv process exits when no other
-    // sessions are using it.
-    if let Some(display) = x11_display {
-        xserver_reg.release(display).await;
-    }
+    teardown.run().await;
 }
 
 /// Format a user-supplied path for use as the argument to `cd` in a POSIX

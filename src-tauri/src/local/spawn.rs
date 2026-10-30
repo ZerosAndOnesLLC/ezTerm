@@ -2,35 +2,35 @@
 //! `local/mod.rs` for the data-flow overview.
 
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
+use super::{Connection, LocalInput, WslMeta};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
-use super::{Connection, LocalInput, WslMeta};
 
 pub struct SpawnRequest {
     /// "wsl" or "local".
-    pub kind:     String,
+    pub kind: String,
     /// For wsl: distro name (empty = default distro). For local: shell
     /// short-name ('cmd' / 'pwsh' / 'powershell') or absolute path.
-    pub program:  String,
+    pub program: String,
     /// For wsl: optional user (empty = distro default). For local: optional
     /// starting directory (empty = process cwd).
-    pub extra:    String,
+    pub extra: String,
     /// For wsl: optional Linux starting dir passed as `wsl.exe --cd
     /// <value>`; empty/None falls back to `~` so users land in their
     /// Linux home. Ignored for local (cmd/pwsh) rows — those continue
     /// to use `extra` as the Windows cwd.
     pub starting_dir: Option<String>,
-    pub cols:     u16,
-    pub rows:     u16,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 pub struct SpawnOutcome {
@@ -43,7 +43,12 @@ pub async fn spawn(
     req: SpawnRequest,
     output: Channel<InvokeResponseBody>,
 ) -> Result<SpawnOutcome> {
-    let cmd = build_command(&req.kind, &req.program, &req.extra, req.starting_dir.as_deref())?;
+    let cmd = build_command(
+        &req.kind,
+        &req.program,
+        &req.extra,
+        req.starting_dir.as_deref(),
+    )?;
     let id = state.local.alloc_id();
     // For WSL tabs, capture distro + user so the file browser can resolve
     // `\\wsl.localhost\<distro>\` paths and run `wsl.exe -d <distro> -u
@@ -54,7 +59,11 @@ pub async fn spawn(
         let user = req.extra.trim();
         Some(WslMeta {
             distro: req.program.trim().to_string(),
-            user:   if user.is_empty() { None } else { Some(user.to_string()) },
+            user: if user.is_empty() {
+                None
+            } else {
+                Some(user.to_string())
+            },
         })
     } else {
         None
@@ -100,7 +109,10 @@ pub async fn spawn(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if output.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_ok() {
+                    if output
+                        .send(InvokeResponseBody::Raw(buf[..n].to_vec()))
+                        .is_ok()
+                    {
                         reader_sent.fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -181,7 +193,9 @@ fn build_command(
             Ok(c)
         }
         "local" => build_local_command(program, extra),
-        _ => Err(AppError::Validation(format!("invalid session kind: {kind}"))),
+        _ => Err(AppError::Validation(format!(
+            "invalid session kind: {kind}"
+        ))),
     }
 }
 

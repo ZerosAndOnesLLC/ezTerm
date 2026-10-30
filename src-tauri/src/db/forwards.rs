@@ -5,27 +5,27 @@ use crate::error::{AppError, Result};
 
 #[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
 pub struct Forward {
-    pub id:         i64,
+    pub id: i64,
     pub session_id: i64,
-    pub name:       String,
-    pub kind:       String,        // 'local' | 'remote' | 'dynamic'
-    pub bind_addr:  String,
-    pub bind_port:  i64,
-    pub dest_addr:  String,
-    pub dest_port:  i64,
+    pub name: String,
+    pub kind: String, // 'local' | 'remote' | 'dynamic'
+    pub bind_addr: String,
+    pub bind_port: i64,
+    pub dest_addr: String,
+    pub dest_port: i64,
     pub auto_start: i64,
-    pub sort:       i64,
+    pub sort: i64,
     pub created_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ForwardInput {
-    pub name:       String,
-    pub kind:       String,
-    pub bind_addr:  String,
-    pub bind_port:  i64,
-    pub dest_addr:  String,
-    pub dest_port:  i64,
+    pub name: String,
+    pub kind: String,
+    pub bind_addr: String,
+    pub bind_port: i64,
+    pub dest_addr: String,
+    pub dest_port: i64,
     pub auto_start: i64,
 }
 
@@ -42,9 +42,7 @@ pub fn validate_input(input: &ForwardInput) -> Result<()> {
                 ));
             }
             if !(1..=65535).contains(&input.dest_port) {
-                return Err(AppError::Validation(
-                    "dest_port must be 1..=65535".into(),
-                ));
+                return Err(AppError::Validation("dest_port must be 1..=65535".into()));
             }
         }
         "dynamic" => {
@@ -55,7 +53,9 @@ pub fn validate_input(input: &ForwardInput) -> Result<()> {
             }
         }
         other => {
-            return Err(AppError::Validation(format!("invalid forward kind: {other}")));
+            return Err(AppError::Validation(format!(
+                "invalid forward kind: {other}"
+            )));
         }
     }
     if !(1..=65535).contains(&input.bind_port) {
@@ -66,9 +66,7 @@ pub fn validate_input(input: &ForwardInput) -> Result<()> {
     // like "0.0.0.0; rm -rf /" or "::1 #comment" only fails at start
     // time, possibly after a long delay.
     let trimmed = input.bind_addr.trim();
-    if !trimmed.eq_ignore_ascii_case("localhost")
-        && trimmed.parse::<std::net::IpAddr>().is_err()
-    {
+    if !trimmed.eq_ignore_ascii_case("localhost") && trimmed.parse::<std::net::IpAddr>().is_err() {
         return Err(AppError::Validation(format!(
             "bind_addr {trimmed:?} must be an IP literal or `localhost`",
         )));
@@ -84,7 +82,10 @@ pub async fn list_for_session(pool: &SqlitePool, session_id: i64) -> Result<Vec<
         "SELECT {SELECT_COLS} FROM session_forwards \
          WHERE session_id = ? ORDER BY sort, id"
     );
-    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(session_id).fetch_all(pool).await?)
+    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql))
+        .bind(session_id)
+        .fetch_all(pool)
+        .await?)
 }
 
 pub async fn list_auto_start(pool: &SqlitePool, session_id: i64) -> Result<Vec<Forward>> {
@@ -92,21 +93,22 @@ pub async fn list_auto_start(pool: &SqlitePool, session_id: i64) -> Result<Vec<F
         "SELECT {SELECT_COLS} FROM session_forwards \
          WHERE session_id = ? AND auto_start = 1 ORDER BY sort, id"
     );
-    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(session_id).fetch_all(pool).await?)
+    Ok(sqlx::query_as::<_, Forward>(AssertSqlSafe(sql))
+        .bind(session_id)
+        .fetch_all(pool)
+        .await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Forward> {
     let sql = format!("SELECT {SELECT_COLS} FROM session_forwards WHERE id = ?");
-    sqlx::query_as::<_, Forward>(AssertSqlSafe(sql)).bind(id)
-        .fetch_optional(pool).await?
+    sqlx::query_as::<_, Forward>(AssertSqlSafe(sql))
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
         .ok_or(AppError::NotFound)
 }
 
-pub async fn create(
-    pool: &SqlitePool,
-    session_id: i64,
-    input: &ForwardInput,
-) -> Result<Forward> {
+pub async fn create(pool: &SqlitePool, session_id: i64, input: &ForwardInput) -> Result<Forward> {
     validate_input(input)?;
     let next_sort: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(sort), -1) + 1 FROM session_forwards WHERE session_id = ?",
@@ -159,7 +161,9 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &ForwardInput) -> Result<
 
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
     sqlx::query("DELETE FROM session_forwards WHERE id = ?")
-        .bind(id).execute(pool).await?;
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -181,13 +185,15 @@ mod tests {
 
     #[test]
     fn local_requires_dest() {
-        let mut i = base(); i.dest_addr = "".into();
+        let mut i = base();
+        i.dest_addr = "".into();
         assert!(validate_input(&i).is_err());
     }
 
     #[test]
     fn local_dest_port_range() {
-        let mut i = base(); i.dest_port = 0;
+        let mut i = base();
+        i.dest_port = 0;
         assert!(validate_input(&i).is_err());
         i.dest_port = 70_000;
         assert!(validate_input(&i).is_err());
@@ -207,13 +213,15 @@ mod tests {
 
     #[test]
     fn bind_port_range() {
-        let mut i = base(); i.bind_port = 0;
+        let mut i = base();
+        i.bind_port = 0;
         assert!(validate_input(&i).is_err());
     }
 
     #[test]
     fn unknown_kind_rejected() {
-        let mut i = base(); i.kind = "udp".into();
+        let mut i = base();
+        i.kind = "udp".into();
         assert!(validate_input(&i).is_err());
     }
 
@@ -262,7 +270,8 @@ mod tests {
         // Exact JSON the forward-dialog builds for a persistent dynamic
         // forward (dest_addr:'' dest_port:0).
         let json = r#"{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0,"auto_start":1}"#;
-        let parsed: ForwardInput = serde_json::from_str(json).expect("dynamic ForwardInput must deserialize");
+        let parsed: ForwardInput =
+            serde_json::from_str(json).expect("dynamic ForwardInput must deserialize");
         assert_eq!(parsed.kind, "dynamic");
         validate_input(&parsed).expect("dynamic input must validate");
     }
@@ -270,8 +279,11 @@ mod tests {
     #[tokio::test]
     async fn all_kinds_persist() {
         let p = pool().await;
-        let mut local = base(); local.bind_port = 5432;
-        let mut remote = base(); remote.kind = "remote".into(); remote.bind_port = 8080;
+        let mut local = base();
+        local.bind_port = 5432;
+        let mut remote = base();
+        remote.kind = "remote".into();
+        remote.bind_port = 8080;
         create(&p, 1, &local).await.unwrap();
         create(&p, 1, &remote).await.unwrap();
         create(&p, 1, &dynamic_input()).await.unwrap();

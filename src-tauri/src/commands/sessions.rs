@@ -115,12 +115,14 @@ fn validate(input: &SessionInput) -> Result<()> {
     if input.connect_timeout_secs < CONNECT_TIMEOUT_MIN
         || input.connect_timeout_secs > CONNECT_TIMEOUT_MAX
     {
-        return Err(AppError::Validation("connect_timeout_secs out of range".into()));
+        return Err(AppError::Validation(
+            "connect_timeout_secs out of range".into(),
+        ));
     }
-    if let Some(cmd) = &input.initial_command {
-        if cmd.len() > INITIAL_COMMAND_MAX {
-            return Err(AppError::Validation("initial_command too long".into()));
-        }
+    if let Some(cmd) = &input.initial_command
+        && cmd.len() > INITIAL_COMMAND_MAX
+    {
+        return Err(AppError::Validation("initial_command too long".into()));
     }
     if let Some(sd) = &input.starting_dir {
         if sd.len() > STARTING_DIR_MAX {

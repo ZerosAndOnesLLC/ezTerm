@@ -20,16 +20,17 @@
 //!   change (which we can't, because the user invoked recovery
 //!   *because* they forgot the password).
 
-use rand::{rngs::SysRng, TryRng};
+use rand::{TryRng, rngs::SysRng};
 use sqlx::SqlitePool;
 use zeroize::Zeroizing;
 
-use crate::error::{AppError, Result};
 use super::{
+    StoredKdfParams, VERIFIER_PLAINTEXT, VaultState,
     aead::{Aead256, NONCE_LEN},
     kdf::{self, KdfParams},
-    snapshot, StoredKdfParams, VaultState, VERIFIER_PLAINTEXT,
+    snapshot,
 };
+use crate::error::{AppError, Result};
 
 const RECOVERY_CODE_BYTES: usize = 15; // 120 bits — encodes to exactly 24 base32 chars (no padding)
 
@@ -82,7 +83,9 @@ fn decode_base32(s: &str) -> Result<Zeroizing<Vec<u8>>> {
             '8' => 'B',
             c => c,
         };
-        let idx = B32_ALPHA.iter().position(|&c| c as char == upper)
+        let idx = B32_ALPHA
+            .iter()
+            .position(|&c| c as char == upper)
             .ok_or(AppError::BadPassword)?;
         buf = (buf << 5) | (idx as u32);
         bits += 5;
@@ -100,20 +103,21 @@ fn decode_base32(s: &str) -> Result<Zeroizing<Vec<u8>>> {
 /// gets to see it. Overwrites any existing recovery wrap; the caller
 /// is responsible for taking a snapshot first if there was a prior
 /// wrap to preserve.
-pub async fn generate(
-    pool: &SqlitePool,
-    state: &VaultState,
-) -> Result<String> {
+pub async fn generate(pool: &SqlitePool, state: &VaultState) -> Result<String> {
     let VaultState::Unlocked { key } = state else {
         return Err(AppError::VaultLocked);
     };
 
     let mut code_bytes = Zeroizing::new([0u8; RECOVERY_CODE_BYTES]);
-    SysRng.try_fill_bytes(&mut *code_bytes).map_err(|_| AppError::Crypto)?;
+    SysRng
+        .try_fill_bytes(&mut *code_bytes)
+        .map_err(|_| AppError::Crypto)?;
     let code = Zeroizing::new(encode_base32(&*code_bytes));
 
     let mut salt = [0u8; 16];
-    SysRng.try_fill_bytes(&mut salt).map_err(|_| AppError::Crypto)?;
+    SysRng
+        .try_fill_bytes(&mut salt)
+        .map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
     let recovery_key = kdf::derive_key(code.as_bytes(), &salt, params)?;
     let aead = Aead256::new(&recovery_key);
@@ -127,8 +131,11 @@ pub async fn generate(
         "UPDATE vault_meta SET recovery_salt = ?, recovery_kdf_params = ?, \
          recovery_wrapped_key = ? WHERE id = 1",
     )
-        .bind(&salt[..]).bind(params_json).bind(&wrapped)
-        .execute(pool).await?;
+    .bind(&salt[..])
+    .bind(params_json)
+    .bind(&wrapped)
+    .execute(pool)
+    .await?;
 
     Ok(format_for_display(&code))
 }
@@ -156,7 +163,8 @@ pub async fn generate_with_snapshot(
 pub async fn is_provisioned(pool: &SqlitePool) -> Result<bool> {
     let row: Option<(Option<Vec<u8>>,)> =
         sqlx::query_as("SELECT recovery_wrapped_key FROM vault_meta WHERE id = 1")
-            .fetch_optional(pool).await?;
+            .fetch_optional(pool)
+            .await?;
     Ok(matches!(row, Some((Some(_),))))
 }
 
@@ -171,12 +179,17 @@ pub async fn is_provisioned(pool: &SqlitePool) -> Result<bool> {
 /// are cleared so the same code can't unlock the vault again. The
 /// caller is responsible for forcing the user to set a new master
 /// password (or regenerate a recovery code) before locking.
+/// `(recovery_salt, recovery_kdf_params, recovery_wrapped_key, verifier)`
+/// from `vault_meta`; the recovery columns are NULL when no code is set.
+type RecoveryRow = (Option<Vec<u8>>, Option<String>, Option<Vec<u8>>, Vec<u8>);
+
 pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing<[u8; 32]>> {
-    let row: Option<(Option<Vec<u8>>, Option<String>, Option<Vec<u8>>, Vec<u8>)> = sqlx::query_as(
+    let row: Option<RecoveryRow> = sqlx::query_as(
         "SELECT recovery_salt, recovery_kdf_params, recovery_wrapped_key, verifier \
          FROM vault_meta WHERE id = 1",
     )
-        .fetch_optional(pool).await?;
+    .fetch_optional(pool)
+    .await?;
 
     // Decode the user-supplied code (no separators, case-insensitive,
     // 0/1/8 substitutions tolerated). On any decode failure we still
@@ -201,10 +214,14 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
             // is still kept so the timing tail matches the provisioned
             // failure path's verifier-decrypt step.
             let dummy_salt = [0u8; 16];
-            let dummy_params = serde_json::to_string(
-                &StoredKdfParams::from(KdfParams::default())
-            )?;
-            (dummy_salt.to_vec(), dummy_params, vec![0u8; NONCE_LEN + 32], v, false)
+            let dummy_params = serde_json::to_string(&StoredKdfParams::from(KdfParams::default()))?;
+            (
+                dummy_salt.to_vec(),
+                dummy_params,
+                vec![0u8; NONCE_LEN + 32],
+                v,
+                false,
+            )
         }
         None => return Err(AppError::NotFound),
     };
@@ -233,15 +250,22 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
         Ok(v) => v,
         Err(_) => return Err(AppError::BadPassword),
     };
-    if vault_key_bytes.len() != 32 { return Err(AppError::BadPassword); }
+    if vault_key_bytes.len() != 32 {
+        return Err(AppError::BadPassword);
+    }
     let mut key_arr = Zeroizing::new([0u8; 32]);
     key_arr.copy_from_slice(&vault_key_bytes);
 
-    if verifier.len() < NONCE_LEN { return Err(AppError::BadPassword); }
+    if verifier.len() < NONCE_LEN {
+        return Err(AppError::BadPassword);
+    }
     let (vnonce, vct) = verifier.split_at(NONCE_LEN);
-    let pt = Aead256::new(&key_arr).decrypt(vnonce, vct)
+    let pt = Aead256::new(&key_arr)
+        .decrypt(vnonce, vct)
         .map_err(|_| AppError::BadPassword)?;
-    if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
+    if pt != VERIFIER_PLAINTEXT {
+        return Err(AppError::BadPassword);
+    }
 
     // Consume the recovery wrap. Once unlocked via recovery, the
     // same code MUST NOT unlock again — that's the difference between
@@ -252,7 +276,9 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
     sqlx::query(
         "UPDATE vault_meta SET recovery_salt = NULL, recovery_kdf_params = NULL, \
          recovery_wrapped_key = NULL WHERE id = 1",
-    ).execute(pool).await?;
+    )
+    .execute(pool)
+    .await?;
 
     Ok(key_arr)
 }
@@ -277,8 +303,10 @@ mod tests {
 
     #[test]
     fn base32_roundtrip() {
-        let bytes = [0xde, 0xad, 0xbe, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
-                     0xcd, 0xef, 0x11, 0x22, 0x33];
+        let bytes = [
+            0xde, 0xad, 0xbe, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x11, 0x22,
+            0x33,
+        ];
         let s = encode_base32(&bytes);
         assert_eq!(s.len(), 24);
         let decoded = decode_base32(&s).unwrap();
@@ -298,8 +326,14 @@ mod tests {
     fn base32_substitutes_zero_one_eight() {
         let bytes = [0xff; 15];
         let s = encode_base32(&bytes);
-        let mangled: String = s.chars()
-            .map(|c| match c { 'O' => '0', 'I' => '1', 'B' => '8', c => c })
+        let mangled: String = s
+            .chars()
+            .map(|c| match c {
+                'O' => '0',
+                'I' => '1',
+                'B' => '8',
+                c => c,
+            })
             .collect();
         let decoded = decode_base32(&mangled).unwrap();
         assert_eq!(&*decoded, &bytes);

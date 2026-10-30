@@ -1,16 +1,29 @@
 name: release
 
-# Push a tag starting with `v` (e.g. `v0.14.0`) to kick off a release,
-# or trigger manually from the Actions tab. Builds portable tar.xz
+# Publish a GitHub release (`gh release create v1.14.0 --generate-notes`)
+# to kick off a build, or re-run one from the Actions tab with its tag.
+# The release (and its tag) must already exist; this workflow uploads
+# into it rather than creating one. Builds portable tar.xz
 # archives for every target plus MSI + NSIS (Windows) and AppImage +
 # deb (Linux) installers for in-app auto-update via
 # tauri-plugin-updater. Updater installer artifacts are minisign-signed
 # when TAURI_SIGNING_PRIVATE_KEY is available as a repo secret.
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and upload to (e.g. v1.14.0)"
+        required: true
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+# One run per tag; never cancel a release build part-way.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 # No workflow-level permissions block. Each job declares the minimum
 # scope it needs (build = read; release / prune = write). Limits the
@@ -19,7 +32,9 @@ on:
 jobs:
   build:
     name: build ${{ matrix.name }}
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     permissions:
       contents: read
     strategy:
@@ -55,20 +70,22 @@ jobs:
             bundles: "app"
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       # Cargo.toml is the single source of truth for the version (Ron bumps
       # it before each tag). Propagate that value into tauri.conf.json and
       # ui/package.json so the bundler names installers correctly and the
       # MSI / NSIS embed the right product version (otherwise Windows
-      # Installer refuses to upgrade across releases). On tag pushes, the
-      # tag wins in case of any mismatch.
+      # Installer refuses to upgrade across releases). The release tag
+      # wins in case of any mismatch.
       - name: Sync bundle version from tag / Cargo.toml
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF_NAME:-}" =~ ^v[0-9] ]]; then
-            VER="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG:-}" =~ ^v[0-9] ]]; then
+            VER="${TAG#v}"
           else
             VER=$(grep -m1 -E '^version\s*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           fi
@@ -101,7 +118,7 @@ jobs:
           tool: tauri-cli@2
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -291,7 +308,7 @@ jobs:
 
 
       - name: Upload portable artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: portable-${{ matrix.name }}
           path: ezTerm_*-portable.tar.xz
@@ -300,7 +317,7 @@ jobs:
 
       - name: Upload installer artifacts
         if: matrix.bundles != ''
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: installers-${{ matrix.name }}
           path: installers/
@@ -308,17 +325,19 @@ jobs:
           retention-days: 7
 
   release:
-    name: publish draft release
+    name: upload to release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -342,7 +361,6 @@ jobs:
       - name: Generate latest.json updater manifest
         working-directory: artifacts
         env:
-          TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -435,12 +453,14 @@ jobs:
           fi
           echo "✓ all $(jq '.platforms | length' latest.json) manifest URLs resolve"
 
-      - name: Create draft release
+      # The release already exists (gh release create made it, along with
+      # the tag). Upload the assets into it and, when hand-written notes
+      # exist for this tag, replace the generated notes with them.
+      - name: Upload assets to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
           NOTES_FILE="docs/release-notes/${TAG}.md"
           ASSETS=$(ls artifacts/*.tar.xz artifacts/SHA256SUMS 2>/dev/null)
           # Include installers + their sigs + manifest when present.
@@ -454,27 +474,18 @@ jobs:
           done
           if [ -f "$NOTES_FILE" ]; then
             echo "Using notes from $NOTES_FILE"
-            # shellcheck disable=SC2086
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes-file "$NOTES_FILE" \
-              --draft \
-              $ASSETS
+            gh release edit "$TAG" --notes-file "$NOTES_FILE"
           else
-            echo "No $NOTES_FILE — falling back to --generate-notes"
-            # shellcheck disable=SC2086
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --generate-notes \
-              --draft \
-              $ASSETS
+            echo "No $NOTES_FILE — keeping the release's generated notes"
           fi
+          # shellcheck disable=SC2086
+          gh release upload "$TAG" $ASSETS --clobber
 
   prune:
     name: prune old releases
     needs: release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 10
     permissions:
       contents: write
     env:

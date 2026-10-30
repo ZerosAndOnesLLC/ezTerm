@@ -1,8 +1,9 @@
 # Releasing
 
 The release pipeline lives in [`.github/workflows/release.yml`](../.github/workflows/release.yml)
-and produces one `tar.xz` archive per supported platform, attached to a
-draft GitHub Release that you review and publish by hand.
+and runs when a GitHub Release is published. It builds one `tar.xz`
+archive per supported platform plus the installers, and uploads them
+into that release.
 
 ## Supported targets
 
@@ -25,17 +26,22 @@ installer — copy the binary wherever you want and run it.
 ## Cut a release
 
 1. **Bump the version** in `Cargo.toml` (workspace.package.version).
-   Commit. Push.
-2. **Tag the commit**: `git tag v0.11.0 && git push origin v0.11.0`.
+   Commit. Push (via PR). Optionally add hand-written notes at
+   `docs/release-notes/v0.11.0.md`.
+2. **Create the release**: `gh release create v0.11.0 --generate-notes`.
+   This creates the tag and publishes the release.
 3. Watch the `release` workflow in the Actions tab. All four build jobs
-   run in parallel (~10 min on free tier); the final `publish draft
-   release` job attaches the artifacts to a draft release.
-4. Open the draft release on GitHub, write release notes, attach any
-   migration caveats, and **Publish**.
+   run in parallel on GitHub-hosted runners; the final `upload to
+   release` job uploads the archives, installers, `SHA256SUMS` and
+   `latest.json` into the release, and replaces the generated notes with
+   `docs/release-notes/<tag>.md` when that file exists.
+4. When the release workflow succeeds, `site.yml` redeploys the website
+   so `/dl/` serves the new MSI.
 
-`workflow_dispatch` also triggers the build jobs if you want to
-smoke-test the pipeline without tagging — artifacts land on the
-workflow run but no GitHub Release is created.
+The release is live as soon as step 2 runs; its assets (and the
+updater's `latest.json`) arrive when the build finishes. To rebuild an
+existing release, run the `release` workflow from the Actions tab with
+its tag (`workflow_dispatch`); assets are replaced with `--clobber`.
 
 ## Platform caveats
 
@@ -60,11 +66,11 @@ workflow run but no GitHub Release is created.
 locally and in CI — matches what we use in other repos. No third-party
 action in the release job (build jobs still use stable first-party
 actions like `actions/checkout`, `actions/setup-node`, and
-`dtolnay/rust-toolchain`). If you ever want to cut a release without
-tagging, you can download the workflow artifacts locally and run:
+`dtolnay/rust-toolchain`). If you ever want to upload assets without
+the workflow, you can download the workflow artifacts locally and run:
 
 ```bash
-gh release create v0.11.0 --generate-notes --draft artifacts/*.tar.xz
+gh release upload v0.11.0 artifacts/*.tar.xz --clobber
 ```
 
 ## Why not `cargo tauri build` with installers?

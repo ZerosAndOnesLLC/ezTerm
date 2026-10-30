@@ -1,51 +1,76 @@
 name: ci
 
-# Runs on every pull request and on pushes to main. Four independent jobs
-# so a UI lint failure doesn't hide a Rust test failure (and vice versa):
+# Pull-request checks only; nothing here builds a release or produces
+# artifacts (release.yml does that when a GitHub release is published).
+# Independent jobs so a UI lint failure doesn't hide a Rust test failure
+# (and vice versa), each gated on the paths it covers:
 #
-#   rust   — cargo check (warnings are errors), clippy, tests
+#   rust   — cargo fmt --check, clippy, tests (warnings are errors)
 #   audit  — cargo audit against the RustSec database (.cargo/audit.toml
 #            lists the accepted, unfixable advisories)
-#   ui     — typecheck, lint, Next.js static export
-#   site   — Astro build + vitest
-#
-# The release workflow (release.yml) is the only place installers are
-# built; nothing here produces artifacts.
+#   ui     — typecheck, lint, unit tests
+#   site   — unit tests
 
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
 
 # A new push to the same PR cancels the in-flight run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      ui: ${{ steps.filter.outputs.ui }}
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src-tauri/**'
+              - 'migrations/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - '.github/workflows/ci.yml'
+            ui:
+              - 'ui/**'
+              - '.github/workflows/ci.yml'
+            site:
+              - 'site/**'
+              - 'docs/release-notes/**'
+              - '.github/workflows/ci.yml'
+
   rust:
     name: rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # One RUSTFLAGS for every cargo step so they share one dependency
+      # build (and one rust-cache entry). Warnings are errors, matching the
+      # repo rule that the code must build warning-free before every commit.
+      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Tauri's generate_context! embeds `frontendDist` (../ui/out) at
-      # compile time and fails if the directory is missing, so the UI is
-      # exported first even though this job never runs it.
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Build UI (Next.js static export)
-        run: |
-          npm --prefix ui ci
-          npm --prefix ui run build
+      # compile time and fails if the directory is missing. This job never
+      # runs the UI, so an empty stub stands in for the Next.js export.
+      - name: Stub frontendDist (ui/out)
+        run: mkdir -p ui/out
 
       # Same set as release.yml: webkit2gtk 4.1 plus the desktop libs the
       # tauri / wry / gtk crates link against.
@@ -63,34 +88,32 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      # Warnings are errors here, matching the repo rule that cargo check
-      # must be clean before every commit.
-      - name: cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
-        env:
-          RUSTFLAGS: -D warnings
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
-      # Clippy is advisory for now: the codebase has a backlog of lint
-      # hits that are being worked down separately. Once it is clean,
-      # add `-- -D warnings` to make it blocking.
+      # Clippy is blocking: any lint fails the job (RUSTFLAGS above turns
+      # compiler warnings into errors; -D warnings does the same for lints).
       - name: cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
   audit:
     name: cargo audit
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -107,12 +130,15 @@ jobs:
 
   ui:
     name: ui
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -130,17 +156,17 @@ jobs:
       - name: Test
         run: npm --prefix ui test
 
-      - name: Build (Next.js static export)
-        run: npm --prefix ui run build
-
   site:
     name: site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -151,6 +177,3 @@ jobs:
 
       - name: Test
         run: npm --prefix site test
-
-      - name: Build
-        run: npm --prefix site run build

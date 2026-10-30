@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::db::known_hosts::{self, KnownHost};
@@ -12,15 +12,25 @@ pub struct ConnectResult {
     pub fingerprint_sha256: String,
 }
 
+/// Connect parameters for [`ssh_connect`], sent by the webview as one
+/// `args` object (camelCase keys) next to the output channel.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConnectArgs {
+    pub session_id: i64,
+    pub cols: u16,
+    pub rows: u16,
+    pub trust_any: bool,
+    /// Omitted by the webview when unset, which means `false`.
+    #[serde(default)]
+    pub disable_x11: bool,
+}
+
 #[tauri::command]
 pub async fn ssh_connect(
     state: State<'_, AppState>,
     app: AppHandle,
-    session_id: i64,
-    cols: u16,
-    rows: u16,
-    trust_any: bool,
-    disable_x11: Option<bool>,
+    args: SshConnectArgs,
     output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<ConnectResult> {
     super::require_unlocked(&state).await?;
@@ -29,11 +39,11 @@ pub async fn ssh_connect(
         deps,
         app,
         ConnectRequest {
-            session_id,
-            cols,
-            rows,
-            trust_any,
-            disable_x11: disable_x11.unwrap_or(false),
+            session_id: args.session_id,
+            cols: args.cols,
+            rows: args.rows,
+            trust_any: args.trust_any,
+            disable_x11: args.disable_x11,
             output,
         },
     )
@@ -81,11 +91,7 @@ pub async fn known_host_list(state: State<'_, AppState>) -> Result<Vec<KnownHost
 }
 
 #[tauri::command]
-pub async fn known_host_remove(
-    state: State<'_, AppState>,
-    host: String,
-    port: i64,
-) -> Result<()> {
+pub async fn known_host_remove(state: State<'_, AppState>, host: String, port: i64) -> Result<()> {
     super::require_unlocked(&state).await?;
     known_hosts::remove(&state.db, &host, port).await
 }

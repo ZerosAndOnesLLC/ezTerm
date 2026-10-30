@@ -72,12 +72,9 @@ pub async fn sftp_open(state: State<'_, AppState>, connection_id: u64) -> Result
     // spawned with WSL metadata. Plain local shells (cmd/pwsh) land
     // here without `wsl_meta` and are rejected.
     if let Some(local) = state.local.get(connection_id).await {
-        let meta = local
-            .wsl_meta
-            .as_ref()
-            .ok_or_else(|| AppError::Validation(
-                "file browser is only available for SSH and WSL sessions".into(),
-            ))?;
+        let meta = local.wsl_meta.as_ref().ok_or_else(|| {
+            AppError::Validation("file browser is only available for SSH and WSL sessions".into())
+        })?;
         let handle = WslFsHandle::new(meta.distro.clone(), meta.user.clone());
         state
             .sftp
@@ -382,13 +379,21 @@ pub async fn sftp_upload_bytes(
         match &*browser {
             FileBrowser::Sftp(handle) => {
                 let _ = crate::sftp::transfer::upload_bytes(
-                    &app, handle, transfer_id, &bytes, &remote_path,
+                    &app,
+                    handle,
+                    transfer_id,
+                    &bytes,
+                    &remote_path,
                 )
                 .await;
             }
             FileBrowser::Wsl(handle) => {
                 let _ = crate::wslfs::transfer::upload_bytes(
-                    &app, handle, transfer_id, &bytes, &remote_path,
+                    &app,
+                    handle,
+                    transfer_id,
+                    &bytes,
+                    &remote_path,
                 )
                 .await;
             }

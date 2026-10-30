@@ -62,13 +62,13 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
     // misalign the fields. We chew one token at a time off the front
     // of the line and keep the remainder *as-is* for the name so
     // multiple consecutive spaces inside a filename survive.
-    let (mode_str, rest1)  = next_token(line)?;
-    let (_links,   rest2)  = next_token(rest1)?;
-    let (_owner,   rest3)  = next_token(rest2)?;
-    let (_group,   rest4)  = next_token(rest3)?;
-    let (size_str, rest5)  = next_token(rest4)?;
+    let (mode_str, rest1) = next_token(line)?;
+    let (_links, rest2) = next_token(rest1)?;
+    let (_owner, rest3) = next_token(rest2)?;
+    let (_group, rest4) = next_token(rest3)?;
+    let (size_str, rest5) = next_token(rest4)?;
     let (mtime_str, rest6) = next_token(rest5)?;
-    let rest = rest6.trim_start_matches(|c: char| c == ' ' || c == '\t');
+    let rest = rest6.trim_start_matches([' ', '\t']);
     if rest.is_empty() {
         return None;
     }
@@ -89,7 +89,7 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
     let name = if is_symlink {
         match rest.split_once(" -> ") {
             Some((n, _t)) => n.to_string(),
-            None          => rest.to_string(),
+            None => rest.to_string(),
         }
     } else {
         rest.to_string()
@@ -112,13 +112,13 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
 /// the token and the remainder (still includes the separator + any
 /// later tokens). `None` if `s` contains no non-whitespace bytes.
 fn next_token(s: &str) -> Option<(&str, &str)> {
-    let s = s.trim_start_matches(|c: char| c == ' ' || c == '\t');
+    let s = s.trim_start_matches([' ', '\t']);
     if s.is_empty() {
         return None;
     }
-    match s.find(|c: char| c == ' ' || c == '\t') {
+    match s.find([' ', '\t']) {
         Some(i) => Some((&s[..i], &s[i..])),
-        None    => Some((s, "")),
+        None => Some((s, "")),
     }
 }
 
@@ -146,31 +146,49 @@ fn parse_mode_str(s: &str) -> u32 {
         b'b' => 0o060000, // S_IFBLK
         b'p' => 0o010000, // S_IFIFO
         b's' => 0o140000, // S_IFSOCK
-        _    => 0,
+        _ => 0,
     };
-    if b[1] == b'r' { mode |= 0o400; }
-    if b[2] == b'w' { mode |= 0o200; }
+    if b[1] == b'r' {
+        mode |= 0o400;
+    }
+    if b[2] == b'w' {
+        mode |= 0o200;
+    }
     match b[3] {
-        b'x' =>  mode |= 0o100,
-        b's' => {mode |= 0o100 | 0o4000;}
-        b'S' =>  mode |= 0o4000,
-        _    => {}
+        b'x' => mode |= 0o100,
+        b's' => {
+            mode |= 0o100 | 0o4000;
+        }
+        b'S' => mode |= 0o4000,
+        _ => {}
     }
-    if b[4] == b'r' { mode |= 0o040; }
-    if b[5] == b'w' { mode |= 0o020; }
+    if b[4] == b'r' {
+        mode |= 0o040;
+    }
+    if b[5] == b'w' {
+        mode |= 0o020;
+    }
     match b[6] {
-        b'x' =>  mode |= 0o010,
-        b's' => {mode |= 0o010 | 0o2000;}
-        b'S' =>  mode |= 0o2000,
-        _    => {}
+        b'x' => mode |= 0o010,
+        b's' => {
+            mode |= 0o010 | 0o2000;
+        }
+        b'S' => mode |= 0o2000,
+        _ => {}
     }
-    if b[7] == b'r' { mode |= 0o004; }
-    if b[8] == b'w' { mode |= 0o002; }
+    if b[7] == b'r' {
+        mode |= 0o004;
+    }
+    if b[8] == b'w' {
+        mode |= 0o002;
+    }
     match b[9] {
-        b'x' =>  mode |= 0o001,
-        b't' => {mode |= 0o001 | 0o1000;}
-        b'T' =>  mode |= 0o1000,
-        _    => {}
+        b'x' => mode |= 0o001,
+        b't' => {
+            mode |= 0o001 | 0o1000;
+        }
+        b'T' => mode |= 0o1000,
+        _ => {}
     }
     mode
 }

@@ -13,12 +13,12 @@
 pub mod s3;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use crate::backup;
 use crate::db;
@@ -51,17 +51,17 @@ pub const KEY_LAST_ERROR: &str = "sync.last_error";
 // S3 keys. The access-key ID is not secret-grade on its own so we store
 // it in plaintext; the secret access key and the backup passphrase are
 // vault-encrypted blobs.
-pub const KEY_S3_ENDPOINT:      &str = "sync.s3.endpoint";
-pub const KEY_S3_REGION:        &str = "sync.s3.region";
-pub const KEY_S3_BUCKET:        &str = "sync.s3.bucket";
-pub const KEY_S3_PREFIX:        &str = "sync.s3.prefix";
+pub const KEY_S3_ENDPOINT: &str = "sync.s3.endpoint";
+pub const KEY_S3_REGION: &str = "sync.s3.region";
+pub const KEY_S3_BUCKET: &str = "sync.s3.bucket";
+pub const KEY_S3_PREFIX: &str = "sync.s3.prefix";
 pub const KEY_S3_ACCESS_KEY_ID: &str = "sync.s3.access_key_id";
-pub const KEY_S3_SECRET_BLOB:   &str = "sync.s3.secret_blob";
+pub const KEY_S3_SECRET_BLOB: &str = "sync.s3.secret_blob";
 pub const KEY_S3_PASSPHRASE_BLOB: &str = "sync.s3.passphrase_blob";
 /// Last remote ETag this device observed — used for optimistic conflict
 /// detection before every push and to decide whether a startup pull has
 /// anything to bring in.
-pub const KEY_S3_LAST_ETAG:     &str = "sync.s3.last_etag";
+pub const KEY_S3_LAST_ETAG: &str = "sync.s3.last_etag";
 
 // ===== public types ======================================================
 
@@ -79,29 +79,29 @@ pub enum SyncTarget {
     /// PUT the encrypted backup to `<prefix>/ezterm-sync.json` in the
     /// configured S3-compatible bucket.
     S3 {
-        endpoint:          String,
-        region:            String,
-        bucket:            String,
-        prefix:            String,
-        access_key_id:     String,
+        endpoint: String,
+        region: String,
+        bucket: String,
+        prefix: String,
+        access_key_id: String,
         secret_access_key: String,
-        passphrase:        String,
+        passphrase: String,
     },
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct SyncStatus {
-    pub kind:            String,     // 'none' | 'local' | 's3'
-    pub local_path:      Option<String>,
-    pub s3_endpoint:     Option<String>,
-    pub s3_bucket:       Option<String>,
-    pub s3_prefix:       Option<String>,
-    pub s3_region:       Option<String>,
+    pub kind: String, // 'none' | 'local' | 's3'
+    pub local_path: Option<String>,
+    pub s3_endpoint: Option<String>,
+    pub s3_bucket: Option<String>,
+    pub s3_prefix: Option<String>,
+    pub s3_region: Option<String>,
     pub s3_access_key_id: Option<String>,
-    pub s3_last_etag:    Option<String>,
+    pub s3_last_etag: Option<String>,
     pub last_success_at: Option<String>,
-    pub last_error:      Option<String>,
-    pub pending:         bool,
+    pub last_error: Option<String>,
+    pub pending: bool,
 }
 
 // ===== SyncManager =======================================================
@@ -233,27 +233,42 @@ async fn load_s3_target(
     pool: &sqlx::SqlitePool,
     vault_state: &vault::VaultState,
 ) -> Result<SyncTarget> {
-    let endpoint = db::settings::get(pool, KEY_S3_ENDPOINT).await?
+    let endpoint = db::settings::get(pool, KEY_S3_ENDPOINT)
+        .await?
         .ok_or_else(|| AppError::Validation("sync.s3.endpoint missing".into()))?;
-    let region = db::settings::get(pool, KEY_S3_REGION).await?.unwrap_or_else(|| "auto".into());
-    let bucket = db::settings::get(pool, KEY_S3_BUCKET).await?
+    let region = db::settings::get(pool, KEY_S3_REGION)
+        .await?
+        .unwrap_or_else(|| "auto".into());
+    let bucket = db::settings::get(pool, KEY_S3_BUCKET)
+        .await?
         .ok_or_else(|| AppError::Validation("sync.s3.bucket missing".into()))?;
-    let prefix = db::settings::get(pool, KEY_S3_PREFIX).await?.unwrap_or_default();
-    let access_key_id = db::settings::get(pool, KEY_S3_ACCESS_KEY_ID).await?
+    let prefix = db::settings::get(pool, KEY_S3_PREFIX)
+        .await?
+        .unwrap_or_default();
+    let access_key_id = db::settings::get(pool, KEY_S3_ACCESS_KEY_ID)
+        .await?
         .ok_or_else(|| AppError::Validation("sync.s3.access_key_id missing".into()))?;
-    let secret_blob = db::settings::get(pool, KEY_S3_SECRET_BLOB).await?
+    let secret_blob = db::settings::get(pool, KEY_S3_SECRET_BLOB)
+        .await?
         .ok_or_else(|| AppError::Validation("sync.s3.secret missing".into()))?;
     let secret_access_key = decrypt_stored_blob(&secret_blob, vault_state)?;
-    let passphrase_blob = db::settings::get(pool, KEY_S3_PASSPHRASE_BLOB).await?
+    let passphrase_blob = db::settings::get(pool, KEY_S3_PASSPHRASE_BLOB)
+        .await?
         .ok_or_else(|| AppError::Validation("sync.s3.passphrase missing".into()))?;
     let passphrase = decrypt_stored_blob(&passphrase_blob, vault_state)?;
     Ok(SyncTarget::S3 {
-        endpoint, region, bucket, prefix, access_key_id, secret_access_key, passphrase,
+        endpoint,
+        region,
+        bucket,
+        prefix,
+        access_key_id,
+        secret_access_key,
+        passphrase,
     })
 }
 
 pub fn encrypt_stored_blob(plaintext: &str, vault_state: &vault::VaultState) -> Result<String> {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD as B64};
     let (nonce, ct) = vault::encrypt_with(vault_state, plaintext.as_bytes())?;
     let mut combined = Vec::with_capacity(nonce.len() + ct.len());
     combined.extend_from_slice(&nonce);
@@ -262,7 +277,7 @@ pub fn encrypt_stored_blob(plaintext: &str, vault_state: &vault::VaultState) -> 
 }
 
 fn decrypt_stored_blob(blob_b64: &str, vault_state: &vault::VaultState) -> Result<String> {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD as B64};
     let bytes = B64
         .decode(blob_b64)
         .map_err(|_| AppError::Validation("stored blob not base64".into()))?;
@@ -307,19 +322,27 @@ impl WriterTask {
                     continue;
                 }
                 SyncTarget::LocalFolder { path, passphrase } => {
-                    let outcome = self
-                        .build_and_write_local(&path, &passphrase)
-                        .await;
+                    let outcome = self.build_and_write_local(&path, &passphrase).await;
                     self.finish(outcome).await;
                 }
                 SyncTarget::S3 {
-                    endpoint, region, bucket, prefix,
-                    access_key_id, secret_access_key, passphrase,
+                    endpoint,
+                    region,
+                    bucket,
+                    prefix,
+                    access_key_id,
+                    secret_access_key,
+                    passphrase,
                 } => {
                     let outcome = self
                         .build_and_push_s3(
-                            &endpoint, &region, &bucket, &prefix,
-                            &access_key_id, &secret_access_key, &passphrase,
+                            &endpoint,
+                            &region,
+                            &bucket,
+                            &prefix,
+                            &access_key_id,
+                            &secret_access_key,
+                            &passphrase,
                         )
                         .await;
                     self.finish(outcome).await;
@@ -334,32 +357,41 @@ impl WriterTask {
     #[allow(clippy::too_many_arguments)]
     async fn build_and_push_s3(
         &self,
-        endpoint: &str, region: &str, bucket: &str, prefix: &str,
-        access_key_id: &str, secret_access_key: &str, passphrase: &str,
+        endpoint: &str,
+        region: &str,
+        bucket: &str,
+        prefix: &str,
+        access_key_id: &str,
+        secret_access_key: &str,
+        passphrase: &str,
     ) -> Result<()> {
         let bundle = self.build_bundle().await?;
         let bytes = backup::encrypt_bundle(&bundle, passphrase)?;
 
         let driver = s3::S3Driver::new(s3::S3Config {
-            endpoint, region, bucket, prefix,
-            access_key_id, secret_access_key,
+            endpoint,
+            region,
+            bucket,
+            prefix,
+            access_key_id,
+            secret_access_key,
         })?;
 
         // Optimistic conflict check: if we have a last-known ETag, HEAD
         // the object and bail if the remote is newer than what we last
         // saw. The user can resolve by pulling first (sync_pull_preview
         // / sync_pull_commit) and then retrying.
-        let known = db::settings::get(&self.db_pool, KEY_S3_LAST_ETAG).await?
+        let known = db::settings::get(&self.db_pool, KEY_S3_LAST_ETAG)
+            .await?
             .filter(|s| !s.is_empty());
-        if let Some(known) = known.as_deref() {
-            if let Some(remote) = driver.head().await? {
-                if remote != known {
-                    return Err(AppError::Validation(format!(
-                        "remote S3 object changed since last sync (remote ETag {remote}, \
+        if let Some(known) = known.as_deref()
+            && let Some(remote) = driver.head().await?
+            && remote != known
+        {
+            return Err(AppError::Validation(format!(
+                "remote S3 object changed since last sync (remote ETag {remote}, \
                          last known {known}) — pull first to merge"
-                    )));
-                }
-            }
+            )));
         }
 
         let new_etag = driver.put(&bytes).await?;
@@ -371,7 +403,7 @@ impl WriterTask {
     /// credential, and produces the Bundle struct. Used by both the
     /// local-folder and S3 writers.
     async fn build_bundle(&self) -> Result<backup::Bundle> {
-        use base64::{engine::general_purpose::STANDARD as B64, Engine};
+        use base64::{Engine, engine::general_purpose::STANDARD as B64};
         let folders = db::folders::list(&self.db_pool).await?;
         let sessions_raw = db::sessions::list(&self.db_pool).await?;
         let mut sessions = Vec::with_capacity(sessions_raw.len());
@@ -398,7 +430,8 @@ impl WriterTask {
             }
         }
         let known_hosts = db::known_hosts::list(&self.db_pool).await?;
-        let settings = db::settings::list_all(&self.db_pool).await?
+        let settings = db::settings::list_all(&self.db_pool)
+            .await?
             .into_iter()
             .map(|(k, v)| backup::SettingEntry { key: k, value: v })
             .collect();
@@ -439,12 +472,8 @@ impl WriterTask {
                 let now = Utc::now();
                 self.last_success_ms
                     .store(now.timestamp_millis(), Ordering::Release);
-                let _ = db::settings::set(
-                    &self.db_pool,
-                    KEY_LAST_SUCCESS_AT,
-                    &now.to_rfc3339(),
-                )
-                .await;
+                let _ =
+                    db::settings::set(&self.db_pool, KEY_LAST_SUCCESS_AT, &now.to_rfc3339()).await;
                 let _ = db::settings::set(&self.db_pool, KEY_LAST_ERROR, "").await;
             }
             Err(e) => {

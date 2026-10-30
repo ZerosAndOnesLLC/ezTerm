@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -29,34 +29,34 @@ const MAX_BACKUP_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
 #[derive(Debug, Serialize, Default)]
 pub struct BackupSummary {
-    pub folders:      usize,
-    pub sessions:     usize,
-    pub credentials:  usize,
-    pub known_hosts:  usize,
-    pub settings:     usize,
+    pub folders: usize,
+    pub sessions: usize,
+    pub credentials: usize,
+    pub known_hosts: usize,
+    pub settings: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct BackupPreview {
-    pub created_at:    String,
-    pub app_version:   String,
-    pub folders:       Vec<db::folders::Folder>,
-    pub sessions:      Vec<SessionPreview>,
-    pub credentials:   Vec<CredentialPreview>,
-    pub known_hosts:   Vec<KnownHostPreview>,
+    pub created_at: String,
+    pub app_version: String,
+    pub folders: Vec<db::folders::Folder>,
+    pub sessions: Vec<SessionPreview>,
+    pub credentials: Vec<CredentialPreview>,
+    pub known_hosts: Vec<KnownHostPreview>,
     pub setting_count: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SessionPreview {
-    pub id:           i64,
-    pub folder_id:    Option<i64>,
-    pub name:         String,
-    pub host:         String,
-    pub port:         i64,
-    pub username:     String,
+    pub id: i64,
+    pub folder_id: Option<i64>,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
     pub session_kind: String,
-    pub auth_type:    String,
+    pub auth_type: String,
     /// Present when the session references a credential in the same backup.
     /// The selection UI uses this to warn when a session is selected but
     /// its credential isn't.
@@ -65,8 +65,8 @@ pub struct SessionPreview {
 
 #[derive(Debug, Serialize)]
 pub struct CredentialPreview {
-    pub id:    i64,
-    pub kind:  String,
+    pub id: i64,
+    pub kind: String,
     pub label: String,
 }
 
@@ -80,27 +80,27 @@ pub struct KnownHostPreview {
 #[derive(Debug, Deserialize, Default)]
 pub struct SelectionSpec {
     #[serde(default)]
-    pub folder_ids:       Vec<i64>,
+    pub folder_ids: Vec<i64>,
     #[serde(default)]
-    pub session_ids:      Vec<i64>,
+    pub session_ids: Vec<i64>,
     #[serde(default)]
-    pub credential_ids:   Vec<i64>,
+    pub credential_ids: Vec<i64>,
     #[serde(default)]
-    pub known_hosts:      Vec<(String, i64)>,
+    pub known_hosts: Vec<(String, i64)>,
     #[serde(default)]
     pub include_settings: bool,
 }
 
 #[derive(Debug, Serialize, Default)]
 pub struct RestoreSummary {
-    pub folders_created:      usize,
-    pub sessions_created:     usize,
-    pub credentials_created:  usize,
+    pub folders_created: usize,
+    pub sessions_created: usize,
+    pub credentials_created: usize,
     pub known_hosts_upserted: usize,
-    pub settings_applied:     usize,
+    pub settings_applied: usize,
     /// Names that were renamed to avoid a collision (label / folder /
     /// session name). Populated so the UI can show "imported as:" list.
-    pub renamed:              Vec<String>,
+    pub renamed: Vec<String>,
 }
 
 // ===== export ============================================================
@@ -156,9 +156,9 @@ async fn backup_create_inner(
             vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?
         };
         credentials.push(CredentialEntry {
-            id:        meta.id,
-            kind:      meta.kind,
-            label:     meta.label,
+            id: meta.id,
+            kind: meta.kind,
+            label: meta.label,
             secret_b64: B64.encode(&pt),
         });
     }
@@ -171,16 +171,16 @@ async fn backup_create_inner(
         .collect();
 
     let summary = BackupSummary {
-        folders:     folders.len(),
-        sessions:    sessions.len(),
+        folders: folders.len(),
+        sessions: sessions.len(),
         credentials: credentials.len(),
         known_hosts: known_hosts.len(),
-        settings:    settings_entries.len(),
+        settings: settings_entries.len(),
     };
 
     let bundle = Bundle {
-        version:     backup::BACKUP_VERSION,
-        created_at:  Utc::now().to_rfc3339(),
+        version: backup::BACKUP_VERSION,
+        created_at: Utc::now().to_rfc3339(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         folders,
         sessions,
@@ -223,21 +223,21 @@ async fn backup_preview_inner(
     let bundle = backup::decrypt_bundle(&bytes, passphrase)?;
 
     Ok(BackupPreview {
-        created_at:    bundle.created_at,
-        app_version:   bundle.app_version,
-        folders:       bundle.folders,
+        created_at: bundle.created_at,
+        app_version: bundle.app_version,
+        folders: bundle.folders,
         sessions: bundle
             .sessions
             .iter()
             .map(|e| SessionPreview {
-                id:           e.session.id,
-                folder_id:    e.session.folder_id,
-                name:         e.session.name.clone(),
-                host:         e.session.host.clone(),
-                port:         e.session.port,
-                username:     e.session.username.clone(),
+                id: e.session.id,
+                folder_id: e.session.folder_id,
+                name: e.session.name.clone(),
+                host: e.session.host.clone(),
+                port: e.session.port,
+                username: e.session.username.clone(),
                 session_kind: e.session.session_kind.clone(),
-                auth_type:    e.session.auth_type.clone(),
+                auth_type: e.session.auth_type.clone(),
                 credential_id: e.session.credential_id,
             })
             .collect(),
@@ -245,8 +245,8 @@ async fn backup_preview_inner(
             .credentials
             .iter()
             .map(|c| CredentialPreview {
-                id:    c.id,
-                kind:  c.kind.clone(),
+                id: c.id,
+                kind: c.kind.clone(),
                 label: c.label.clone(),
             })
             .collect(),
@@ -318,14 +318,8 @@ async fn backup_restore_inner(
             vault::encrypt_with(&vs, &pt)?
         };
         let final_label = unique_name(&entry.label, &existing_labels, &mut result.renamed);
-        let new_id = db::credentials::insert(
-            &state.db,
-            &entry.kind,
-            &final_label,
-            &nonce,
-            &ct,
-        )
-        .await?;
+        let new_id =
+            db::credentials::insert(&state.db, &entry.kind, &final_label, &nonce, &ct).await?;
         cred_id_map.insert(entry.id, new_id);
         result.credentials_created += 1;
     }
@@ -351,8 +345,9 @@ async fn backup_restore_inner(
         for f in pending.drain(..) {
             let ready = match f.parent_id {
                 None => true,
-                Some(pid) => folder_id_map.contains_key(&pid)
-                    || !selection.folder_ids.contains(&pid),
+                Some(pid) => {
+                    folder_id_map.contains_key(&pid) || !selection.folder_ids.contains(&pid)
+                }
             };
             if !ready {
                 still_pending.push(f);
