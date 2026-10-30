@@ -108,7 +108,8 @@ npm --prefix site run build   # → site/dist/
 ```
 
 The site auto-deploys on every push to `main` that touches `site/**` or
-`docs/release-notes/**` (see `.github/workflows/site.yml`).
+`docs/release-notes/**`, and again after each successful release build
+(see `.github/workflows/site.yml`).
 
 ## Install
 
@@ -196,11 +197,19 @@ ezTerm/
   incoming X11 channel bidirectionally into a loopback TCP connection to
   VcXsrv. VcXsrv lifecycle is ref-counted per display.
 
-## Releases
+## CI & Releases
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the tag-push workflow. tl;dr:
-bump the version in `Cargo.toml`, push a `v*` tag, GitHub Actions produces the
-four `tar.xz` archives and opens a draft release for you to review.
+- **Pull requests** (`ci.yml`) run checks only, on GitHub-hosted
+  `ubuntu-latest` runners, and only for the parts a PR touches: Rust
+  (`cargo fmt --check`, clippy (advisory), `cargo test` with warnings as
+  errors, `cargo audit`), UI (`tsc --noEmit`, ESLint, vitest) and site
+  (vitest). No Next.js/Astro/Tauri builds or artifacts. Merges to `main`
+  don't re-run CI.
+- **Releases** (`release.yml`): bump the version in `Cargo.toml`, then
+  `gh release create v<version> --generate-notes`. Publishing the release
+  builds the portable archives and installers on GitHub-hosted Windows,
+  Linux x64, Linux arm64 and macOS runners and uploads them into that
+  release. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Licence
 
