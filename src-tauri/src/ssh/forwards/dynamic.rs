@@ -117,13 +117,12 @@ async fn handle_client(
         return;
     }
     let nmethods = buf[1] as usize;
-    if nmethods > 0 {
-        if timeout(stage, tcp.read_exact(&mut buf[2..2 + nmethods]))
+    if nmethods > 0
+        && timeout(stage, tcp.read_exact(&mut buf[2..2 + nmethods]))
             .await
             .is_err()
-        {
-            return;
-        }
+    {
+        return;
     }
     if socks5::parse_greeting(&buf[..2 + nmethods]).is_err() {
         let _ = tcp.write_all(&socks5::encode_greeting_reply(false)).await;

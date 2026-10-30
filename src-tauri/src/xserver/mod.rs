@@ -78,20 +78,20 @@ impl XServerManager {
     /// 3. `C:\Program Files\VcXsrv\` and the x86 variant — user's own
     ///    system install (useful for dev builds / `cargo run`).
     pub fn detect_install_path() -> Option<PathBuf> {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                for rel in BUNDLED_VCXSRV_RELS {
-                    let bundled = dir.join(rel);
-                    if bundled.exists() {
-                        return Some(bundled);
-                    }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            for rel in BUNDLED_VCXSRV_RELS {
+                let bundled = dir.join(rel);
+                if bundled.exists() {
+                    return Some(bundled);
                 }
             }
         }
-        if let Some(user) = user_install_path() {
-            if user.exists() {
-                return Some(user);
-            }
+        if let Some(user) = user_install_path()
+            && user.exists()
+        {
+            return Some(user);
         }
         for candidate in VCXSRV_CANDIDATES {
             let p = PathBuf::from(candidate);
@@ -153,11 +153,9 @@ impl XServerManager {
             }
             None => false,
         };
-        if should_stop {
-            if let Some(mut entry) = displays.remove(&display) {
-                let _ = entry.child.kill();
-                let _ = entry.child.wait();
-            }
+        if should_stop && let Some(mut entry) = displays.remove(&display) {
+            let _ = entry.child.kill();
+            let _ = entry.child.wait();
         }
     }
 }

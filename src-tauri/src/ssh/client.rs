@@ -15,6 +15,7 @@ use crate::db;
 use crate::error::{AppError, Result};
 use crate::log_redacted;
 use crate::sftp::SftpRegistry;
+use crate::ssh::forwards::RemoteDispatch;
 use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
@@ -73,14 +74,7 @@ pub struct ClientHandler {
     /// holds the read lock long enough to clone an `mpsc::UnboundedSender`
     /// out — no awaits while held — and the russh event loop benefits
     /// from a non-blocking read path.
-    forwarded_tcpip_dispatch: std::sync::Arc<
-        std::sync::RwLock<
-            std::collections::HashMap<
-                (String, u32),
-                tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>,
-            >,
-        >,
-    >,
+    forwarded_tcpip_dispatch: RemoteDispatch,
 }
 
 impl client::Handler for ClientHandler {
@@ -290,14 +284,8 @@ async fn connect_impl(
     // `Connection.forwards.dispatch` (written by `remote::start` /
     // `remote::stop`). Reads run sync inside the russh event loop;
     // writes are rare (forward setup/teardown only).
-    let forwarded_tcpip_dispatch: Arc<
-        std::sync::RwLock<
-            std::collections::HashMap<
-                (String, u32),
-                tokio::sync::mpsc::UnboundedSender<russh::Channel<Msg>>,
-            >,
-        >,
-    > = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+    let forwarded_tcpip_dispatch: RemoteDispatch =
+        Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
     let handler = ClientHandler {
         server_key: server_key.clone(),
         x11_display,
@@ -578,21 +566,21 @@ async fn connect_impl(
     // SFTP + SSH state in every exit branch (EOF / Close / ExitStatus / error).
     // Without this the `SftpRegistry` entry would outlive the transport and
     // `SftpHandle`s would leak until app shutdown (audit I-1).
-    let ssh_reg = deps.ssh.clone();
-    let sftp_reg = deps.sftp.clone();
-    let xserver_reg = deps.xserver.clone();
+    let teardown = ConnectionTeardown {
+        id,
+        ssh_reg: deps.ssh.clone(),
+        sftp_reg: deps.sftp.clone(),
+        xserver_reg: deps.xserver.clone(),
+        x11_display,
+    };
     tokio::spawn(drive_channel(
         app,
         req.output,
         output_sent,
-        id,
         handle_arc,
         channel,
         rx,
-        ssh_reg,
-        sftp_reg,
-        xserver_reg,
-        x11_display,
+        teardown,
     ));
 
     Ok(ConnectOutcome {
@@ -791,19 +779,44 @@ async fn check_known_host(
     })
 }
 
-async fn drive_channel(
-    app: AppHandle,
-    output: IpcChannel<InvokeResponseBody>,
-    output_sent: Arc<std::sync::atomic::AtomicU64>,
+/// Per-connection state the driver task releases when the channel ends,
+/// whichever way it ends (EOF / Close / ExitStatus / error).
+struct ConnectionTeardown {
     id: u64,
-    handle: Arc<Handle<ClientHandler>>,
-    mut channel: Channel<Msg>,
-    mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
     ssh_reg: Arc<ConnectionRegistry>,
     sftp_reg: Arc<SftpRegistry>,
     xserver_reg: Arc<XServerManager>,
     x11_display: Option<u8>,
+}
+
+impl ConnectionTeardown {
+    async fn run(self) {
+        // Drop SFTP state first (so any cached `SftpHandle` is released
+        // before the underlying russh transport is gone), then the SSH
+        // registry entry. `ConnectionRegistry::close` is idempotent — calling
+        // it here after a user-initiated `ConnectionInput::Close` (which
+        // landed via `AppState::close_connection`) is a harmless no-op.
+        // (audit I-1)
+        self.sftp_reg.remove(self.id).await;
+        self.ssh_reg.close(self.id).await;
+        // Release the X server ref so the VcXsrv process exits when no other
+        // sessions are using it.
+        if let Some(display) = self.x11_display {
+            self.xserver_reg.release(display).await;
+        }
+    }
+}
+
+async fn drive_channel(
+    app: AppHandle,
+    output: IpcChannel<InvokeResponseBody>,
+    output_sent: Arc<std::sync::atomic::AtomicU64>,
+    handle: Arc<Handle<ClientHandler>>,
+    mut channel: Channel<Msg>,
+    mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
+    teardown: ConnectionTeardown,
 ) {
+    let id = teardown.id;
     let ev_close = format!("ssh:close:{id}");
     let ev_error = format!("ssh:error:{id}");
     loop {
@@ -872,18 +885,7 @@ async fn drive_channel(
         }
     }
 
-    // Connection teardown: drop SFTP state first (so any cached `SftpHandle`
-    // is released before the underlying russh transport is gone), then the
-    // SSH registry entry. `ConnectionRegistry::close` is idempotent — calling
-    // it here after a user-initiated `ConnectionInput::Close` (which landed
-    // via `AppState::close_connection`) is a harmless no-op. (audit I-1)
-    sftp_reg.remove(id).await;
-    ssh_reg.close(id).await;
-    // Release the X server ref so the VcXsrv process exits when no other
-    // sessions are using it.
-    if let Some(display) = x11_display {
-        xserver_reg.release(display).await;
-    }
+    teardown.run().await;
 }
 
 /// Format a user-supplied path for use as the argument to `cd` in a POSIX

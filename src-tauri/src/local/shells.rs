@@ -140,11 +140,11 @@ fn windows_has_pwsh() -> bool {
     std::env::split_paths(&path).any(|dir| dir.join("pwsh.exe").exists())
 }
 
-#[cfg(test)]
+// Every test here exercises the unix shell discovery path.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn etc_shells_strips_comments_and_blanks() {
         let sample = "\
@@ -158,7 +158,6 @@ mod tests {
         assert_eq!(parsed, vec!["/bin/sh", "/bin/bash", "/bin/zsh"]);
     }
 
-    #[cfg(unix)]
     #[test]
     fn etc_shells_filters_nologin() {
         let sample =
@@ -167,7 +166,6 @@ mod tests {
         assert_eq!(parsed, vec!["/bin/sh", "/bin/bash"]);
     }
 
-    #[cfg(unix)]
     #[test]
     fn basename_extracts_final_component() {
         assert_eq!(basename("/bin/bash"), "bash");

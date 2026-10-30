@@ -384,15 +384,14 @@ impl WriterTask {
         let known = db::settings::get(&self.db_pool, KEY_S3_LAST_ETAG)
             .await?
             .filter(|s| !s.is_empty());
-        if let Some(known) = known.as_deref() {
-            if let Some(remote) = driver.head().await? {
-                if remote != known {
-                    return Err(AppError::Validation(format!(
-                        "remote S3 object changed since last sync (remote ETag {remote}, \
+        if let Some(known) = known.as_deref()
+            && let Some(remote) = driver.head().await?
+            && remote != known
+        {
+            return Err(AppError::Validation(format!(
+                "remote S3 object changed since last sync (remote ETag {remote}, \
                          last known {known}) — pull first to merge"
-                    )));
-                }
-            }
+            )));
         }
 
         let new_etag = driver.put(&bytes).await?;

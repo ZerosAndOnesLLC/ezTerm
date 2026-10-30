@@ -68,7 +68,7 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
     let (_group, rest4) = next_token(rest3)?;
     let (size_str, rest5) = next_token(rest4)?;
     let (mtime_str, rest6) = next_token(rest5)?;
-    let rest = rest6.trim_start_matches(|c: char| c == ' ' || c == '\t');
+    let rest = rest6.trim_start_matches([' ', '\t']);
     if rest.is_empty() {
         return None;
     }
@@ -112,11 +112,11 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
 /// the token and the remainder (still includes the separator + any
 /// later tokens). `None` if `s` contains no non-whitespace bytes.
 fn next_token(s: &str) -> Option<(&str, &str)> {
-    let s = s.trim_start_matches(|c: char| c == ' ' || c == '\t');
+    let s = s.trim_start_matches([' ', '\t']);
     if s.is_empty() {
         return None;
     }
-    match s.find(|c: char| c == ' ' || c == '\t') {
+    match s.find([' ', '\t']) {
         Some(i) => Some((&s[..i], &s[i..])),
         None => Some((s, "")),
     }

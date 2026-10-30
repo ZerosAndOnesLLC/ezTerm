@@ -5,7 +5,7 @@ name: ci
 # Independent jobs so a UI lint failure doesn't hide a Rust test failure
 # (and vice versa), each gated on the paths it covers:
 #
-#   rust   — cargo fmt --check, clippy (advisory), tests (warnings are errors)
+#   rust   — cargo fmt --check, clippy, tests (warnings are errors)
 #   audit  — cargo audit against the RustSec database (.cargo/audit.toml
 #            lists the accepted, unfixable advisories)
 #   ui     — typecheck, lint, unit tests
@@ -98,12 +98,10 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
-      # Clippy lints are advisory for now (--cap-lints warn): the codebase
-      # has a backlog of lint hits that are being worked down separately.
-      # Once it is clean, drop `--cap-lints warn` to make it blocking.
-      # Compiler warnings still fail the job through `cargo test` below.
+      # Clippy is blocking: any lint fails the job (RUSTFLAGS above turns
+      # compiler warnings into errors; -D warnings does the same for lints).
       - name: cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- --cap-lints warn
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked

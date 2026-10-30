@@ -110,7 +110,10 @@ export const api = {
     sessionId: number, cols: number, rows: number, trustAny: boolean,
     disableX11: boolean | undefined, output: Channel<ArrayBuffer>,
   ) =>
-    invoke<ConnectResult>('ssh_connect', { sessionId, cols, rows, trustAny, disableX11, output }),
+    invoke<ConnectResult>('ssh_connect', {
+      args: { sessionId, cols, rows, trustAny, disableX11 },
+      output,
+    }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
     invoke<void>('ssh_write', { connectionId, bytes }),
   sshResize:     (connectionId: number, cols: number, rows: number) =>

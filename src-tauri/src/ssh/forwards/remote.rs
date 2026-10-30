@@ -4,8 +4,7 @@
 //! callback and are dispatched here by `(bind_addr, bind_port)` via the
 //! per-Connection dispatch map.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock as StdRwLock};
+use std::sync::Arc;
 
 use russh::Channel;
 use russh::client::{Handle, Msg};
@@ -13,13 +12,15 @@ use tokio::io::copy_bidirectional_with_sizes;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
-use super::{COPY_BUF, ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary};
+use super::{
+    COPY_BUF, ForwardSpec, ForwardStatus, RemoteDispatch, RuntimeForward, RuntimeForwardSummary,
+};
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
 
 pub async fn start(
     handle: Arc<Handle<ClientHandler>>,
-    dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
+    dispatch: RemoteDispatch,
     spec: ForwardSpec,
     runtime_id: u64,
     persistent_id: Option<i64>,
@@ -136,7 +137,7 @@ pub async fn start(
 /// `(bind_addr, bind_port)` key can't leak and permanently block
 /// re-binding that address on this connection.
 struct DispatchGuard {
-    map: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
+    map: RemoteDispatch,
     key: (String, u32),
 }
 

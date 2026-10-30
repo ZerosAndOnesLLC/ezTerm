@@ -179,8 +179,12 @@ pub async fn is_provisioned(pool: &SqlitePool) -> Result<bool> {
 /// are cleared so the same code can't unlock the vault again. The
 /// caller is responsible for forcing the user to set a new master
 /// password (or regenerate a recovery code) before locking.
+/// `(recovery_salt, recovery_kdf_params, recovery_wrapped_key, verifier)`
+/// from `vault_meta`; the recovery columns are NULL when no code is set.
+type RecoveryRow = (Option<Vec<u8>>, Option<String>, Option<Vec<u8>>, Vec<u8>);
+
 pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing<[u8; 32]>> {
-    let row: Option<(Option<Vec<u8>>, Option<String>, Option<Vec<u8>>, Vec<u8>)> = sqlx::query_as(
+    let row: Option<RecoveryRow> = sqlx::query_as(
         "SELECT recovery_salt, recovery_kdf_params, recovery_wrapped_key, verifier \
          FROM vault_meta WHERE id = 1",
     )

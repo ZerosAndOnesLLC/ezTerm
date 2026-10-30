@@ -132,10 +132,9 @@ pub async fn mobaxterm_commit(
 
     // Rebuild the folder path → id map inside the transaction so it stays in
     // sync with any folders we create mid-loop. We then mutate it as we go.
-    let rows: Vec<(i64, Option<i64>, String)> =
-        sqlx::query_as("SELECT id, parent_id, name FROM folders")
-            .fetch_all(&mut *tx)
-            .await?;
+    let rows: Vec<FolderRow> = sqlx::query_as("SELECT id, parent_id, name FROM folders")
+        .fetch_all(&mut *tx)
+        .await?;
     let mut folder_map = build_folder_path_map(&rows);
 
     let mut result = MobaImportResult::default();
@@ -264,15 +263,17 @@ fn collect_new_folder_paths(
 }
 
 async fn load_folder_path_map(pool: &sqlx::SqlitePool) -> Result<HashMap<Vec<String>, i64>> {
-    let rows: Vec<(i64, Option<i64>, String)> =
-        sqlx::query_as("SELECT id, parent_id, name FROM folders")
-            .fetch_all(pool)
-            .await?;
+    let rows: Vec<FolderRow> = sqlx::query_as("SELECT id, parent_id, name FROM folders")
+        .fetch_all(pool)
+        .await?;
     Ok(build_folder_path_map(&rows))
 }
 
-fn build_folder_path_map(rows: &[(i64, Option<i64>, String)]) -> HashMap<Vec<String>, i64> {
-    let mut children: HashMap<Option<i64>, Vec<&(i64, Option<i64>, String)>> = HashMap::new();
+/// `(id, parent_id, name)` as read from the `folders` table.
+type FolderRow = (i64, Option<i64>, String);
+
+fn build_folder_path_map(rows: &[FolderRow]) -> HashMap<Vec<String>, i64> {
+    let mut children: HashMap<Option<i64>, Vec<&FolderRow>> = HashMap::new();
     for row in rows {
         children.entry(row.1).or_default().push(row);
     }

@@ -190,19 +190,24 @@ impl RuntimeForward {
 /// callback reads it under a `&mut self` async context but only holds
 /// the lock long enough to clone an `UnboundedSender` out — no awaits
 /// while held.
+/// Remote-forward dispatch table: `(bind_addr, bind_port)` → the sender
+/// that hands an incoming `forwarded-tcpip` channel to its forward task.
+/// Shared between the russh `ClientHandler` (reader) and `Forwards`
+/// (writer).
+pub type RemoteDispatch =
+    Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>;
+
 #[derive(Default)]
 pub struct Forwards {
     pub by_id: RwLock<HashMap<u64, Arc<RuntimeForward>>>,
     pub next_id: std::sync::atomic::AtomicU64,
-    pub dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
+    pub dispatch: RemoteDispatch,
 }
 
 impl Forwards {
     /// Construct a `Forwards` that shares its dispatch map with an
     /// already-built `ClientHandler`. Used by `connect_impl`.
-    pub fn with_dispatch(
-        dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
-    ) -> Self {
+    pub fn with_dispatch(dispatch: RemoteDispatch) -> Self {
         Self {
             by_id: Default::default(),
             next_id: Default::default(),

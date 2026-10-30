@@ -245,36 +245,6 @@ pub async fn forward_stop_all(state: State<'_, AppState>, connection_id: u64) ->
 
 // ---------- Internal helpers ----------
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn deserializes_ephemeral_dynamic_target() {
-        // Exact JSON the forward-dialog sends for an ephemeral dynamic
-        // (SOCKS) forward. The outer enum is internally tagged on "kind"
-        // while the nested ForwardSpec ALSO has a "kind" field.
-        let json = r#"{"kind":"ephemeral","spec":{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0}}"#;
-        let target: ForwardStartTarget =
-            serde_json::from_str(json).expect("ephemeral dynamic target must deserialize");
-        match target {
-            ForwardStartTarget::Ephemeral { spec } => {
-                assert_eq!(spec.kind, ForwardKind::Dynamic);
-                assert_eq!(spec.bind_port, 1080);
-            }
-            _ => panic!("expected Ephemeral variant"),
-        }
-    }
-
-    #[test]
-    fn deserializes_persistent_target() {
-        let json = r#"{"kind":"persistent","id":7}"#;
-        let target: ForwardStartTarget =
-            serde_json::from_str(json).expect("persistent target must deserialize");
-        assert!(matches!(target, ForwardStartTarget::Persistent { id: 7 }));
-    }
-}
-
 pub(crate) fn spec_from_db(f: &db::forwards::Forward) -> Result<ForwardSpec> {
     let kind = match f.kind.as_str() {
         "local" => ForwardKind::Local,
@@ -388,4 +358,34 @@ pub(crate) async fn start_inner(
     // which is why the per-kind start fns stay silent and defer to here.
     on_status(rf.summary());
     Ok(rf.summary())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_ephemeral_dynamic_target() {
+        // Exact JSON the forward-dialog sends for an ephemeral dynamic
+        // (SOCKS) forward. The outer enum is internally tagged on "kind"
+        // while the nested ForwardSpec ALSO has a "kind" field.
+        let json = r#"{"kind":"ephemeral","spec":{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0}}"#;
+        let target: ForwardStartTarget =
+            serde_json::from_str(json).expect("ephemeral dynamic target must deserialize");
+        match target {
+            ForwardStartTarget::Ephemeral { spec } => {
+                assert_eq!(spec.kind, ForwardKind::Dynamic);
+                assert_eq!(spec.bind_port, 1080);
+            }
+            _ => panic!("expected Ephemeral variant"),
+        }
+    }
+
+    #[test]
+    fn deserializes_persistent_target() {
+        let json = r#"{"kind":"persistent","id":7}"#;
+        let target: ForwardStartTarget =
+            serde_json::from_str(json).expect("persistent target must deserialize");
+        assert!(matches!(target, ForwardStartTarget::Persistent { id: 7 }));
+    }
 }

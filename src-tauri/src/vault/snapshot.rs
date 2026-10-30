@@ -100,7 +100,7 @@ fn rotate(dir: &Path) -> std::io::Result<()> {
             Some((m, p))
         })
         .collect();
-    entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    entries.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified)); // newest first
 
     // Drop by count cap.
     for (_, path) in entries.iter().skip(KEEP) {
@@ -109,10 +109,10 @@ fn rotate(dir: &Path) -> std::io::Result<()> {
     // Drop by age cap — survives the count cap if KEEP itself was
     // raised; keeps the offline-cracking exposure window bounded.
     for (when, path) in entries.iter().take(KEEP) {
-        if let Ok(age) = now.duration_since(*when) {
-            if age > max_age {
-                let _ = std::fs::remove_file(path);
-            }
+        if let Ok(age) = now.duration_since(*when)
+            && age > max_age
+        {
+            let _ = std::fs::remove_file(path);
         }
     }
     Ok(())
@@ -155,11 +155,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         for i in 0..8 {
-            let p = dir.join(format!(
-                "{}{}.sqlite",
-                super::SNAPSHOT_PREFIX,
-                format!("test-{i:03}")
-            ));
+            let p = dir.join(format!("{}test-{i:03}.sqlite", super::SNAPSHOT_PREFIX));
             std::fs::write(&p, b"").unwrap();
             // Force ordering by sleeping briefly so even coarse-mtime
             // filesystems give a stable sort.

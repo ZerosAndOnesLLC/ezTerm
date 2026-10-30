@@ -338,6 +338,21 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
     distros
 }
 
+fn decode_wsl_output(bytes: &[u8]) -> String {
+    // wsl.exe output is UTF-16LE on Windows. Decode pairs of bytes into
+    // u16 code units and then into a String via char::decode_utf16.
+    if bytes.len() >= 2 && bytes.len().is_multiple_of(2) {
+        let u16s: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&pair| u16::from_le_bytes(pair))
+            .collect();
+        return char::decode_utf16(u16s).filter_map(|r| r.ok()).collect();
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,17 +368,4 @@ mod tests {
         assert!(!is_internal_distro("Debian"));
         assert!(!is_internal_distro("my-custom-docker-distro"));
     }
-}
-
-fn decode_wsl_output(bytes: &[u8]) -> String {
-    // wsl.exe output is UTF-16LE on Windows. Decode pairs of bytes into
-    // u16 code units and then into a String via char::decode_utf16.
-    if bytes.len() >= 2 && bytes.len() % 2 == 0 {
-        let u16s: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        return char::decode_utf16(u16s).filter_map(|r| r.ok()).collect();
-    }
-    String::from_utf8_lossy(bytes).into_owned()
 }
