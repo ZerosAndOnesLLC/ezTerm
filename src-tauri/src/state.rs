@@ -1,13 +1,13 @@
-use std::sync::atomic::{AtomicI64, AtomicU32};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU32};
 use std::time::Instant;
 
 use sqlx::SqlitePool;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::local::LocalRegistry;
-use crate::sftp::upload_stream::UploadStreamRegistry;
 use crate::sftp::SftpRegistry;
+use crate::sftp::upload_stream::UploadStreamRegistry;
 use crate::ssh::ConnectionRegistry;
 use crate::sync::SyncManager;
 use crate::vault::VaultState;
@@ -100,6 +100,9 @@ impl AppState {
         if let Some(c) = self.ssh.get(id).await {
             return Some(c.output_sent.load(Ordering::Relaxed));
         }
-        self.local.get(id).await.map(|c| c.output_sent.load(Ordering::Relaxed))
+        self.local
+            .get(id)
+            .await
+            .map(|c| c.output_sent.load(Ordering::Relaxed))
     }
 }

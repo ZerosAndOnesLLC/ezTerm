@@ -37,10 +37,7 @@ const VCXSRV_CANDIDATES: &[&str] = &[
 /// - `resources/vcxsrv/vcxsrv.exe` — MSI / NSIS installer: Tauri places
 ///   `bundle.resources` entries under `<install>/resources/`, so after
 ///   a normal install the tree lives there.
-const BUNDLED_VCXSRV_RELS: &[&str] = &[
-    "vcxsrv/vcxsrv.exe",
-    "resources/vcxsrv/vcxsrv.exe",
-];
+const BUNDLED_VCXSRV_RELS: &[&str] = &["vcxsrv/vcxsrv.exe", "resources/vcxsrv/vcxsrv.exe"];
 
 pub struct XServerManager {
     displays: Mutex<HashMap<u8, DisplayEntry>>,
@@ -184,8 +181,7 @@ pub fn user_install_path() -> Option<PathBuf> {
 /// so the install surface is deterministic. The installer is an NSIS
 /// EXE — we drive it with `/S /D=<target>` below.
 #[cfg(target_os = "windows")]
-const VCXSRV_INSTALLER_URL: &str =
-    "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/\
+const VCXSRV_INSTALLER_URL: &str = "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/\
      vcxsrv-64.1.20.14.0.installer.exe/download";
 
 /// Download VcXsrv and silent-install it to the per-user data dir, then
@@ -277,7 +273,7 @@ pub async fn install_vcxsrv() -> Result<PathBuf> {
 /// SSH wire protocol is well-formed and so future cookie-enforcing
 /// upgrades don't require a client-side change.
 pub fn generate_cookie() -> String {
-    use rand::{rngs::SysRng, TryRng};
+    use rand::{TryRng, rngs::SysRng};
     let mut buf = [0u8; 16];
     // Fall back to a zero cookie if the OS RNG fails. VcXsrv launched
     // with `-ac` ignores the cookie value, so a zero value is still a

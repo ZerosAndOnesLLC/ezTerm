@@ -18,16 +18,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc, oneshot};
 
-use russh::{client::Msg, Channel};
+use russh::{Channel, client::Msg};
 
 use crate::error::{AppError, Result};
 
+pub mod dynamic;
 pub mod local;
 pub mod remote;
 pub mod socks5;
-pub mod dynamic;
 
 /// Copy-bidirectional buffer size for all forward kinds. SSH max packet
 /// size is ~64 KiB on modern servers; matching it lets a single stream
@@ -78,16 +78,20 @@ pub fn format_bind_error(bind_addr: &str, port: u16, err: &std::io::Error) -> St
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ForwardKind { Local, Remote, Dynamic }
+pub enum ForwardKind {
+    Local,
+    Remote,
+    Dynamic,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ForwardSpec {
-    pub name:      String,
-    pub kind:      ForwardKind,
+    pub name: String,
+    pub kind: ForwardKind,
     pub bind_addr: String,
     pub bind_port: u16,
-    pub dest_addr: String,   // "" for Dynamic
-    pub dest_port: u16,      //  0 for Dynamic
+    pub dest_addr: String, // "" for Dynamic
+    pub dest_port: u16,    //  0 for Dynamic
 }
 
 /// Forward lifecycle states. The runtime emits `Running` (after a
@@ -100,45 +104,49 @@ pub struct ForwardSpec {
 pub enum ForwardStatus {
     Running,
     Stopped,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// The bind address is already taken by another ezTerm tab, another
     /// ezTerm window/process, or (remote) this session already forwarding
     /// that port. Neutral, not a failure — the pane shows it amber with
     /// Start still offered so the user can take it over if the other
     /// holder goes away. Emitted instead of `Error` on `PortConflict`.
-    Conflict { message: String },
+    Conflict {
+        message: String,
+    },
 }
 
 pub struct RuntimeForward {
-    pub id:            u64,
+    pub id: u64,
     pub persistent_id: Option<i64>,
-    pub spec:          ForwardSpec,
-    pub status:        StdMutex<ForwardStatus>,
-    pub stop_tx:       Mutex<Option<oneshot::Sender<()>>>,
+    pub spec: ForwardSpec,
+    pub status: StdMutex<ForwardStatus>,
+    pub stop_tx: Mutex<Option<oneshot::Sender<()>>>,
     // Fired by the listener task once its teardown is fully complete —
     // local/dynamic have released their bound port, remote has dropped
     // its dispatch entry and awaited `cancel_tcpip_forward`. Lets a
     // caller that intends to re-bind the same address (edit-in-place)
     // wait for the old listener to actually let go first. See
     // `stop_and_wait`.
-    pub done_rx:       Mutex<Option<oneshot::Receiver<()>>>,
+    pub done_rx: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 #[derive(Clone, Serialize)]
 pub struct RuntimeForwardSummary {
-    pub runtime_id:    u64,
+    pub runtime_id: u64,
     pub persistent_id: Option<i64>,
-    pub spec:          ForwardSpec,
-    pub status:        ForwardStatus,
+    pub spec: ForwardSpec,
+    pub status: ForwardStatus,
 }
 
 impl RuntimeForward {
     pub fn summary(&self) -> RuntimeForwardSummary {
         RuntimeForwardSummary {
-            runtime_id:    self.id,
+            runtime_id: self.id,
             persistent_id: self.persistent_id,
-            spec:          self.spec.clone(),
-            status:        self.status.lock().expect("forward status poisoned").clone(),
+            spec: self.spec.clone(),
+            status: self.status.lock().expect("forward status poisoned").clone(),
         }
     }
 
@@ -184,8 +192,8 @@ impl RuntimeForward {
 /// while held.
 #[derive(Default)]
 pub struct Forwards {
-    pub by_id:    RwLock<HashMap<u64, Arc<RuntimeForward>>>,
-    pub next_id:  std::sync::atomic::AtomicU64,
+    pub by_id: RwLock<HashMap<u64, Arc<RuntimeForward>>>,
+    pub next_id: std::sync::atomic::AtomicU64,
     pub dispatch: Arc<StdRwLock<HashMap<(String, u32), mpsc::UnboundedSender<Channel<Msg>>>>>,
 }
 
@@ -216,7 +224,12 @@ impl Forwards {
     }
 
     pub async fn list(&self) -> Vec<RuntimeForwardSummary> {
-        self.by_id.read().await.values().map(|rf| rf.summary()).collect()
+        self.by_id
+            .read()
+            .await
+            .values()
+            .map(|rf| rf.summary())
+            .collect()
     }
 
     /// Tear down every live forward. Called from `Connection::close()`

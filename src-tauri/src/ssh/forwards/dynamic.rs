@@ -8,13 +8,13 @@ use std::sync::Arc;
 use russh::client::Handle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional_with_sizes};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{oneshot, Mutex, Semaphore};
-use tokio::time::{timeout, Duration};
+use tokio::sync::{Mutex, Semaphore, oneshot};
+use tokio::time::{Duration, timeout};
 
 use super::socks5::{self, ConnectRequest, Socks5Error};
 use super::{
-    bind_socket, format_bind_error, ForwardSpec, ForwardStatus, RuntimeForward,
-    RuntimeForwardSummary, COPY_BUF, MAX_INFLIGHT_PER_FORWARD, SOCKS5_READ_TIMEOUT_SECS,
+    COPY_BUF, ForwardSpec, ForwardStatus, MAX_INFLIGHT_PER_FORWARD, RuntimeForward,
+    RuntimeForwardSummary, SOCKS5_READ_TIMEOUT_SECS, bind_socket, format_bind_error,
 };
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
@@ -41,12 +41,12 @@ pub async fn start(
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
     let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
-        id:            runtime_id,
+        id: runtime_id,
         persistent_id,
-        spec:          spec.clone(),
-        status:        std::sync::Mutex::new(ForwardStatus::Running),
-        stop_tx:       Mutex::new(Some(stop_tx)),
-        done_rx:       Mutex::new(Some(done_rx)),
+        spec: spec.clone(),
+        status: std::sync::Mutex::new(ForwardStatus::Running),
+        stop_tx: Mutex::new(Some(stop_tx)),
+        done_rx: Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();
@@ -113,72 +113,103 @@ async fn handle_client(
     let mut buf = [0u8; 320];
 
     // Greeting: VER NMETHODS METHODS...
-    if timeout(stage, tcp.read_exact(&mut buf[..2])).await.is_err() { return; }
+    if timeout(stage, tcp.read_exact(&mut buf[..2])).await.is_err() {
+        return;
+    }
     let nmethods = buf[1] as usize;
     if nmethods > 0 {
-        if timeout(stage, tcp.read_exact(&mut buf[2..2 + nmethods])).await.is_err() { return; }
+        if timeout(stage, tcp.read_exact(&mut buf[2..2 + nmethods]))
+            .await
+            .is_err()
+        {
+            return;
+        }
     }
     if socks5::parse_greeting(&buf[..2 + nmethods]).is_err() {
         let _ = tcp.write_all(&socks5::encode_greeting_reply(false)).await;
         return;
     }
-    if tcp.write_all(&socks5::encode_greeting_reply(true)).await.is_err() { return; }
+    if tcp
+        .write_all(&socks5::encode_greeting_reply(true))
+        .await
+        .is_err()
+    {
+        return;
+    }
 
     // Request prefix: VER CMD RSV ATYP (4 bytes).
-    if timeout(stage, tcp.read_exact(&mut buf[..4])).await.is_err() { return; }
+    if timeout(stage, tcp.read_exact(&mut buf[..4])).await.is_err() {
+        return;
+    }
     let atyp = buf[3];
     let req_len = match atyp {
         0x01 => 4 + 4 + 2,
         0x04 => 4 + 16 + 2,
         0x03 => {
-            if timeout(stage, tcp.read_exact(&mut buf[4..5])).await.is_err() { return; }
+            if timeout(stage, tcp.read_exact(&mut buf[4..5]))
+                .await
+                .is_err()
+            {
+                return;
+            }
             let domain_len = buf[4] as usize;
             5 + domain_len + 2
         }
         _ => {
-            let _ = tcp.write_all(&socks5::encode_reply(
-                socks5::rep::ADDRESS_TYPE_NOT_SUPPORTED,
-            )).await;
+            let _ = tcp
+                .write_all(&socks5::encode_reply(
+                    socks5::rep::ADDRESS_TYPE_NOT_SUPPORTED,
+                ))
+                .await;
             return;
         }
     };
     if req_len > buf.len() {
-        let _ = tcp.write_all(&socks5::encode_reply(
-            socks5::rep::GENERAL_FAILURE,
-        )).await;
+        let _ = tcp
+            .write_all(&socks5::encode_reply(socks5::rep::GENERAL_FAILURE))
+            .await;
         return;
     }
     let already_read = if atyp == 0x03 { 5 } else { 4 };
-    if timeout(stage, tcp.read_exact(&mut buf[already_read..req_len])).await.is_err() { return; }
+    if timeout(stage, tcp.read_exact(&mut buf[already_read..req_len]))
+        .await
+        .is_err()
+    {
+        return;
+    }
 
     let req: ConnectRequest = match socks5::parse_request(&buf[..req_len]) {
         Ok(r) => r,
         Err(Socks5Error::BadCommand(_)) => {
-            let _ = tcp.write_all(&socks5::encode_reply(
-                socks5::rep::COMMAND_NOT_SUPPORTED,
-            )).await;
+            let _ = tcp
+                .write_all(&socks5::encode_reply(socks5::rep::COMMAND_NOT_SUPPORTED))
+                .await;
             return;
         }
         Err(Socks5Error::BadAtyp(_)) => {
-            let _ = tcp.write_all(&socks5::encode_reply(
-                socks5::rep::ADDRESS_TYPE_NOT_SUPPORTED,
-            )).await;
+            let _ = tcp
+                .write_all(&socks5::encode_reply(
+                    socks5::rep::ADDRESS_TYPE_NOT_SUPPORTED,
+                ))
+                .await;
             return;
         }
         Err(_) => {
-            let _ = tcp.write_all(&socks5::encode_reply(
-                socks5::rep::GENERAL_FAILURE,
-            )).await;
+            let _ = tcp
+                .write_all(&socks5::encode_reply(socks5::rep::GENERAL_FAILURE))
+                .await;
             return;
         }
     };
 
-    let chan = handle.channel_open_direct_tcpip(
-        req.host.clone(),
-        req.port as u32,
-        peer.ip().to_string(),
-        peer.port() as u32,
-    ).await;
+    let chan = handle
+        .channel_open_direct_tcpip(
+            req.host.clone(),
+            req.port as u32,
+            peer.ip().to_string(),
+            peer.port() as u32,
+        )
+        .await;
     let channel = match chan {
         Ok(c) => c,
         Err(_e) => {
@@ -187,14 +218,18 @@ async fn handle_client(
             // shows runtime errors via forwards:status when the listener
             // itself fails; per-connection target failures are noisy and
             // low-signal.
-            let _ = tcp.write_all(&socks5::encode_reply(
-                socks5::rep::CONNECTION_REFUSED,
-            )).await;
+            let _ = tcp
+                .write_all(&socks5::encode_reply(socks5::rep::CONNECTION_REFUSED))
+                .await;
             return;
         }
     };
 
-    if tcp.write_all(&socks5::encode_reply(socks5::rep::SUCCESS)).await.is_err() {
+    if tcp
+        .write_all(&socks5::encode_reply(socks5::rep::SUCCESS))
+        .await
+        .is_err()
+    {
         return;
     }
     let mut stream = channel.into_stream();

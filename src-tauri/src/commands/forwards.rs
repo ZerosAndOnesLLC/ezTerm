@@ -69,7 +69,8 @@ pub async fn forward_update(
             if let Err(e) = start_inner(cid, app2, forwards, handle, spec.clone(), Some(id)).await {
                 tracing::warn!(
                     "post-update restart of forward {}:{} failed: {e}",
-                    spec.bind_addr, spec.bind_port,
+                    spec.bind_addr,
+                    spec.bind_port,
                 );
             }
         });
@@ -106,12 +107,18 @@ async fn stop_runtimes_for_persistent(
                     // `wait` when the caller is about to re-bind the same
                     // address (edit-in-place restart) and needs the old
                     // listener to release it first; otherwise fire-and-forget.
-                    if wait { rf.stop_and_wait().await; } else { rf.stop().await; }
+                    if wait {
+                        rf.stop_and_wait().await;
+                    } else {
+                        rf.stop().await;
+                    }
                 }
                 touched = true;
             }
         }
-        if touched { stopped_on.push(conn); }
+        if touched {
+            stopped_on.push(conn);
+        }
     }
     stopped_on
 }
@@ -122,7 +129,7 @@ async fn stop_runtimes_for_persistent(
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ForwardStartTarget {
     Persistent { id: i64 },
-    Ephemeral  { spec: ForwardSpec },
+    Ephemeral { spec: ForwardSpec },
 }
 
 #[tauri::command]
@@ -131,7 +138,10 @@ pub async fn forward_runtime_list(
     connection_id: u64,
 ) -> Result<Vec<RuntimeForwardSummary>> {
     require_unlocked(&state).await?;
-    let conn = state.ssh.get(connection_id).await
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
         .ok_or(AppError::NotFound)?;
     Ok(conn.forwards.list().await)
 }
@@ -144,7 +154,10 @@ pub async fn forward_start(
     target: ForwardStartTarget,
 ) -> Result<RuntimeForwardSummary> {
     require_unlocked(&state).await?;
-    let conn = state.ssh.get(connection_id).await
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
         .ok_or(AppError::NotFound)?;
 
     let (spec, persistent_id): (ForwardSpec, Option<i64>) = match target {
@@ -155,8 +168,15 @@ pub async fn forward_start(
         ForwardStartTarget::Ephemeral { spec } => (spec, None),
     };
 
-    start_inner(connection_id, app, conn.forwards.clone(),
-                conn.ssh_handle.clone(), spec, persistent_id).await
+    start_inner(
+        connection_id,
+        app,
+        conn.forwards.clone(),
+        conn.ssh_handle.clone(),
+        spec,
+        persistent_id,
+    )
+    .await
 }
 
 /// Replace a running ephemeral (tab-only) forward with a new spec —
@@ -174,13 +194,23 @@ pub async fn forward_replace(
     spec: ForwardSpec,
 ) -> Result<RuntimeForwardSummary> {
     require_unlocked(&state).await?;
-    let conn = state.ssh.get(connection_id).await
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
         .ok_or(AppError::NotFound)?;
     if let Some(rf) = conn.forwards.remove(runtime_id).await {
         rf.stop_and_wait().await;
     }
-    start_inner(connection_id, app, conn.forwards.clone(),
-                conn.ssh_handle.clone(), spec, None).await
+    start_inner(
+        connection_id,
+        app,
+        conn.forwards.clone(),
+        conn.ssh_handle.clone(),
+        spec,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -190,7 +220,10 @@ pub async fn forward_stop(
     runtime_id: u64,
 ) -> Result<()> {
     require_unlocked(&state).await?;
-    let conn = state.ssh.get(connection_id).await
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
         .ok_or(AppError::NotFound)?;
     if let Some(rf) = conn.forwards.remove(runtime_id).await {
         rf.stop().await;
@@ -199,12 +232,12 @@ pub async fn forward_stop(
 }
 
 #[tauri::command]
-pub async fn forward_stop_all(
-    state: State<'_, AppState>,
-    connection_id: u64,
-) -> Result<()> {
+pub async fn forward_stop_all(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
     require_unlocked(&state).await?;
-    let conn = state.ssh.get(connection_id).await
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
         .ok_or(AppError::NotFound)?;
     conn.forwards.stop_all().await;
     Ok(())
@@ -222,7 +255,8 @@ mod tests {
         // (SOCKS) forward. The outer enum is internally tagged on "kind"
         // while the nested ForwardSpec ALSO has a "kind" field.
         let json = r#"{"kind":"ephemeral","spec":{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0}}"#;
-        let target: ForwardStartTarget = serde_json::from_str(json).expect("ephemeral dynamic target must deserialize");
+        let target: ForwardStartTarget =
+            serde_json::from_str(json).expect("ephemeral dynamic target must deserialize");
         match target {
             ForwardStartTarget::Ephemeral { spec } => {
                 assert_eq!(spec.kind, ForwardKind::Dynamic);
@@ -235,20 +269,21 @@ mod tests {
     #[test]
     fn deserializes_persistent_target() {
         let json = r#"{"kind":"persistent","id":7}"#;
-        let target: ForwardStartTarget = serde_json::from_str(json).expect("persistent target must deserialize");
+        let target: ForwardStartTarget =
+            serde_json::from_str(json).expect("persistent target must deserialize");
         assert!(matches!(target, ForwardStartTarget::Persistent { id: 7 }));
     }
 }
 
 pub(crate) fn spec_from_db(f: &db::forwards::Forward) -> Result<ForwardSpec> {
     let kind = match f.kind.as_str() {
-        "local"   => ForwardKind::Local,
-        "remote"  => ForwardKind::Remote,
+        "local" => ForwardKind::Local,
+        "remote" => ForwardKind::Remote,
         "dynamic" => ForwardKind::Dynamic,
-        other     => return Err(AppError::Validation(format!("bad kind {other}"))),
+        other => return Err(AppError::Validation(format!("bad kind {other}"))),
     };
     Ok(ForwardSpec {
-        name:      f.name.clone(),
+        name: f.name.clone(),
         kind,
         bind_addr: f.bind_addr.clone(),
         bind_port: f.bind_port as u16,
@@ -273,27 +308,41 @@ pub(crate) async fn start_inner(
     let id = forwards.alloc_id();
     let event = format!("forwards:status:{connection_id}");
     let app_emit = app.clone();
-    let on_status: Arc<dyn Fn(RuntimeForwardSummary) + Send + Sync> =
-        Arc::new(move |s| {
-            let _ = app_emit.emit(&event, &s);
-        });
+    let on_status: Arc<dyn Fn(RuntimeForwardSummary) + Send + Sync> = Arc::new(move |s| {
+        let _ = app_emit.emit(&event, &s);
+    });
 
     let started = match spec.kind {
         ForwardKind::Local => {
             crate::ssh::forwards::local::start(
-                handle.clone(), spec.clone(), id, persistent_id, on_status.clone(),
-            ).await
+                handle.clone(),
+                spec.clone(),
+                id,
+                persistent_id,
+                on_status.clone(),
+            )
+            .await
         }
         ForwardKind::Remote => {
             crate::ssh::forwards::remote::start(
-                handle.clone(), forwards.dispatch.clone(),
-                spec.clone(), id, persistent_id, on_status.clone(),
-            ).await
+                handle.clone(),
+                forwards.dispatch.clone(),
+                spec.clone(),
+                id,
+                persistent_id,
+                on_status.clone(),
+            )
+            .await
         }
         ForwardKind::Dynamic => {
             crate::ssh::forwards::dynamic::start(
-                handle.clone(), spec.clone(), id, persistent_id, on_status.clone(),
-            ).await
+                handle.clone(),
+                spec.clone(),
+                id,
+                persistent_id,
+                on_status.clone(),
+            )
+            .await
         }
     };
     let rf = match started {
@@ -322,7 +371,9 @@ pub(crate) async fn start_inner(
                 runtime_id: id,
                 persistent_id,
                 spec: spec.clone(),
-                status: ForwardStatus::Error { message: e.to_string() },
+                status: ForwardStatus::Error {
+                    message: e.to_string(),
+                },
             };
             on_status(summary);
             return Err(e);

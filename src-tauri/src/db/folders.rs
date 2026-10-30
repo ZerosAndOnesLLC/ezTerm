@@ -54,7 +54,9 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
 pub async fn mv(pool: &SqlitePool, id: i64, parent_id: Option<i64>, sort: i64) -> Result<()> {
     if let Some(pid) = parent_id {
         if pid == id {
-            return Err(AppError::Validation("cannot move folder into itself".into()));
+            return Err(AppError::Validation(
+                "cannot move folder into itself".into(),
+            ));
         }
         // Walk the prospective parent's ancestor chain. If `id` appears anywhere
         // in it, accepting the move would create a cycle.
@@ -146,11 +148,17 @@ mod tests {
 
         // 1. Self-parent rejected.
         let err = mv(&p, a.id, Some(a.id), 0).await.err().unwrap();
-        assert!(matches!(err, AppError::Validation(_)), "self-parent must be rejected");
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "self-parent must be rejected"
+        );
 
         // 2. Moving an ancestor under a descendant is a cycle.
         let err = mv(&p, a.id, Some(c.id), 0).await.err().unwrap();
-        assert!(matches!(err, AppError::Validation(_)), "ancestor->descendant must be rejected");
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "ancestor->descendant must be rejected"
+        );
 
         // 3. A legal move still works (detach b to root).
         mv(&p, b.id, None, 0).await.unwrap();

@@ -58,9 +58,7 @@ pub async fn credential_create(
 }
 
 #[tauri::command]
-pub async fn credential_list_detailed(
-    state: State<'_, AppState>,
-) -> Result<Vec<CredentialDetail>> {
+pub async fn credential_list_detailed(state: State<'_, AppState>) -> Result<Vec<CredentialDetail>> {
     require_unlocked(&state).await?;
     credentials::list_detailed(&state.db).await
 }

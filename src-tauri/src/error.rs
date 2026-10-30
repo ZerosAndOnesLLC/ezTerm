@@ -80,10 +80,19 @@ pub enum AppError {
 impl Serialize for AppError {
     fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         let mut obj = serde_json::Map::new();
-        obj.insert("code".into(), serde_json::Value::String(code_for(self).into()));
-        obj.insert("message".into(), serde_json::Value::String(self.to_string()));
+        obj.insert(
+            "code".into(),
+            serde_json::Value::String(code_for(self).into()),
+        );
+        obj.insert(
+            "message".into(),
+            serde_json::Value::String(self.to_string()),
+        );
         if let AppError::HostKeyMismatch { expected, actual } = self {
-            obj.insert("expected".into(), serde_json::Value::String(expected.clone()));
+            obj.insert(
+                "expected".into(),
+                serde_json::Value::String(expected.clone()),
+            );
             obj.insert("actual".into(), serde_json::Value::String(actual.clone()));
         }
         serde_json::Value::Object(obj).serialize(s)

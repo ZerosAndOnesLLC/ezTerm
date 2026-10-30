@@ -7,9 +7,12 @@ use std::sync::Arc;
 use russh::client::Handle;
 use tokio::io::copy_bidirectional_with_sizes;
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, oneshot};
 
-use super::{bind_socket, ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary, COPY_BUF, MAX_INFLIGHT_PER_FORWARD};
+use super::{
+    COPY_BUF, ForwardSpec, ForwardStatus, MAX_INFLIGHT_PER_FORWARD, RuntimeForward,
+    RuntimeForwardSummary, bind_socket,
+};
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
 
@@ -39,12 +42,12 @@ pub async fn start(
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
     let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
-        id:            runtime_id,
+        id: runtime_id,
         persistent_id,
-        spec:          spec.clone(),
-        status:        std::sync::Mutex::new(ForwardStatus::Running),
-        stop_tx:       Mutex::new(Some(stop_tx)),
-        done_rx:       Mutex::new(Some(done_rx)),
+        spec: spec.clone(),
+        status: std::sync::Mutex::new(ForwardStatus::Running),
+        stop_tx: Mutex::new(Some(stop_tx)),
+        done_rx: Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();

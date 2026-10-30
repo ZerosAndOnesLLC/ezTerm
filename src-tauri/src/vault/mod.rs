@@ -5,8 +5,8 @@ pub mod snapshot;
 #[cfg(test)]
 mod tests;
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rand::{rngs::SysRng, TryRng};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
+use rand::{TryRng, rngs::SysRng};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use zeroize::Zeroizing;
@@ -50,31 +50,48 @@ pub enum VaultState {
 }
 
 impl VaultState {
-    pub fn is_unlocked(&self) -> bool { matches!(self, VaultState::Unlocked { .. }) }
+    pub fn is_unlocked(&self) -> bool {
+        matches!(self, VaultState::Unlocked { .. })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 struct StoredKdfParams {
-    m: u32, t: u32, p: u32,
+    m: u32,
+    t: u32,
+    p: u32,
 }
 
 impl From<KdfParams> for StoredKdfParams {
-    fn from(v: KdfParams) -> Self { Self { m: v.m_cost_kib, t: v.t_cost, p: v.p_cost } }
+    fn from(v: KdfParams) -> Self {
+        Self {
+            m: v.m_cost_kib,
+            t: v.t_cost,
+            p: v.p_cost,
+        }
+    }
 }
 impl From<StoredKdfParams> for KdfParams {
     fn from(v: StoredKdfParams) -> Self {
-        KdfParams { m_cost_kib: v.m, t_cost: v.t, p_cost: v.p }
+        KdfParams {
+            m_cost_kib: v.m,
+            t_cost: v.t,
+            p_cost: v.p,
+        }
     }
 }
 
 pub async fn is_initialized(pool: &SqlitePool) -> Result<bool> {
     let row: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM vault_meta WHERE id = 1")
-        .fetch_optional(pool).await?;
+        .fetch_optional(pool)
+        .await?;
     Ok(row.is_some())
 }
 
 pub async fn init(pool: &SqlitePool, password: &str) -> Result<VaultState> {
-    if is_initialized(pool).await? { return Err(AppError::VaultAlreadyInitialized); }
+    if is_initialized(pool).await? {
+        return Err(AppError::VaultAlreadyInitialized);
+    }
     let mut salt = [0u8; 16];
     SysRng
         .try_fill_bytes(&mut salt)
@@ -89,15 +106,20 @@ pub async fn init(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     verifier.extend_from_slice(&ct);
     let stored_params = serde_json::to_string(&StoredKdfParams::from(params))?;
     sqlx::query("INSERT INTO vault_meta (id, salt, kdf_params, verifier) VALUES (1, ?, ?, ?)")
-        .bind(&salt[..]).bind(stored_params).bind(&verifier)
-        .execute(pool).await?;
+        .bind(&salt[..])
+        .bind(stored_params)
+        .bind(&verifier)
+        .execute(pool)
+        .await?;
     Ok(VaultState::Unlocked { key })
 }
 
 pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
     let row: (Vec<u8>, String, Vec<u8>) =
         sqlx::query_as("SELECT salt, kdf_params, verifier FROM vault_meta WHERE id = 1")
-            .fetch_optional(pool).await?.ok_or(AppError::NotFound)?;
+            .fetch_optional(pool)
+            .await?
+            .ok_or(AppError::NotFound)?;
     let (salt, params_json, verifier) = row;
     let stored: StoredKdfParams = serde_json::from_str(&params_json)?;
     let params: KdfParams = stored.into();
@@ -107,11 +129,15 @@ pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
         ));
     }
     let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
-    if verifier.len() < NONCE_LEN { return Err(AppError::Crypto); }
+    if verifier.len() < NONCE_LEN {
+        return Err(AppError::Crypto);
+    }
     let (nonce, ct) = verifier.split_at(NONCE_LEN);
     let aead = Aead256::new(&key);
     let pt = aead.decrypt(nonce, ct).map_err(|_| AppError::BadPassword)?;
-    if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
+    if pt != VERIFIER_PLAINTEXT {
+        return Err(AppError::BadPassword);
+    }
     Ok(VaultState::Unlocked { key })
 }
 
@@ -136,7 +162,9 @@ pub(crate) async fn verify_and_derive(
 ) -> Result<Option<Zeroizing<[u8; 32]>>> {
     let row: (Vec<u8>, String, Vec<u8>) =
         sqlx::query_as("SELECT salt, kdf_params, verifier FROM vault_meta WHERE id = 1")
-            .fetch_optional(pool).await?.ok_or(AppError::NotFound)?;
+            .fetch_optional(pool)
+            .await?
+            .ok_or(AppError::NotFound)?;
     let (salt, params_json, verifier) = row;
     let stored: StoredKdfParams = serde_json::from_str(&params_json)?;
     let params: KdfParams = stored.into();
@@ -198,7 +226,9 @@ pub async fn change_password(
     // Derive new materials before opening the tx so the Argon2id cost
     // doesn't hold the DB write lock for the entire derivation.
     let mut new_salt = [0u8; 16];
-    SysRng.try_fill_bytes(&mut new_salt).map_err(|_| AppError::Crypto)?;
+    SysRng
+        .try_fill_bytes(&mut new_salt)
+        .map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
     let new_key = kdf::derive_key(new_password.as_bytes(), &new_salt, params)?;
     let old_aead = Aead256::new(old_key);
@@ -223,23 +253,32 @@ pub async fn change_password(
 
     let cred_rows: Vec<(i64, Vec<u8>, Vec<u8>)> =
         sqlx::query_as("SELECT id, nonce, ciphertext FROM credentials")
-            .fetch_all(&mut *tx).await?;
+            .fetch_all(&mut *tx)
+            .await?;
     for (id, nonce, ct) in cred_rows {
-        if nonce.len() != NONCE_LEN { return Err(AppError::Crypto); }
+        if nonce.len() != NONCE_LEN {
+            return Err(AppError::Crypto);
+        }
         let pt = Zeroizing::new(old_aead.decrypt(&nonce, &ct)?);
         let (n2, c2) = new_aead.encrypt(&pt)?;
         sqlx::query("UPDATE credentials SET nonce = ?, ciphertext = ? WHERE id = ?")
-            .bind(&n2).bind(&c2).bind(id)
-            .execute(&mut *tx).await?;
+            .bind(&n2)
+            .bind(&c2)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     for key in VAULT_BLOB_SETTING_KEYS {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT value FROM app_settings WHERE key = ?")
-                .bind(*key).fetch_optional(&mut *tx).await?;
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM app_settings WHERE key = ?")
+            .bind(*key)
+            .fetch_optional(&mut *tx)
+            .await?;
         let Some((b64,)) = row else { continue };
         let bytes = B64.decode(&b64).map_err(|_| AppError::Crypto)?;
-        if bytes.len() < NONCE_LEN { return Err(AppError::Crypto); }
+        if bytes.len() < NONCE_LEN {
+            return Err(AppError::Crypto);
+        }
         let (nonce, ct) = bytes.split_at(NONCE_LEN);
         let pt = Zeroizing::new(old_aead.decrypt(nonce, ct)?);
         let (n2, c2) = new_aead.encrypt(&pt)?;
@@ -247,8 +286,10 @@ pub async fn change_password(
         combined.extend_from_slice(&n2);
         combined.extend_from_slice(&c2);
         sqlx::query("UPDATE app_settings SET value = ? WHERE key = ?")
-            .bind(B64.encode(&combined)).bind(*key)
-            .execute(&mut *tx).await?;
+            .bind(B64.encode(&combined))
+            .bind(*key)
+            .execute(&mut *tx)
+            .await?;
     }
 
     sqlx::query(
@@ -256,10 +297,11 @@ pub async fn change_password(
          recovery_salt = NULL, recovery_kdf_params = NULL, recovery_wrapped_key = NULL \
          WHERE id = 1",
     )
-        .bind(&new_salt[..])
-        .bind(&new_params_json)
-        .bind(&new_verifier)
-        .execute(&mut *tx).await?;
+    .bind(&new_salt[..])
+    .bind(&new_params_json)
+    .bind(&new_verifier)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     Ok(new_key)
@@ -277,17 +319,26 @@ pub async fn change_password(
 pub async fn reset(pool: &SqlitePool) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("UPDATE sessions SET credential_id = NULL, key_passphrase_credential_id = NULL")
-        .execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM credentials").execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM credentials")
+        .execute(&mut *tx)
+        .await?;
     for key in VAULT_BLOB_SETTING_KEYS {
         sqlx::query("DELETE FROM app_settings WHERE key = ?")
-            .bind(*key).execute(&mut *tx).await?;
+            .bind(*key)
+            .execute(&mut *tx)
+            .await?;
     }
     // Also drop the sync.kind setting so the writer task doesn't keep
     // trying to push under a disabled config.
     sqlx::query("DELETE FROM app_settings WHERE key = ?")
-        .bind("sync.kind").execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM vault_meta").execute(&mut *tx).await?;
+        .bind("sync.kind")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM vault_meta")
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }

@@ -57,7 +57,6 @@ pub async fn local_disconnect(state: State<'_, AppState>, connection_id: u64) ->
     Ok(())
 }
 
-
 /// Returns the list of installed WSL distros (trimmed, in registered order).
 /// Empty when WSL is not installed or the command fails.
 #[tauri::command]
@@ -127,9 +126,9 @@ pub async fn wsl_autodetect_seed(state: State<'_, AppState>) -> Result<usize> {
     let existing = crate::db::sessions::list(&state.db).await?;
     let mut created = 0usize;
     for distro in &distros {
-        let already = existing.iter().any(|s| {
-            s.folder_id == Some(folder.id) && s.name == distro.as_str()
-        });
+        let already = existing
+            .iter()
+            .any(|s| s.folder_id == Some(folder.id) && s.name == distro.as_str());
         if already {
             continue;
         }
@@ -217,9 +216,9 @@ pub async fn local_shells_autodetect_seed(state: State<'_, AppState>) -> Result<
     let existing = crate::db::sessions::list(&state.db).await?;
     let mut created = 0usize;
     for shell in &shells {
-        let already = existing.iter().any(|s| {
-            s.folder_id == Some(folder.id) && s.name == shell.display_name
-        });
+        let already = existing
+            .iter()
+            .any(|s| s.folder_id == Some(folder.id) && s.name == shell.display_name);
         if already {
             continue;
         }
@@ -331,7 +330,11 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
         .filter(|l| !l.is_empty())
         .filter(|l| !is_internal_distro(l))
         .collect();
-    eprintln!("[wsl-autodetect] detected {} distros: {:?}", distros.len(), distros);
+    eprintln!(
+        "[wsl-autodetect] detected {} distros: {:?}",
+        distros.len(),
+        distros
+    );
     distros
 }
 
@@ -360,9 +363,7 @@ fn decode_wsl_output(bytes: &[u8]) -> String {
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
-        return char::decode_utf16(u16s)
-            .filter_map(|r| r.ok())
-            .collect();
+        return char::decode_utf16(u16s).filter_map(|r| r.ok()).collect();
     }
     String::from_utf8_lossy(bytes).into_owned()
 }

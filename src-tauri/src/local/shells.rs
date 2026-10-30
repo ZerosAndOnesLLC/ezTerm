@@ -30,11 +30,17 @@ pub struct DetectedShell {
 /// present on Win10/11), plus `pwsh` when it resolves on `PATH`.
 pub fn detect_local_shells() -> Vec<DetectedShell> {
     #[cfg(unix)]
-    { detect_unix_shells() }
+    {
+        detect_unix_shells()
+    }
     #[cfg(windows)]
-    { detect_windows_shells() }
+    {
+        detect_windows_shells()
+    }
     #[cfg(not(any(unix, windows)))]
-    { Vec::new() }
+    {
+        Vec::new()
+    }
 }
 
 #[cfg(unix)]
@@ -61,7 +67,10 @@ fn detect_unix_shells() -> Vec<DetectedShell> {
         if name.is_empty() || !seen.insert(name.clone()) {
             continue;
         }
-        out.push(DetectedShell { display_name: name, program: path });
+        out.push(DetectedShell {
+            display_name: name,
+            program: path,
+        });
     }
 
     if out.is_empty() {
@@ -73,7 +82,10 @@ fn detect_unix_shells() -> Vec<DetectedShell> {
             .unwrap_or_else(|| "/bin/sh".to_string());
         let name = basename(&candidate);
         if !name.is_empty() {
-            out.push(DetectedShell { display_name: name, program: candidate });
+            out.push(DetectedShell {
+                display_name: name,
+                program: candidate,
+            });
         }
     }
     out
@@ -102,18 +114,29 @@ fn detect_windows_shells() -> Vec<DetectedShell> {
     // so we assume them. pwsh.exe (PowerShell 7+) is a separate install
     // and only shows up if the user put it on PATH.
     let mut out = vec![
-        DetectedShell { display_name: "cmd".into(),        program: "cmd".into() },
-        DetectedShell { display_name: "powershell".into(), program: "powershell".into() },
+        DetectedShell {
+            display_name: "cmd".into(),
+            program: "cmd".into(),
+        },
+        DetectedShell {
+            display_name: "powershell".into(),
+            program: "powershell".into(),
+        },
     ];
     if windows_has_pwsh() {
-        out.push(DetectedShell { display_name: "pwsh".into(), program: "pwsh".into() });
+        out.push(DetectedShell {
+            display_name: "pwsh".into(),
+            program: "pwsh".into(),
+        });
     }
     out
 }
 
 #[cfg(windows)]
 fn windows_has_pwsh() -> bool {
-    let Some(path) = std::env::var_os("PATH") else { return false; };
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
     std::env::split_paths(&path).any(|dir| dir.join("pwsh.exe").exists())
 }
 
@@ -138,7 +161,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn etc_shells_filters_nologin() {
-        let sample = "/bin/sh\n/sbin/nologin\n/usr/sbin/nologin\n/usr/bin/false\n/bin/false\n/bin/bash\n";
+        let sample =
+            "/bin/sh\n/sbin/nologin\n/usr/sbin/nologin\n/usr/bin/false\n/bin/false\n/bin/bash\n";
         let parsed = parse_etc_shells(sample);
         assert_eq!(parsed, vec!["/bin/sh", "/bin/bash"]);
     }

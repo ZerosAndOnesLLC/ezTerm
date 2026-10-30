@@ -10,10 +10,9 @@ use crate::db;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use crate::sync::{
-    self, SyncStatus, SyncTarget, KEY_KIND, KEY_LAST_ERROR, KEY_LAST_SUCCESS_AT,
-    KEY_LOCAL_PASSPHRASE_BLOB, KEY_LOCAL_PATH,
-    KEY_S3_ACCESS_KEY_ID, KEY_S3_BUCKET, KEY_S3_ENDPOINT, KEY_S3_LAST_ETAG,
-    KEY_S3_PASSPHRASE_BLOB, KEY_S3_PREFIX, KEY_S3_REGION, KEY_S3_SECRET_BLOB,
+    self, KEY_KIND, KEY_LAST_ERROR, KEY_LAST_SUCCESS_AT, KEY_LOCAL_PASSPHRASE_BLOB, KEY_LOCAL_PATH,
+    KEY_S3_ACCESS_KEY_ID, KEY_S3_BUCKET, KEY_S3_ENDPOINT, KEY_S3_LAST_ETAG, KEY_S3_PASSPHRASE_BLOB,
+    KEY_S3_PREFIX, KEY_S3_REGION, KEY_S3_SECRET_BLOB, SyncStatus, SyncTarget,
 };
 
 #[tauri::command]
@@ -40,7 +39,9 @@ pub async fn sync_status(state: State<'_, AppState>) -> Result<SyncStatus> {
         if ms == 0 {
             None
         } else {
-            Utc.timestamp_millis_opt(ms).single().map(|d| d.to_rfc3339())
+            Utc.timestamp_millis_opt(ms)
+                .single()
+                .map(|d| d.to_rfc3339())
         }
     });
 
@@ -48,12 +49,24 @@ pub async fn sync_status(state: State<'_, AppState>) -> Result<SyncStatus> {
     // access-key id) from settings rather than the in-memory target so the
     // UI can still render the config even when the vault hasn't been
     // unlocked yet on this boot and reload_from_db hasn't run.
-    let s3_endpoint = db::settings::get(&state.db, KEY_S3_ENDPOINT).await?.filter(|s| !s.is_empty());
-    let s3_region = db::settings::get(&state.db, KEY_S3_REGION).await?.filter(|s| !s.is_empty());
-    let s3_bucket = db::settings::get(&state.db, KEY_S3_BUCKET).await?.filter(|s| !s.is_empty());
-    let s3_prefix = db::settings::get(&state.db, KEY_S3_PREFIX).await?.filter(|s| !s.is_empty());
-    let s3_access_key_id = db::settings::get(&state.db, KEY_S3_ACCESS_KEY_ID).await?.filter(|s| !s.is_empty());
-    let s3_last_etag = db::settings::get(&state.db, KEY_S3_LAST_ETAG).await?.filter(|s| !s.is_empty());
+    let s3_endpoint = db::settings::get(&state.db, KEY_S3_ENDPOINT)
+        .await?
+        .filter(|s| !s.is_empty());
+    let s3_region = db::settings::get(&state.db, KEY_S3_REGION)
+        .await?
+        .filter(|s| !s.is_empty());
+    let s3_bucket = db::settings::get(&state.db, KEY_S3_BUCKET)
+        .await?
+        .filter(|s| !s.is_empty());
+    let s3_prefix = db::settings::get(&state.db, KEY_S3_PREFIX)
+        .await?
+        .filter(|s| !s.is_empty());
+    let s3_access_key_id = db::settings::get(&state.db, KEY_S3_ACCESS_KEY_ID)
+        .await?
+        .filter(|s| !s.is_empty());
+    let s3_last_etag = db::settings::get(&state.db, KEY_S3_LAST_ETAG)
+        .await?
+        .filter(|s| !s.is_empty());
 
     Ok(SyncStatus {
         kind,
@@ -108,7 +121,12 @@ async fn sync_configure_local_inner(
     };
 
     db::settings::set(&state.db, KEY_KIND, "local").await?;
-    db::settings::set(&state.db, KEY_LOCAL_PATH, canonical.to_string_lossy().as_ref()).await?;
+    db::settings::set(
+        &state.db,
+        KEY_LOCAL_PATH,
+        canonical.to_string_lossy().as_ref(),
+    )
+    .await?;
     db::settings::set(&state.db, KEY_LOCAL_PASSPHRASE_BLOB, &blob_b64).await?;
     // Clear any stale success/error bookkeeping from a previous config.
     db::settings::set(&state.db, KEY_LAST_SUCCESS_AT, "").await?;
@@ -149,20 +167,17 @@ pub async fn sync_disable(state: State<'_, AppState>) -> Result<()> {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct S3ConfigInput {
-    pub endpoint:          String,
-    pub region:            String,
-    pub bucket:            String,
-    pub prefix:            String,
-    pub access_key_id:     String,
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub prefix: String,
+    pub access_key_id: String,
     pub secret_access_key: String,
-    pub passphrase:        String,
+    pub passphrase: String,
 }
 
 #[tauri::command]
-pub async fn sync_configure_s3(
-    state: State<'_, AppState>,
-    cfg: S3ConfigInput,
-) -> Result<()> {
+pub async fn sync_configure_s3(state: State<'_, AppState>, cfg: S3ConfigInput) -> Result<()> {
     let mut cfg = cfg;
     let result = sync_configure_s3_inner(&state, &cfg).await;
     // Zero secrets in memory once stored (they're now encrypted in
@@ -172,10 +187,7 @@ pub async fn sync_configure_s3(
     result
 }
 
-async fn sync_configure_s3_inner(
-    state: &State<'_, AppState>,
-    cfg: &S3ConfigInput,
-) -> Result<()> {
+async fn sync_configure_s3_inner(state: &State<'_, AppState>, cfg: &S3ConfigInput) -> Result<()> {
     require_unlocked(state).await?;
     if cfg.endpoint.trim().is_empty() {
         return Err(AppError::Validation("endpoint required".into()));
@@ -200,10 +212,10 @@ async fn sync_configure_s3_inner(
     // object — 200 or 404 are both fine; 403/401 means bad creds.
     let driver = crate::sync::s3::S3Driver::new(crate::sync::s3::S3Config {
         endpoint: &cfg.endpoint,
-        region:   &cfg.region,
-        bucket:   &cfg.bucket,
-        prefix:   &cfg.prefix,
-        access_key_id:     &cfg.access_key_id,
+        region: &cfg.region,
+        bucket: &cfg.bucket,
+        prefix: &cfg.prefix,
+        access_key_id: &cfg.access_key_id,
         secret_access_key: &cfg.secret_access_key,
     })?;
     let _ = driver.head().await?;
@@ -233,13 +245,13 @@ async fn sync_configure_s3_inner(
     state
         .sync
         .set_target(SyncTarget::S3 {
-            endpoint:          cfg.endpoint.trim().to_string(),
-            region:            cfg.region.trim().to_string(),
-            bucket:            cfg.bucket.trim().to_string(),
-            prefix:            cfg.prefix.trim().to_string(),
-            access_key_id:     cfg.access_key_id.trim().to_string(),
+            endpoint: cfg.endpoint.trim().to_string(),
+            region: cfg.region.trim().to_string(),
+            bucket: cfg.bucket.trim().to_string(),
+            prefix: cfg.prefix.trim().to_string(),
+            access_key_id: cfg.access_key_id.trim().to_string(),
             secret_access_key: cfg.secret_access_key.clone(),
-            passphrase:        cfg.passphrase.clone(),
+            passphrase: cfg.passphrase.clone(),
         })
         .await;
 
@@ -267,22 +279,32 @@ pub async fn sync_pull_to_temp(state: State<'_, AppState>) -> Result<String> {
         .await
         .ok_or_else(|| AppError::Validation("S3 target not loaded".into()))?;
     let SyncTarget::S3 {
-        endpoint, region, bucket, prefix, access_key_id, secret_access_key, ..
+        endpoint,
+        region,
+        bucket,
+        prefix,
+        access_key_id,
+        secret_access_key,
+        ..
     } = target
     else {
         return Err(AppError::Validation("unexpected target kind".into()));
     };
     let driver = crate::sync::s3::S3Driver::new(crate::sync::s3::S3Config {
-        endpoint: &endpoint, region: &region, bucket: &bucket, prefix: &prefix,
-        access_key_id: &access_key_id, secret_access_key: &secret_access_key,
+        endpoint: &endpoint,
+        region: &region,
+        bucket: &bucket,
+        prefix: &prefix,
+        access_key_id: &access_key_id,
+        secret_access_key: &secret_access_key,
     })?;
-    let (bytes, etag) = driver
-        .get()
-        .await?
-        .ok_or_else(|| AppError::NotFound)?;
+    let (bytes, etag) = driver.get().await?.ok_or_else(|| AppError::NotFound)?;
 
     let mut path = std::env::temp_dir();
-    path.push(format!("ezterm-pull-{}.json", chrono::Utc::now().timestamp_millis()));
+    path.push(format!(
+        "ezterm-pull-{}.json",
+        chrono::Utc::now().timestamp_millis()
+    ));
     tokio::fs::write(&path, &bytes).await?;
     // Record that we've now observed this ETag — subsequent pushes won't
     // fire the conflict check against it.

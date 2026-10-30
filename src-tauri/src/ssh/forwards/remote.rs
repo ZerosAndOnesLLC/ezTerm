@@ -7,13 +7,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock as StdRwLock};
 
-use russh::client::{Handle, Msg};
 use russh::Channel;
+use russh::client::{Handle, Msg};
 use tokio::io::copy_bidirectional_with_sizes;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
-use super::{ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary, COPY_BUF};
+use super::{COPY_BUF, ForwardSpec, ForwardStatus, RuntimeForward, RuntimeForwardSummary};
 use crate::error::{AppError, Result};
 use crate::ssh::client::ClientHandler;
 
@@ -47,7 +47,10 @@ pub async fn start(
     // From here the dispatch entry is live. This guard removes it on every
     // exit path — server reject below, normal teardown, or a task panic —
     // so a stale key can't permanently block re-binding the address.
-    let guard = DispatchGuard { map: dispatch.clone(), key: key.clone() };
+    let guard = DispatchGuard {
+        map: dispatch.clone(),
+        key: key.clone(),
+    };
 
     // Request the forward on the server side. If the server rejects
     // (AllowTcpForwarding=no, port-in-use on remote, etc.), `guard` drops
@@ -65,12 +68,12 @@ pub async fn start(
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
     let (done_tx, done_rx) = oneshot::channel::<()>();
     let rf = Arc::new(RuntimeForward {
-        id:            runtime_id,
+        id: runtime_id,
         persistent_id,
-        spec:          spec.clone(),
-        status:        std::sync::Mutex::new(ForwardStatus::Running),
-        stop_tx:       Mutex::new(Some(stop_tx)),
-        done_rx:       Mutex::new(Some(done_rx)),
+        spec: spec.clone(),
+        status: std::sync::Mutex::new(ForwardStatus::Running),
+        stop_tx: Mutex::new(Some(stop_tx)),
+        done_rx: Mutex::new(Some(done_rx)),
     });
 
     let rf_task = rf.clone();

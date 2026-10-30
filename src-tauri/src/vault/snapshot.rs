@@ -47,8 +47,13 @@ pub async fn take(pool: &SqlitePool, label: &str) -> Result<PathBuf> {
     // INTO`). All current callers pass a hardcoded string; reject
     // anything else so a future caller passing user input can't
     // silently introduce SQL injection.
-    if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(AppError::Validation("snapshot label must be [A-Za-z0-9_-]".into()));
+    if !label
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(AppError::Validation(
+            "snapshot label must be [A-Za-z0-9_-]".into(),
+        ));
     }
 
     let dir = backups_dir()?;
@@ -57,7 +62,8 @@ pub async fn take(pool: &SqlitePool, label: &str) -> Result<PathBuf> {
     let target = dir.join(&filename);
     let escaped = target.to_string_lossy().replace('\'', "''");
     sqlx::query(sqlx::AssertSqlSafe(format!("VACUUM INTO '{escaped}'")))
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
     // Lock the snapshot down on unix so it can't be read by other
     // users on a shared machine. No-op on Windows where data_local_dir
@@ -123,14 +129,20 @@ mod tests {
         let url = format!("sqlite://{}?mode=rwc", db_path.display());
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&url).await.unwrap();
+            .connect(&url)
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE t (x INTEGER)")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let target = tmp.path().join("snap.sqlite");
         let escaped = target.to_string_lossy().replace('\'', "''");
         sqlx::query(sqlx::AssertSqlSafe(format!("VACUUM INTO '{escaped}'")))
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         assert!(target.exists());
     }
 
@@ -154,7 +166,8 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
         super::rotate(dir).unwrap();
-        let remaining = std::fs::read_dir(dir).unwrap()
+        let remaining = std::fs::read_dir(dir)
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let n = e.file_name();

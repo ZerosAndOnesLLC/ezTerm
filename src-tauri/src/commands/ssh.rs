@@ -81,11 +81,7 @@ pub async fn known_host_list(state: State<'_, AppState>) -> Result<Vec<KnownHost
 }
 
 #[tauri::command]
-pub async fn known_host_remove(
-    state: State<'_, AppState>,
-    host: String,
-    port: i64,
-) -> Result<()> {
+pub async fn known_host_remove(state: State<'_, AppState>, host: String, port: i64) -> Result<()> {
     super::require_unlocked(&state).await?;
     known_hosts::remove(&state.db, &host, port).await
 }

@@ -12,11 +12,9 @@ pub async fn get(pool: &SqlitePool, key: &str) -> Result<Option<String>> {
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<(String, String)>> {
     Ok(
-        sqlx::query_as::<_, (String, String)>(
-            "SELECT key, value FROM app_settings ORDER BY key",
-        )
-        .fetch_all(pool)
-        .await?,
+        sqlx::query_as::<_, (String, String)>("SELECT key, value FROM app_settings ORDER BY key")
+            .fetch_all(pool)
+            .await?,
     )
 }
 

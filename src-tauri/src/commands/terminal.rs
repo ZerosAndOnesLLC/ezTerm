@@ -11,5 +11,8 @@ use crate::state::AppState;
 /// watchdog to stop.
 #[tauri::command]
 pub async fn terminal_output_sent(state: State<'_, AppState>, connection_id: u64) -> Result<u64> {
-    state.output_sent(connection_id).await.ok_or(AppError::NotFound)
+    state
+        .output_sent(connection_id)
+        .await
+        .ok_or(AppError::NotFound)
 }

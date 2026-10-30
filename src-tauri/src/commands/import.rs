@@ -29,30 +29,30 @@ const MAX_KEY_FILE_SIZE: u64 = 65_536;
 
 #[derive(Debug, Serialize)]
 pub struct MobaImportPreview {
-    pub sessions:           Vec<ParsedMobaSession>,
-    pub skipped_non_ssh:    usize,
-    pub skipped_malformed:  usize,
+    pub sessions: Vec<ParsedMobaSession>,
+    pub skipped_non_ssh: usize,
+    pub skipped_malformed: usize,
     /// Folder paths (dotted form e.g. "Customers/Acme") that will need to be
     /// created. Ordered shallowest-first so the UI can list parents above
     /// children. Deduped across all imported sessions.
-    pub new_folder_paths:   Vec<Vec<String>>,
+    pub new_folder_paths: Vec<Vec<String>>,
     /// Indices (into `sessions`) of rows that would collide with an existing
     /// session at the same target folder path.
-    pub duplicate_indices:  Vec<usize>,
+    pub duplicate_indices: Vec<usize>,
 }
 
 #[derive(Debug, Serialize, Default)]
 pub struct MobaImportResult {
-    pub created:            usize,
-    pub updated:            usize,
-    pub skipped_duplicate:  usize,
-    pub created_folders:    usize,
+    pub created: usize,
+    pub updated: usize,
+    pub skipped_duplicate: usize,
+    pub created_folders: usize,
     /// Credential labels created from key files read off disk.
-    pub imported_keys:      Vec<String>,
+    pub imported_keys: Vec<String>,
     /// Raw MobaXterm-style key paths we couldn't read (missing, too large,
     /// unreadable). Sessions that reference them still import but arrive
     /// with no credential attached.
-    pub missing_keys:       Vec<String>,
+    pub missing_keys: Vec<String>,
 }
 
 #[tauri::command]
@@ -105,8 +105,8 @@ pub async fn mobaxterm_preview(
     }
 
     Ok(MobaImportPreview {
-        sessions:          parsed.sessions,
-        skipped_non_ssh:   parsed.skipped_non_ssh,
+        sessions: parsed.sessions,
+        skipped_non_ssh: parsed.skipped_non_ssh,
         skipped_malformed: parsed.skipped_malformed,
         new_folder_paths,
         duplicate_indices,
@@ -222,14 +222,7 @@ pub async fn mobaxterm_commit(
                 } else {
                     s.name.clone()
                 };
-                insert_imported_session(
-                    &mut tx,
-                    folder_id,
-                    &final_name,
-                    s,
-                    imported_cred,
-                )
-                .await?;
+                insert_imported_session(&mut tx, folder_id, &final_name, s, imported_cred).await?;
                 result.created += 1;
             }
         }
@@ -242,10 +235,7 @@ pub async fn mobaxterm_commit(
 
 // ---------- helpers -----------------------------------------------------
 
-fn resolve_target_folder(
-    path: &[String],
-    map: &HashMap<Vec<String>, i64>,
-) -> Option<Option<i64>> {
+fn resolve_target_folder(path: &[String], map: &HashMap<Vec<String>, i64>) -> Option<Option<i64>> {
     if path.is_empty() {
         return Some(None);
     }
@@ -273,9 +263,7 @@ fn collect_new_folder_paths(
     result
 }
 
-async fn load_folder_path_map(
-    pool: &sqlx::SqlitePool,
-) -> Result<HashMap<Vec<String>, i64>> {
+async fn load_folder_path_map(pool: &sqlx::SqlitePool) -> Result<HashMap<Vec<String>, i64>> {
     let rows: Vec<(i64, Option<i64>, String)> =
         sqlx::query_as("SELECT id, parent_id, name FROM folders")
             .fetch_all(pool)
@@ -283,9 +271,7 @@ async fn load_folder_path_map(
     Ok(build_folder_path_map(&rows))
 }
 
-fn build_folder_path_map(
-    rows: &[(i64, Option<i64>, String)],
-) -> HashMap<Vec<String>, i64> {
+fn build_folder_path_map(rows: &[(i64, Option<i64>, String)]) -> HashMap<Vec<String>, i64> {
     let mut children: HashMap<Option<i64>, Vec<&(i64, Option<i64>, String)>> = HashMap::new();
     for row in rows {
         children.entry(row.1).or_default().push(row);
@@ -343,13 +329,12 @@ async fn find_unique_name(
     let mut candidate = format!("{base} (imported)");
     let mut n = 2;
     loop {
-        let exists: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM sessions WHERE folder_id IS ? AND name = ? LIMIT 1",
-        )
-        .bind(folder_id)
-        .bind(&candidate)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let exists: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM sessions WHERE folder_id IS ? AND name = ? LIMIT 1")
+                .bind(folder_id)
+                .bind(&candidate)
+                .fetch_optional(&mut **tx)
+                .await?;
         if exists.is_none() {
             return Ok(candidate);
         }
@@ -412,11 +397,7 @@ fn resolve_moba_path(raw: &str) -> Option<PathBuf> {
         return Some(data.join(rest));
     }
     let p = PathBuf::from(raw);
-    if p.is_absolute() {
-        Some(p)
-    } else {
-        None
-    }
+    if p.is_absolute() { Some(p) } else { None }
 }
 
 /// Read each unique key file referenced by the imported sessions, encrypt
@@ -433,7 +414,9 @@ async fn import_key_files(
     let mut seen: HashSet<&str> = HashSet::new();
 
     for s in sessions {
-        let Some(raw) = s.private_key_path.as_deref() else { continue };
+        let Some(raw) = s.private_key_path.as_deref() else {
+            continue;
+        };
         if !seen.insert(raw) {
             continue; // dedupe across sessions that share the same key file
         }
