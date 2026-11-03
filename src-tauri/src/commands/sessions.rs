@@ -103,6 +103,18 @@ fn validate(input: &SessionInput) -> Result<()> {
             "forward_x11 is only supported on ssh sessions".into(),
         ));
     }
+    if crate::ssh::persist::PersistKind::parse(&input.persistent_shell).is_err() {
+        return Err(AppError::Validation("invalid persistent_shell".into()));
+    }
+    if input.auto_reconnect != 0 && input.auto_reconnect != 1 {
+        return Err(AppError::Validation("auto_reconnect must be 0 or 1".into()));
+    }
+    if input.session_kind != "ssh" && (input.persistent_shell != "off" || input.auto_reconnect != 0)
+    {
+        return Err(AppError::Validation(
+            "persistent_shell / auto_reconnect are only supported on ssh sessions".into(),
+        ));
+    }
     if input.scrollback_lines < SCROLLBACK_MIN || input.scrollback_lines > SCROLLBACK_MAX {
         return Err(AppError::Validation("scrollback_lines out of range".into()));
     }
@@ -240,4 +252,73 @@ pub async fn session_reorder(
     sessions::reorder(&state.db, folder_id, &ids).await?;
     state.sync.trigger();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate;
+    use crate::db::sessions::SessionInput;
+
+    fn ssh() -> SessionInput {
+        SessionInput {
+            folder_id: None,
+            name: "n".into(),
+            host: "example.com".into(),
+            port: 22,
+            username: "root".into(),
+            auth_type: "agent".into(),
+            credential_id: None,
+            key_passphrase_credential_id: None,
+            color: None,
+            initial_command: None,
+            scrollback_lines: 5000,
+            font_size: 13,
+            font_family: String::new(),
+            cursor_style: "block".into(),
+            compression: 0,
+            keepalive_secs: 60,
+            connect_timeout_secs: 15,
+            env: Vec::new(),
+            session_kind: "ssh".into(),
+            forward_x11: 0,
+            starting_dir: None,
+            persistent_shell: "off".into(),
+            auto_reconnect: 0,
+        }
+    }
+
+    #[test]
+    fn persistent_shell_values() {
+        for v in ["off", "tmux", "screen"] {
+            let mut i = ssh();
+            i.persistent_shell = v.into();
+            assert!(validate(&i).is_ok(), "{v}");
+        }
+        let mut i = ssh();
+        i.persistent_shell = "tmux; rm -rf /".into();
+        assert!(validate(&i).is_err());
+    }
+
+    #[test]
+    fn auto_reconnect_is_boolean() {
+        let mut i = ssh();
+        i.auto_reconnect = 1;
+        assert!(validate(&i).is_ok());
+        i.auto_reconnect = 2;
+        assert!(validate(&i).is_err());
+    }
+
+    #[test]
+    fn persistence_is_ssh_only() {
+        let mut i = ssh();
+        i.session_kind = "wsl".into();
+        i.port = 0;
+        i.username = String::new();
+        assert!(validate(&i).is_ok());
+        i.persistent_shell = "tmux".into();
+        assert!(validate(&i).is_err());
+        i.persistent_shell = "off".into();
+        i.auto_reconnect = 1;
+        assert!(validate(&i).is_err());
+    }
 }

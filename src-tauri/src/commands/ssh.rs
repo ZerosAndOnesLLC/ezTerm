@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::db::known_hosts::{self, KnownHost};
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::ssh::{self, ConnectRequest};
 use crate::state::AppState;
 
@@ -10,6 +10,8 @@ use crate::state::AppState;
 pub struct ConnectResult {
     pub connection_id: u64,
     pub fingerprint_sha256: String,
+    /// Shell is inside tmux/screen — gates "End remote session" in the UI.
+    pub persistent: bool,
 }
 
 /// Connect parameters for [`ssh_connect`], sent by the webview as one
@@ -24,6 +26,13 @@ pub struct SshConnectArgs {
     /// Omitted by the webview when unset, which means `false`.
     #[serde(default)]
     pub disable_x11: bool,
+    /// Tab slot for the persistent remote session name. Omitted = 1.
+    #[serde(default = "default_persist_slot")]
+    pub persist_slot: u32,
+}
+
+fn default_persist_slot() -> u32 {
+    1
 }
 
 #[tauri::command]
@@ -44,6 +53,7 @@ pub async fn ssh_connect(
             rows: args.rows,
             trust_any: args.trust_any,
             disable_x11: args.disable_x11,
+            persist_slot: args.persist_slot,
             output,
         },
     )
@@ -51,6 +61,7 @@ pub async fn ssh_connect(
     Ok(ConnectResult {
         connection_id: out.connection_id,
         fingerprint_sha256: out.fingerprint_sha256,
+        persistent: out.persistent,
     })
 }
 
@@ -82,6 +93,23 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, connection_id: u64) -> R
     // per-connection `SftpHandle` (audit I-1).
     state.close_connection(connection_id).await;
     Ok(())
+}
+
+/// "End remote session": kill the tmux/screen session this tab is
+/// attached to. The attached client exits, so the tab's channel closes
+/// through the normal `ssh:close` path afterwards.
+#[tauri::command]
+pub async fn ssh_persist_kill(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
+    super::require_unlocked(&state).await?;
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
+        .ok_or(AppError::NotFound)?;
+    let binding = conn.persist.clone().ok_or_else(|| {
+        AppError::Validation("this tab is not running in a persistent session".into())
+    })?;
+    ssh::persist::kill(&conn.ssh_handle, &binding).await
 }
 
 #[tauri::command]

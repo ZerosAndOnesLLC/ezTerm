@@ -53,7 +53,14 @@ export interface Session {
    *  after connect, empty = remote default ($HOME). Ignored for local
    *  (cmd/pwsh) rows. */
   starting_dir: string | null;
+  /** SSH-only. Run the shell inside a remote tmux/screen session that
+   *  survives disconnects; reconnecting reattaches to it. */
+  persistent_shell: PersistentShell;
+  /** 0/1 — SSH-only. Reconnect automatically when the link drops. */
+  auto_reconnect: number;
 }
+
+export type PersistentShell = 'off' | 'tmux' | 'screen';
 
 export interface SessionInput {
   folder_id: number | null;
@@ -77,6 +84,8 @@ export interface SessionInput {
   session_kind: SessionKind;
   forward_x11: number;
   starting_dir: string | null;
+  persistent_shell: PersistentShell;
+  auto_reconnect: number;
 }
 
 export interface XServerStatus {
@@ -273,6 +282,9 @@ export interface AppErrorPayload {
 export interface ConnectResult {
   connection_id: number;
   fingerprint_sha256: string;
+  /** SSH only: the shell is running inside a tmux/screen session (false
+   *  when persistence is configured but fell back to a plain shell). */
+  persistent?: boolean;
 }
 
 export interface KnownHost {

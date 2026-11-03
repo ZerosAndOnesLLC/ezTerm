@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftRight,
+  Ban,
   Cog,
   Cpu,
   Folder as FolderIcon,
@@ -9,6 +10,7 @@ import {
   Globe2,
   Key,
   KeyRound,
+  Layers,
   Minus,
   MonitorDot,
   Network,
@@ -35,6 +37,7 @@ import type {
   Folder,
   Forward,
   ForwardKind,
+  PersistentShell,
   Platform,
   Session,
   SessionInput,
@@ -87,6 +90,8 @@ function makeDefaults(): Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'por
     session_kind: 'ssh',
     forward_x11: 0,
     starting_dir: null,
+    persistent_shell: 'off',
+    auto_reconnect: 0,
   };
 }
 
@@ -129,6 +134,8 @@ export function SessionDialog(props: Props) {
         session_kind: s.session_kind,
         forward_x11: s.forward_x11,
         starting_dir: s.starting_dir,
+        persistent_shell: s.persistent_shell ?? 'off',
+        auto_reconnect: s.auto_reconnect ?? 0,
       };
     }
     return {
@@ -413,6 +420,10 @@ function GeneralPane({
       auth_type: next === 'ssh' ? cur.auth_type : 'agent',
       credential_id: next === 'ssh' ? cur.credential_id : null,
       key_passphrase_credential_id: next === 'ssh' ? cur.key_passphrase_credential_id : null,
+      // SSH-only; the backend rejects anything else on wsl/local rows.
+      persistent_shell: next === 'ssh' ? cur.persistent_shell : 'off',
+      auto_reconnect: next === 'ssh' ? cur.auto_reconnect : 0,
+      forward_x11: next === 'ssh' ? cur.forward_x11 : 0,
     }));
   }
   const isSsh   = v.session_kind === 'ssh';
@@ -424,15 +435,15 @@ function GeneralPane({
     <>
       <Section title="Type">
         <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Session type">
-          <KindOption
+          <RadioCard
             value="ssh" current={v.session_kind} Icon={Network}
             onSelect={switchKind}
             title="SSH" hint="Remote Linux / Unix server" />
-          <KindOption
+          <RadioCard
             value="wsl" current={v.session_kind} Icon={SquareTerminal}
             onSelect={switchKind}
             title="WSL" hint="Local Linux subsystem distro" />
-          <KindOption
+          <RadioCard
             value="local" current={v.session_kind} Icon={MonitorDot}
             onSelect={switchKind}
             title="Local Shell"
@@ -586,13 +597,13 @@ function GeneralPane({
         <Section title="Authentication">
           <Field label="Method">
             <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Auth method">
-              <AuthOption value="password" current={v.auth_type} Icon={Key}
+              <RadioCard value="password" current={v.auth_type} Icon={Key}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="Password" hint="Static password in vault" />
-              <AuthOption value="key" current={v.auth_type} Icon={KeyRound}
+              <RadioCard value="key" current={v.auth_type} Icon={KeyRound}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="Private Key" hint="PEM / OpenSSH key" />
-              <AuthOption value="agent" current={v.auth_type} Icon={Cpu}
+              <RadioCard value="agent" current={v.auth_type} Icon={Cpu}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="SSH Agent" hint="Pageant / OpenSSH Agent" />
             </div>
@@ -783,6 +794,51 @@ function AdvancedPane({ v, setV }: PaneProps) {
         </div>
       </Section>
 
+      {v.session_kind === 'ssh' && (
+        <Section title="Persistent session">
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Persistent session">
+            <RadioCard value="off" current={v.persistent_shell} Icon={Ban}
+              onSelect={(p) => setV({ ...v, persistent_shell: p })}
+              title="Off" hint="Plain shell" />
+            <RadioCard value="tmux" current={v.persistent_shell} Icon={Layers}
+              onSelect={(p) => setV({
+                ...v, persistent_shell: p,
+                // First pick of a multiplexer turns auto-reconnect on —
+                // the two are what make a dropped link painless.
+                auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
+              })}
+              title="tmux" hint="Run shell in tmux" />
+            <RadioCard value="screen" current={v.persistent_shell} Icon={SquareTerminal}
+              onSelect={(p) => setV({
+                ...v, persistent_shell: p,
+                auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
+              })}
+              title="screen" hint="Run shell in GNU screen" />
+          </div>
+          <p className="text-muted text-xs -mt-1.5">
+            Runs the shell inside tmux or screen on the server. Closing the tab or
+            losing the connection leaves it running; reconnecting picks up exactly
+            where you left off. Each tab gets its own remote session. Falls back to a
+            normal shell if the tool isn&apos;t installed.
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={v.auto_reconnect === 1}
+              onChange={(e) => setV({ ...v, auto_reconnect: e.target.checked ? 1 : 0 })}
+              className="w-4 h-4 accent-accent"
+            />
+            <span>Reconnect automatically if the connection drops</span>
+          </label>
+          {v.auto_reconnect === 1 && v.keepalive_secs === 0 && (
+            <p className="text-warning text-xs -mt-1.5">
+              Keepalive is off, so a dead link may take minutes to notice. Set a
+              keepalive above for faster reconnects.
+            </p>
+          )}
+        </Section>
+      )}
+
       <Section title="Transport">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
@@ -883,42 +939,19 @@ function EnvEditor({
   );
 }
 
-function AuthOption({
+/** Pick a sensible `host` default when the user switches `session_kind`.
+ *  For local shells we prefer the first detected shell (so the dropdown
+ *  has a real selection rather than the "Custom path…" placeholder),
+ *  falling back to an empty string while detection is in flight. */
+/** One option in a card-style radio group (session type, auth method,
+ *  persistent session). Generic over the option's string-literal type so
+ *  `onSelect` hands back the exact union the caller stores. */
+function RadioCard<T extends string>({
   value, current, onSelect, title, hint, Icon,
 }: {
-  value: AuthType;
-  current: AuthType;
-  onSelect: (a: AuthType) => void;
-  title: string;
-  hint: string;
-  Icon: LucideIcon;
-}) {
-  const on = value === current;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      onClick={() => onSelect(value)}
-      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
-        on
-          ? 'border-accent bg-accent/10 text-fg'
-          : 'border-border hover:border-muted text-muted hover:text-fg'
-      }`}
-    >
-      <Icon size={16} className={on ? 'text-accent' : ''} />
-      <div className="font-medium text-sm">{title}</div>
-      <div className="text-xs text-muted">{hint}</div>
-    </button>
-  );
-}
-
-function KindOption({
-  value, current, onSelect, title, hint, Icon,
-}: {
-  value:    SessionKind;
-  current:  SessionKind;
-  onSelect: (k: SessionKind) => void;
+  value:    T;
+  current:  T;
+  onSelect: (v: T) => void;
   title:    string;
   hint:     string;
   Icon:     LucideIcon;
@@ -943,10 +976,6 @@ function KindOption({
   );
 }
 
-/** Pick a sensible `host` default when the user switches `session_kind`.
- *  For local shells we prefer the first detected shell (so the dropdown
- *  has a real selection rather than the "Custom path…" placeholder),
- *  falling back to an empty string while detection is in flight. */
 function defaultHostForKind(kind: SessionKind, shells: DetectedShell[] | null): string {
   if (kind === 'local') return shells?.[0]?.program ?? '';
   return '';
