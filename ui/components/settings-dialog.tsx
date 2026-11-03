@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useSettings, type SettingKey, type Settings } from '@/lib/settings';
 import { useTheme } from '@/lib/theme';
-import { getPalette, PALETTE_IDS, PALETTES, type PaletteId } from '@/lib/palettes';
+import { getPalette, PALETTE_IDS, PALETTES, type Palette as TerminalPalette, type PaletteId } from '@/lib/palettes';
 
 type SectionId = 'appearance' | 'terminal' | 'sessions' | 'updates' | 'security';
 
@@ -106,48 +106,43 @@ function AppearanceSection() {
   );
 }
 
+/** Palette ids split for the grouped select. Static, so built once. */
+const DARK_PALETTES  = PALETTE_IDS.filter((id) => !PALETTES[id].light);
+const LIGHT_PALETTES = PALETTE_IDS.filter((id) =>  PALETTES[id].light);
+
 /** Terminal palette picker with a live swatch strip. Applies to every
  *  open tab immediately (terminal.tsx subscribes to the key). */
 function PaletteRow() {
   const value = useSettings((s) => s.settings['terminal.palette']);
   const set = useSettings((s) => s.set);
-  const palette = getPalette(value);
-  const dark  = PALETTE_IDS.filter((id) => !PALETTES[id].light);
-  const light = PALETTE_IDS.filter((id) =>  PALETTES[id].light);
   return (
-    <div className="py-2.5">
-      <div className="flex items-center gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm">Terminal colours</div>
-          <div className="text-muted text-xs mt-0.5">ANSI palette for every terminal tab. Changes apply live.</div>
-        </div>
-        <div className="shrink-0">
-          <select
-            className="input w-48"
-            value={value}
-            aria-label="Terminal colours"
-            onChange={(e) => set('terminal.palette', e.target.value as PaletteId)}
-          >
-            <optgroup label="Dark">
-              {dark.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
-            </optgroup>
-            <optgroup label="Light">
-              {light.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
-            </optgroup>
-          </select>
-        </div>
-      </div>
-      <PaletteSwatch palette={palette} />
+    <div className="pb-2.5">
+      <Row label="Terminal colours" hint="ANSI palette for every terminal tab. Changes apply live.">
+        <select
+          className="input w-48"
+          value={value}
+          aria-label="Terminal colours"
+          onChange={(e) => set('terminal.palette', e.target.value as PaletteId)}
+        >
+          <optgroup label="Dark">
+            {DARK_PALETTES.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
+          </optgroup>
+          <optgroup label="Light">
+            {LIGHT_PALETTES.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
+          </optgroup>
+        </select>
+      </Row>
+      <PaletteSwatch palette={getPalette(value)} />
     </div>
   );
 }
 
 /** Mock terminal line + the 16 ANSI colours on the palette background. */
-function PaletteSwatch({ palette }: { palette: ReturnType<typeof getPalette> }) {
+function PaletteSwatch({ palette }: { palette: TerminalPalette }) {
   const [, red, green, yellow, blue, magenta, cyan] = palette.ansi;
   return (
     <div
-      className="mt-2 rounded-sm border border-border px-3 py-2 font-mono text-xs leading-5"
+      className="rounded-sm border border-border px-3 py-2 font-mono text-xs leading-5"
       style={{ background: palette.background, color: palette.foreground }}
       aria-hidden="true"
     >

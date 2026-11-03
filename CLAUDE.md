@@ -64,4 +64,4 @@ Update this section once the actual scripts land.
 
 ## Out of Scope for v0.1
 
-Port forwarding, jump hosts / ProxyJump, X11 server, RDP / Telnet / Serial, macros, session recording, split panes, and theming beyond a default dark/light pair. Don't add these without an explicit design update.
+Port forwarding, jump hosts / ProxyJump, X11 server, RDP / Telnet / Serial, macros, session recording, split panes, and chrome theming beyond the dark/light pair (terminal colour palettes are a setting since #176; add new ones in `ui/lib/palettes.ts`). Don't add these without an explicit design update.

@@ -21,12 +21,28 @@ describe('PALETTES', () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it('keeps the pre-#176 palette as the default so upgrades look the same', () => {
-    const p = PALETTES[DEFAULT_PALETTE];
-    expect(p.background).toBe('#121214');
-    expect(p.foreground).toBe('#e5e7eb');
-    expect(p.ansi[1]).toBe('#f87171');
-    expect(p.ansi[15]).toBe('#f3f4f6');
+  it('keeps the pre-#176 theme as the default so upgrades look the same', () => {
+    // The exact theme object ui/lib/xterm.ts hard-coded before #176.
+    const pre176 = {
+      background:          '#121214',
+      foreground:          '#e5e7eb',
+      cursor:              '#e5e7eb',
+      cursorAccent:        '#121214',
+      selectionBackground: '#2d3748',
+      overviewRulerBorder: 'rgba(0, 0, 0, 0)',
+      scrollbarSliderBackground:       'rgba(255, 255, 255, 0.18)',
+      scrollbarSliderHoverBackground:  'rgba(255, 255, 255, 0.30)',
+      scrollbarSliderActiveBackground: 'rgba(255, 255, 255, 0.45)',
+      black:   '#2d3748', red:     '#f87171',
+      green:   '#34d399', yellow:  '#fbbf24',
+      blue:    '#60a5fa', magenta: '#a78bfa',
+      cyan:    '#22d3ee', white:   '#e5e7eb',
+      brightBlack:   '#475569', brightRed:     '#fca5a5',
+      brightGreen:   '#6ee7b7', brightYellow:  '#fcd34d',
+      brightBlue:    '#93c5fd', brightMagenta: '#c4b5fd',
+      brightCyan:    '#67e8f9', brightWhite:   '#f3f4f6',
+    };
+    expect(buildXtermTheme(PALETTES[DEFAULT_PALETTE])).toEqual(pre176);
   });
 });
 
@@ -66,8 +82,16 @@ describe('buildXtermTheme', () => {
     expect(t.overviewRulerBorder).toBe('rgba(0, 0, 0, 0)');
   });
 
-  it('tints the scrollbar for light palettes', () => {
-    expect(buildXtermTheme(PALETTES['ezterm-dark']).scrollbarSliderBackground).toContain('255, 255, 255');
-    expect(buildXtermTheme(PALETTES['ezterm-light']).scrollbarSliderBackground).toContain('0, 0, 0');
+  it('tints the scrollbar white on dark palettes and black on light ones', () => {
+    const slider = (id: keyof typeof PALETTES) => {
+      const t = buildXtermTheme(PALETTES[id]);
+      return [t.scrollbarSliderBackground, t.scrollbarSliderHoverBackground, t.scrollbarSliderActiveBackground];
+    };
+    expect(slider('ezterm-dark')).toEqual([
+      'rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.30)', 'rgba(255, 255, 255, 0.45)',
+    ]);
+    expect(slider('ezterm-light')).toEqual([
+      'rgba(0, 0, 0, 0.18)', 'rgba(0, 0, 0, 0.30)', 'rgba(0, 0, 0, 0.45)',
+    ]);
   });
 });

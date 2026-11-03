@@ -54,35 +54,34 @@ Justifications:
 
 ### 2.3 Terminal ANSI palette (identical in both themes)
 
-The terminal palette does **not** switch with the chrome theme. This is intentional: users configure xterm colors once and expect them to stay. Since #176 the palette is a user setting (Settings → Appearance → Terminal colours, key `terminal.palette`); the built-in set lives in `ui/lib/palettes.ts` and the shipped default (`ezterm-dark`) is the palette `ui/lib/xterm.ts` hard-coded before the setting existed. Values below are a MobaXterm-leaning take on the Campbell/Windows Terminal defaults, offered as the `campbell` preset.
+The terminal palette does **not** switch with the chrome theme. This is intentional: users configure xterm colors once and expect them to stay. Since #176 the palette is a user setting (Settings → Appearance → Terminal colours, key `terminal.palette`).
 
-| Index | Name    | Hex       |
-|-------|---------|-----------|
-| 0     | black   | `#0c0c0c` |
-| 1     | red     | `#c23127` |
-| 2     | green   | `#31a354` |
-| 3     | yellow  | `#c7a02c` |
-| 4     | blue    | `#3b78ff` |
-| 5     | magenta | `#b148c6` |
-| 6     | cyan    | `#3aa4c6` |
-| 7     | white   | `#cccccc` |
-| 8     | br.black   | `#676767` |
-| 9     | br.red     | `#e74856` |
-| 10    | br.green   | `#57c47a` |
-| 11    | br.yellow  | `#e4c76f` |
-| 12    | br.blue   | `#6aa6ff` |
-| 13    | br.magenta | `#d670d7` |
-| 14    | br.cyan    | `#66ccd4` |
-| 15    | br.white  | `#f2f2f2` |
+**Source of truth:** `ui/lib/palettes.ts`. It holds all 17 built-in palettes (each with 16 ANSI colours plus background, foreground, cursor, cursorAccent and selectionBackground), and `buildXtermTheme()` turns one into the xterm.js `theme` (see §8). Don't copy palette values into this document; edit them there.
 
-Terminal surface (distinct from chrome):
+The shipped default is `ezterm-dark`, the palette `ui/lib/xterm.ts` hard-coded before the setting existed. A unit test pins it to those exact values so upgrades look the same:
+
+| Index | Name    | Hex       | Index | Name       | Hex       |
+|-------|---------|-----------|-------|------------|-----------|
+| 0     | black   | `#2d3748` | 8     | br.black   | `#475569` |
+| 1     | red     | `#f87171` | 9     | br.red     | `#fca5a5` |
+| 2     | green   | `#34d399` | 10    | br.green   | `#6ee7b7` |
+| 3     | yellow  | `#fbbf24` | 11    | br.yellow  | `#fcd34d` |
+| 4     | blue    | `#60a5fa` | 12    | br.blue    | `#93c5fd` |
+| 5     | magenta | `#a78bfa` | 13    | br.magenta | `#c4b5fd` |
+| 6     | cyan    | `#22d3ee` | 14    | br.cyan    | `#67e8f9` |
+| 7     | white   | `#e5e7eb` | 15    | br.white   | `#f3f4f6` |
+
+Terminal surface for `ezterm-dark` (distinct from chrome):
 
 | Token                   | Value       | Role                          |
 |-------------------------|-------------|-------------------------------|
-| terminal background     | `#0c0c0c`   | xterm canvas fill.            |
-| terminal foreground     | `#cccccc`   | default text.                 |
-| terminal cursor         | `#cccccc`   | block cursor.                 |
-| terminal cursorAccent   | `#0c0c0c`   | text under cursor.            |
+| terminal background     | `#121214`   | xterm canvas fill, and the 4 px padding around it. |
+| terminal foreground     | `#e5e7eb`   | default text.                 |
+| terminal cursor         | `#e5e7eb`   | block cursor.                 |
+| terminal cursorAccent   | `#121214`   | text under cursor.            |
+| selection background    | `#2d3748`   | selection highlight.          |
+
+The other built-ins are `ezterm-light`, `campbell` (the real Windows Terminal Campbell values), Solarized Dark/Light, Dracula, Gruvbox Dark, Nord, One Dark, Monokai, Tango, and the GNOME / GitHub / Google dark + light pairs from Ptyxis.
 | selectionBackground     | `#3a4b6b`   | xterm selection.              |
 
 ---
@@ -265,63 +264,45 @@ No decorative animations. No bouncing. Respect `prefers-reduced-motion: reduce` 
 
 ## 8. xterm.js Theme Objects
 
-Both themes pass the **same** `theme` object to xterm.js. Only the chrome changes on toggle. The object is built by `buildXtermTheme()` in `ui/lib/palettes.ts` from the selected palette; the scrollbar-slider entries are derived (white on dark palettes, black on light ones) rather than stored per palette.
+Both chrome themes pass the **same** `theme` object to xterm.js; only the chrome changes on toggle. The object is built by `buildXtermTheme(palette)` in `ui/lib/palettes.ts` from the selected palette:
+
+- the palette's background, foreground, cursor, cursorAccent, selectionBackground and 16 ANSI colours map one-to-one (no `selectionForeground`: xterm keeps the cell's own colour);
+- the scrollbar-slider entries are derived rather than stored per palette: white on dark palettes, black on light ones (`light: true`), at 0.18 / 0.30 / 0.45 alpha for rest / hover / active;
+- `overviewRulerBorder` is always transparent (the ruler is unused).
+
+For the default `ezterm-dark` palette that produces:
 
 ```json
 {
-  "foreground": "#cccccc",
-  "background": "#0c0c0c",
-  "cursor": "#cccccc",
-  "cursorAccent": "#0c0c0c",
-  "selectionBackground": "#3a4b6b",
-  "selectionForeground": "#ffffff",
-  "black":        "#0c0c0c",
-  "red":          "#c23127",
-  "green":        "#31a354",
-  "yellow":       "#c7a02c",
-  "blue":         "#3b78ff",
-  "magenta":      "#b148c6",
-  "cyan":         "#3aa4c6",
-  "white":        "#cccccc",
-  "brightBlack":  "#676767",
-  "brightRed":    "#e74856",
-  "brightGreen":  "#57c47a",
-  "brightYellow": "#e4c76f",
-  "brightBlue":   "#6aa6ff",
-  "brightMagenta":"#d670d7",
-  "brightCyan":   "#66ccd4",
-  "brightWhite":  "#f2f2f2"
+  "background": "#121214",
+  "foreground": "#e5e7eb",
+  "cursor": "#e5e7eb",
+  "cursorAccent": "#121214",
+  "selectionBackground": "#2d3748",
+  "overviewRulerBorder": "rgba(0, 0, 0, 0)",
+  "scrollbarSliderBackground":       "rgba(255, 255, 255, 0.18)",
+  "scrollbarSliderHoverBackground":  "rgba(255, 255, 255, 0.30)",
+  "scrollbarSliderActiveBackground": "rgba(255, 255, 255, 0.45)",
+  "black":        "#2d3748",
+  "red":          "#f87171",
+  "green":        "#34d399",
+  "yellow":       "#fbbf24",
+  "blue":         "#60a5fa",
+  "magenta":      "#a78bfa",
+  "cyan":         "#22d3ee",
+  "white":        "#e5e7eb",
+  "brightBlack":  "#475569",
+  "brightRed":    "#fca5a5",
+  "brightGreen":  "#6ee7b7",
+  "brightYellow": "#fcd34d",
+  "brightBlue":   "#93c5fd",
+  "brightMagenta":"#c4b5fd",
+  "brightCyan":   "#67e8f9",
+  "brightWhite":  "#f3f4f6"
 }
 ```
 
-The "light terminal" preset below ships as the `ezterm-light` palette — a user-selected choice that is **not** auto-applied on light theme toggle.
-
-```json
-{
-  "foreground": "#1a1a1a",
-  "background": "#f8f8f8",
-  "cursor": "#1a1a1a",
-  "cursorAccent": "#f8f8f8",
-  "selectionBackground": "#b0cef7",
-  "selectionForeground": "#1a1a1a",
-  "black":        "#0c0c0c",
-  "red":          "#a4251f",
-  "green":        "#237a3f",
-  "yellow":       "#8a7010",
-  "blue":         "#1e6ecd",
-  "magenta":      "#8a389a",
-  "cyan":         "#1f7f97",
-  "white":        "#555555",
-  "brightBlack":  "#676767",
-  "brightRed":    "#c23127",
-  "brightGreen":  "#31a354",
-  "brightYellow": "#b08a1a",
-  "brightBlue":   "#3b78ff",
-  "brightMagenta":"#b148c6",
-  "brightCyan":   "#3aa4c6",
-  "brightWhite":  "#1a1a1a"
-}
-```
+The light counterpart is the `ezterm-light` palette (background `#f8f8f8`, foreground `#1a1a1a`). It is a user-selected choice and is **not** auto-applied when the chrome switches to the light theme.
 
 ---
 
