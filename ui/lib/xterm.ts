@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import type { CursorStyle } from './types';
 import { parseOsc52 } from './osc52';
+import { buildXtermTheme, getPalette, type PaletteId } from './palettes';
 
 export interface TerminalBundle {
   terminal: Terminal;
@@ -23,6 +24,9 @@ export interface TerminalOptionsOverride {
    *  picker / session dialog are stored verbatim — we re-wrap unquoted
    *  single-name stacks in quotes so CSS doesn't split them on spaces. */
   fontFamily?: string;
+  /** Colour palette id (lib/palettes.ts). Unknown / omitted falls back
+   *  to the default. Switch later via `terminal.options.theme`. */
+  palette?: PaletteId;
   /** Sink for OSC 52 clipboard writes (see lib/osc52.ts). Programs on
    *  the far end of an SSH session — Claude Code, neovim, tmux — copy
    *  through this. Omit to leave OSC 52 unhandled. The caller supplies
@@ -67,8 +71,9 @@ export function resolveFontFamily(value: string | undefined | null): string {
   return trimmed;
 }
 
-/** Build an xterm.js Terminal with our fixed palette (dark, MobaXterm-like).
- *  Theme does NOT change with the chrome theme toggle per spec §4.3.
+/** Build an xterm.js Terminal with the chosen colour palette (default:
+ *  dark, MobaXterm-like). The palette does NOT change with the chrome
+ *  theme toggle per spec §4.3 — it is its own setting (#176).
  *  Per-session overrides (font size, font family, scrollback, cursor
  *  style) come from the sessions row; omitted fields fall back to the
  *  MobaXterm-aligned defaults below. */
@@ -89,29 +94,7 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
     // 6 px gutter with the slider on top — borders are hidden via
     // `overviewRulerBorder: transparent` below.
     overviewRuler: { width: 6 },
-    theme: {
-      background:         '#121214',
-      foreground:         '#e5e7eb',
-      cursor:             '#e5e7eb',
-      cursorAccent:       '#121214',
-      selectionBackground:'#2d3748',
-      // Overview-ruler always paints a 1 px left border using this
-      // colour. We're not using the ruler for anything, so kill it.
-      overviewRulerBorder: 'rgba(0, 0, 0, 0)',
-      // Slim slider, white-on-dark with subtle hover/active brighten
-      // so it picks up on interaction without clashing with content.
-      scrollbarSliderBackground:       'rgba(255, 255, 255, 0.18)',
-      scrollbarSliderHoverBackground:  'rgba(255, 255, 255, 0.30)',
-      scrollbarSliderActiveBackground: 'rgba(255, 255, 255, 0.45)',
-      black:   '#2d3748', red:     '#f87171',
-      green:   '#34d399', yellow:  '#fbbf24',
-      blue:    '#60a5fa', magenta: '#a78bfa',
-      cyan:    '#22d3ee', white:   '#e5e7eb',
-      brightBlack:   '#475569', brightRed:     '#fca5a5',
-      brightGreen:   '#6ee7b7', brightYellow:  '#fcd34d',
-      brightBlue:    '#93c5fd', brightMagenta: '#c4b5fd',
-      brightCyan:    '#67e8f9', brightWhite:   '#f3f4f6',
-    },
+    theme: buildXtermTheme(getPalette(opts.palette)),
   });
 
   const fit    = new FitAddon();

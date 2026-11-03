@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useSettings, type SettingKey, type Settings } from '@/lib/settings';
 import { useTheme } from '@/lib/theme';
+import { getPalette, PALETTE_IDS, PALETTES, type PaletteId } from '@/lib/palettes';
 
 type SectionId = 'appearance' | 'terminal' | 'sessions' | 'updates' | 'security';
 
@@ -88,7 +89,7 @@ function AppearanceSection() {
   const setTheme = useTheme((s) => s.setTheme);
   return (
     <Group title="Appearance">
-      <Row label="Theme" hint="Window chrome only; the terminal palette stays dark.">
+      <Row label="Theme" hint="Window chrome only; pick the terminal colours below.">
         <select className="input w-40" value={theme} onChange={(e) => void setTheme(e.target.value as 'dark' | 'light')}>
           <option value="dark">Dark</option>
           <option value="light">Light</option>
@@ -100,7 +101,84 @@ function AppearanceSection() {
         hint="What each tab shows. Local shells always show their name."
         options={[['name', 'Session name'], ['userhost', 'user@host']]}
       />
+      <PaletteRow />
     </Group>
+  );
+}
+
+/** Terminal palette picker with a live swatch strip. Applies to every
+ *  open tab immediately (terminal.tsx subscribes to the key). */
+function PaletteRow() {
+  const value = useSettings((s) => s.settings['terminal.palette']);
+  const set = useSettings((s) => s.set);
+  const palette = getPalette(value);
+  const dark  = PALETTE_IDS.filter((id) => !PALETTES[id].light);
+  const light = PALETTE_IDS.filter((id) =>  PALETTES[id].light);
+  return (
+    <div className="py-2.5">
+      <div className="flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm">Terminal colours</div>
+          <div className="text-muted text-xs mt-0.5">ANSI palette for every terminal tab. Changes apply live.</div>
+        </div>
+        <div className="shrink-0">
+          <select
+            className="input w-48"
+            value={value}
+            aria-label="Terminal colours"
+            onChange={(e) => set('terminal.palette', e.target.value as PaletteId)}
+          >
+            <optgroup label="Dark">
+              {dark.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
+            </optgroup>
+            <optgroup label="Light">
+              {light.map((id) => <option key={id} value={id}>{PALETTES[id].label}</option>)}
+            </optgroup>
+          </select>
+        </div>
+      </div>
+      <PaletteSwatch palette={palette} />
+    </div>
+  );
+}
+
+/** Mock terminal line + the 16 ANSI colours on the palette background. */
+function PaletteSwatch({ palette }: { palette: ReturnType<typeof getPalette> }) {
+  const [, red, green, yellow, blue, magenta, cyan] = palette.ansi;
+  return (
+    <div
+      className="mt-2 rounded-sm border border-border px-3 py-2 font-mono text-xs leading-5"
+      style={{ background: palette.background, color: palette.foreground }}
+      aria-hidden="true"
+    >
+      <div className="truncate">
+        <span style={{ color: green }}>user@host</span>
+        <span>:</span>
+        <span style={{ color: blue }}>~/src</span>
+        <span>$ </span>
+        <span style={{ color: yellow }}>ls</span>
+        <span> -la </span>
+        <span style={{ color: cyan }}>docs/</span>
+        <span> </span>
+        <span style={{ color: magenta }}>*.md</span>
+        <span> </span>
+        <span style={{ color: red }}>error</span>
+        <span
+          className="inline-block w-[0.6em] h-[1em] align-text-bottom ml-0.5"
+          style={{ background: palette.cursor }}
+        />
+      </div>
+      <div className="mt-1.5 flex gap-1">
+        {palette.ansi.map((c, i) => (
+          <span
+            key={i}
+            title={`ANSI ${i}: ${c}`}
+            className="h-3.5 flex-1 rounded-[2px]"
+            style={{ background: c }}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
