@@ -19,9 +19,10 @@
   --danger:    230  95  95;
   --selection:  62  96 152;
 
-  --term-bg:   #0c0c0c;
-  --term-fg:   #cccccc;
-  --term-sel:  #3a4b6b;
+  /* Default terminal palette (ezterm-dark, ui/lib/palettes.ts). */
+  --term-bg:   #121214;
+  --term-fg:   #e5e7eb;
+  --term-sel:  #2d3748;
 
   --font-chrome: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono:   'Cascadia Mono', 'Consolas', ui-monospace, Menlo, monospace;

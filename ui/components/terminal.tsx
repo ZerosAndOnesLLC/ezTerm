@@ -760,14 +760,17 @@ export function TerminalView({ tab, visible }: Props) {
 
   return (
     <div
-      className={`relative h-full w-full bg-bg ${bellFlash ? 'ring-2 ring-inset ring-warning' : ''}`}
+      className={`relative h-full w-full ${bellFlash ? 'ring-2 ring-inset ring-warning' : ''}`}
+      // Palette background on the outer element, not the xterm container:
+      // the 4 px padding ring then matches a light palette, and the
+      // container stays transparent so the visual-bell inset ring (drawn
+      // above this element's background, below its children) shows.
+      style={{ background: palette.background }}
       onContextMenu={handleContextMenu}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      {/* Padding ring painted in the palette background so a light
-          palette does not show a dark 4 px frame around the cells. */}
-      <div ref={containerRef} className="h-full w-full p-1" style={{ background: palette.background }} />
+      <div ref={containerRef} className="h-full w-full p-1" />
       {pendingPaste !== null && (
         <ConfirmDialog
           kind="danger"
