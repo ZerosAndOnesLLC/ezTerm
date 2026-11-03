@@ -27,14 +27,18 @@ on those platforms.
   needed.
 - **Persistent sessions + auto-reconnect** — pick *tmux* or *screen* under
   Session → Advanced → Persistent session and the shell runs inside a remote
-  `ezterm-<session>-<tab>` session. Closing the tab or losing the link leaves
+  `ezterm-<install>-<session>-<tab>` session (the random per-install id keeps
+  other machines / users on a shared account out of yours). Closing the tab or losing the link leaves
   it running; reconnecting reattaches right where you left off, and with
   "Reconnect automatically" on, a dropped link (keepalive timeout, Wi-Fi
   blip, laptop sleep) retries with backoff on its own. Each tab gets its own
   remote session; right-click → *End remote session* kills it. Falls back to
-  a normal shell with a notice if the tool isn't installed. Scrollback lives
-  in tmux/screen (enable `set -g mouse on` in `~/.tmux.conf` for wheel
-  scrolling) — ezTerm never edits remote dotfiles.
+  a normal shell with a notice if the tool isn't installed. Tradeoffs:
+  scrollback lives in tmux/screen, so xterm's scrollback and Find only see
+  what's been drawn (enable `set -g mouse on` in `~/.tmux.conf` for wheel
+  scrolling — ezTerm never edits remote dotfiles); closed tabs leave their
+  remote session running, so sessions accumulate until you `exit` them or
+  use *End remote session*.
 - **Port forwarding** — Local (`-L`), Remote (`-R`), and Dynamic / SOCKS5 (`-D`)
   tunnels. Save them to a session to auto-start on connect, or add ad-hoc tunnels
   to a live tab. A side pane shows each tunnel's live state (green running / red
@@ -207,8 +211,10 @@ ezTerm/
 - **Persistent sessions** — `ssh/persist.rs` probes the host on a short exec
   channel (`tmux has-session` / `screen -ls`), then the PTY channel execs an
   attach or create instead of `request_shell`. Commands are fixed templates
-  plus an integer-only session name, wrapped in `sh -c '…'` so they parse
-  the same under bash, zsh, fish and csh login shells.
+  plus a name built from a validated hex install id and integers, wrapped in
+  `sh -c '…'` so they parse the same under bash, zsh, fish and csh login
+  shells. Auto-reconnect is a React-free state machine in
+  `ui/lib/reconnect-loop.ts`.
 - **X11 forwarding** — russh's `server_channel_open_x11` handler pipes each
   incoming X11 channel bidirectionally into a loopback TCP connection to
   VcXsrv. VcXsrv lifecycle is ref-counted per display.
