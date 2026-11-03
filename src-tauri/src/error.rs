@@ -48,6 +48,12 @@ pub enum AppError {
     #[error("authentication failed")]
     AuthFailed,
 
+    /// The auth exchange itself broke (agent error / timeout, server cut
+    /// the connection after too many attempts). Distinct from `Ssh` so the
+    /// frontend never auto-retries it.
+    #[error("authentication error: {0}")]
+    AuthError(String),
+
     #[error("host key mismatch (expected {expected}, got {actual})")]
     HostKeyMismatch { expected: String, actual: String },
 
@@ -114,6 +120,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::Ssh(_) => "ssh",
         AppError::PortConflict(_) => "port_conflict",
         AppError::AuthFailed => "auth_failed",
+        AppError::AuthError(_) => "auth_error",
         AppError::HostKeyMismatch { .. } => "host_key_mismatch",
         AppError::HostKeyUntrusted => "host_key_untrusted",
         AppError::ChannelClosed => "channel_closed",

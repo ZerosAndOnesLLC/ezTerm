@@ -47,7 +47,7 @@ pub struct Connection {
     /// Remote tmux/screen session this tab's shell runs in, when the
     /// session has `persistent_shell` on and the tool was found. Read by
     /// `ssh_persist_kill` ("End remote session").
-    pub persist: Option<crate::ssh::persist::PersistTarget>,
+    pub persist: Option<crate::ssh::persist::PersistBinding>,
 }
 
 pub enum ConnectionInput {

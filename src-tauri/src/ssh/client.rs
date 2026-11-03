@@ -17,7 +17,7 @@ use crate::log_redacted;
 use crate::sftp::SftpRegistry;
 use crate::ssh::forwards::RemoteDispatch;
 use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
-use crate::ssh::persist::{self, PersistKind, PersistTarget, Probe};
+use crate::ssh::persist::{self, PersistBinding, PersistKind, PersistTarget, Probe};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
@@ -52,6 +52,9 @@ pub struct ConnectRequest {
 pub struct ConnectOutcome {
     pub connection_id: u64,
     pub fingerprint_sha256: String,
+    /// True when the shell is running inside a tmux/screen session (not
+    /// when persistence is configured but fell back to a plain shell).
+    pub persistent: bool,
 }
 
 pub struct ClientHandler {
@@ -365,7 +368,16 @@ async fn connect_impl(
     // inside it runs at the end of that function call — our in-process copy of
     // the secret is erased before we proceed. (See SECURITY NOTE on
     // `AuthMaterial` about the non-zeroized russh-side copy.)
-    let authed = authenticate(&mut handle, &session, auth_material).await?;
+    // Transport-level failures inside the auth exchange (agent errors,
+    // "too many authentication failures" disconnects, agent timeouts) are
+    // re-tagged `AuthError` so auto-reconnect treats them as fatal instead
+    // of re-offering credentials 20 times and tripping fail2ban / lockout.
+    let authed = authenticate(&mut handle, &session, auth_material)
+        .await
+        .map_err(|e| match e {
+            AppError::Ssh(msg) => AppError::AuthError(msg),
+            other => other,
+        })?;
     if !authed {
         return Err(AppError::AuthFailed);
     }
@@ -379,25 +391,46 @@ async fn connect_impl(
             fingerprint = %fingerprint);
     }
 
-    // 4b. Persistent remote session: find out up front whether the tab's
-    // tmux/screen session already exists. Runs on its own short exec
-    // channel so the main PTY channel below can go straight to the right
-    // attach / create / plain-shell request.
-    let persist_plan: Option<(PersistTarget, Probe)> =
-        match PersistKind::parse(&session.persistent_shell)? {
-            None => None,
-            Some(kind) => {
-                let target = PersistTarget::new(kind, session.id, req.persist_slot)?;
-                let found = persist::probe(&handle, &target).await;
-                Some((target, found))
-            }
-        };
+    // 4b. Persistent remote session target (tmux/screen), if enabled.
+    let persist_target: Option<PersistTarget> = match PersistKind::parse(&session.persistent_shell)?
+    {
+        None => None,
+        Some(kind) => {
+            let iid = persist::install_id(&deps.db).await?;
+            Some(PersistTarget::new(
+                kind,
+                &iid,
+                session.id,
+                req.persist_slot,
+            )?)
+        }
+    };
 
-    // 5. Open shell channel with PTY.
-    let channel = handle
-        .channel_open_session()
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // 5. Open shell channel with PTY. With persistence on, the probe (does
+    // the tab's tmux/screen session exist?) runs on its own short exec
+    // channel *concurrently* with this open, saving a round trip per
+    // connect. A host with `MaxSessions 1` allows one session channel at a
+    // time: if our open loses that race it is retried once the probe's
+    // channel has closed; if the probe loses, it reports ProbeFailed and
+    // the tab falls back to a plain shell with a notice.
+    let (persist_plan, first_open) = match persist_target {
+        None => (None, handle.channel_open_session().await),
+        Some(target) => {
+            let (found, opened) = tokio::join!(
+                persist::probe(&handle, &target),
+                handle.channel_open_session()
+            );
+            (Some((target, found)), opened)
+        }
+    };
+    let channel = match first_open {
+        Ok(ch) => ch,
+        Err(_) if persist_plan.is_some() => handle
+            .channel_open_session()
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))?,
+        Err(e) => return Err(AppError::Ssh(e.to_string())),
+    };
     // Env vars must be sent AFTER channel open and BEFORE shell/exec per
     // RFC 4254 §6.4. `want_reply: false` so we don't block on a per-var
     // round-trip; most sshd configs reject unlisted vars via AcceptEnv
@@ -452,7 +485,7 @@ async fn connect_impl(
     // inside whatever the user left running. On create they run once in
     // the new shell inside tmux/screen.
     let mut notice: Option<Vec<u8>> = None;
-    let (persist_target, run_on_connect) = match persist_plan {
+    let (persist_binding, run_on_connect) = match persist_plan {
         None => {
             channel
                 .request_shell(true)
@@ -465,21 +498,30 @@ async fn connect_impl(
                 .exec(true, persist::attach_command(&target, &attach_id))
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
-            (Some(target), false)
+            (
+                Some(PersistBinding {
+                    target,
+                    attach_id: Some(attach_id),
+                }),
+                false,
+            )
         }
         Some((target, Probe::Absent)) => {
             channel
                 .exec(true, persist::create_command(&target))
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
-            (Some(target), true)
+            // tmux's `=NAME` is known up front; a new screen session's PID
+            // isn't, so `kill` will look it up.
+            let attach_id = target.static_attach_id();
+            (Some(PersistBinding { target, attach_id }), true)
         }
-        Some((target, Probe::Unavailable)) => {
+        Some((target, Probe::Unavailable(why))) => {
             channel
                 .request_shell(true)
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
-            notice = Some(persist::unavailable_notice(target.kind));
+            notice = Some(persist::unavailable_notice(target.kind, &why));
             (None, true)
         }
     };
@@ -546,7 +588,7 @@ async fn connect_impl(
             x11_display,
             forwards,
             output_sent: output_sent.clone(),
-            persist: persist_target,
+            persist: persist_binding.clone(),
         })
         .await;
 
@@ -646,6 +688,7 @@ async fn connect_impl(
     Ok(ConnectOutcome {
         connection_id: id,
         fingerprint_sha256: fp,
+        persistent: persist_binding.is_some(),
     })
 }
 
@@ -883,54 +926,39 @@ async fn drive_channel(
     loop {
         tokio::select! {
             maybe_msg = channel.wait() => {
-                match maybe_msg {
-                    // `send` only fails once the webview itself is gone;
-                    // a closed tab is torn down by the frontend's
-                    // disconnect call arriving as ConnectionInput::Close
-                    // below, not by anything observed here.
-                    Some(russh::ChannelMsg::Data { data })
-                    | Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                        if output.send(InvokeResponseBody::Raw(data.to_vec())).is_ok() {
-                            output_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
+                // `send` only fails once the webview itself is gone; a
+                // closed tab is torn down by the frontend's disconnect
+                // call arriving as ConnectionInput::Close below, not by
+                // anything observed here.
+                if let Some(russh::ChannelMsg::Data { data })
+                | Some(russh::ChannelMsg::ExtendedData { data, .. }) = &maybe_msg
+                {
+                    if output.send(InvokeResponseBody::Raw(data.to_vec())).is_ok() {
+                        output_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
-                    Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
-                        let _ = app.emit(&ev_close, exit_status);
-                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
-                        break;
+                    continue;
+                }
+                let Some(ended) = channel_end(maybe_msg.as_ref()) else {
+                    continue;
+                };
+                match ended {
+                    ChannelEnd::Exit(code) => {
+                        let _ = app.emit(&ev_close, code);
                     }
-                    // Shell killed by a signal (OOM killer, kill -9, a
-                    // dropped sshd). Surface the signal as the close
-                    // reason instead of a bare "Disconnected".
-                    Some(russh::ChannelMsg::ExitSignal { signal_name, .. }) => {
-                        // Sig's Debug prints unit variants as their name;
-                        // Custom(name) carries the name as data.
-                        let name = match &signal_name {
-                            russh::Sig::Custom(s) => s.clone(),
-                            other => format!("{other:?}"),
-                        };
+                    ChannelEnd::Signal(name) => {
                         let _ = app.emit(&ev_close, format!("killed by SIG{name}"));
-                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
-                        break;
                     }
-                    // `None` = russh dropped the channel without the
-                    // server closing it: the transport itself is gone
-                    // (keepalive timeout, TCP reset, server vanished).
-                    // Reported separately so the frontend can
-                    // auto-reconnect; a server-side Eof/Close or an exit
-                    // status above is a deliberate end and isn't retried.
-                    None => {
+                    ChannelEnd::Closed => {
+                        let _ = app.emit(&ev_close, serde_json::Value::Null);
+                    }
+                    ChannelEnd::Lost => {
                         let _ = app.emit(&ev_lost, serde_json::Value::Null);
                         log_redacted!(info, "ssh.channel.lost", connection_id = id);
                         break;
                     }
-                    Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => {
-                        let _ = app.emit(&ev_close, serde_json::Value::Null);
-                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
-                        break;
-                    }
-                    _ => {}
                 }
+                log_redacted!(info, "ssh.channel.closed", connection_id = id);
+                break;
             }
             cmd = rx.recv() => {
                 match cmd {
@@ -958,6 +986,77 @@ async fn drive_channel(
     }
 
     teardown.run().await;
+}
+
+/// How a shell channel ended, as reported to the frontend.
+#[derive(Debug, PartialEq, Eq)]
+enum ChannelEnd {
+    /// Remote command exited (`ssh:close` with the status).
+    Exit(u32),
+    /// Killed by a signal — OOM killer, kill -9 (`ssh:close` with reason).
+    Signal(String),
+    /// Server sent Eof / Close without a status (`ssh:close`, null).
+    Closed,
+    /// russh dropped the channel without the server closing it: the
+    /// transport itself is gone (keepalive timeout, TCP reset, server
+    /// vanished or sent SSH_MSG_DISCONNECT). Emitted as `ssh:lost` so the
+    /// frontend can auto-reconnect; every other end is deliberate and is
+    /// never retried. russh 0.65 forwards an explicit `ChannelMsg::Close`
+    /// for a server CHANNEL_CLOSE before dropping the sender, so `None`
+    /// really does mean "transport gone".
+    Lost,
+}
+
+/// Classify a non-data `channel.wait()` result. `None` from this fn means
+/// "not an end — keep reading" (window adjusts, success replies, …).
+fn channel_end(msg: Option<&russh::ChannelMsg>) -> Option<ChannelEnd> {
+    match msg {
+        None => Some(ChannelEnd::Lost),
+        Some(russh::ChannelMsg::ExitStatus { exit_status }) => Some(ChannelEnd::Exit(*exit_status)),
+        Some(russh::ChannelMsg::ExitSignal { signal_name, .. }) => {
+            // Sig's Debug prints unit variants as their name; Custom(name)
+            // carries the name as data.
+            Some(ChannelEnd::Signal(match signal_name {
+                russh::Sig::Custom(s) => s.clone(),
+                other => format!("{other:?}"),
+            }))
+        }
+        Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => Some(ChannelEnd::Closed),
+        Some(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod channel_end_tests {
+    use super::{ChannelEnd, channel_end};
+    use russh::{ChannelMsg, Sig};
+
+    #[test]
+    fn transport_loss_is_lost_everything_else_is_close() {
+        assert_eq!(channel_end(None), Some(ChannelEnd::Lost));
+        assert_eq!(
+            channel_end(Some(&ChannelMsg::Close)),
+            Some(ChannelEnd::Closed)
+        );
+        assert_eq!(
+            channel_end(Some(&ChannelMsg::Eof)),
+            Some(ChannelEnd::Closed)
+        );
+        assert_eq!(
+            channel_end(Some(&ChannelMsg::ExitStatus { exit_status: 0 })),
+            Some(ChannelEnd::Exit(0))
+        );
+        assert_eq!(
+            channel_end(Some(&ChannelMsg::ExitSignal {
+                signal_name: Sig::KILL,
+                core_dumped: false,
+                error_message: String::new(),
+                lang_tag: String::new(),
+            })),
+            Some(ChannelEnd::Signal("KILL".into()))
+        );
+        assert_eq!(channel_end(Some(&ChannelMsg::Success)), None);
+    }
 }
 
 /// Format a user-supplied path for use as the argument to `cd` in a POSIX

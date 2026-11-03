@@ -10,6 +10,8 @@ use crate::state::AppState;
 pub struct ConnectResult {
     pub connection_id: u64,
     pub fingerprint_sha256: String,
+    /// Shell is inside tmux/screen — gates "End remote session" in the UI.
+    pub persistent: bool,
 }
 
 /// Connect parameters for [`ssh_connect`], sent by the webview as one
@@ -59,6 +61,7 @@ pub async fn ssh_connect(
     Ok(ConnectResult {
         connection_id: out.connection_id,
         fingerprint_sha256: out.fingerprint_sha256,
+        persistent: out.persistent,
     })
 }
 
@@ -103,10 +106,10 @@ pub async fn ssh_persist_kill(state: State<'_, AppState>, connection_id: u64) ->
         .get(connection_id)
         .await
         .ok_or(AppError::NotFound)?;
-    let target = conn.persist.clone().ok_or_else(|| {
+    let binding = conn.persist.clone().ok_or_else(|| {
         AppError::Validation("this tab is not running in a persistent session".into())
     })?;
-    ssh::persist::kill(&conn.ssh_handle, &target).await
+    ssh::persist::kill(&conn.ssh_handle, &binding).await
 }
 
 #[tauri::command]
