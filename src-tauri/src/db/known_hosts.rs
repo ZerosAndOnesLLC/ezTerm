@@ -22,11 +22,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<KnownHost>> {
     .await?)
 }
 
-pub async fn get(
-    pool: &SqlitePool,
-    host: &str,
-    port: i64,
-) -> Result<Option<KnownHost>> {
+pub async fn get(pool: &SqlitePool, host: &str, port: i64) -> Result<Option<KnownHost>> {
     Ok(sqlx::query_as::<_, KnownHost>(
         "SELECT host, port, key_type, fingerprint, fingerprint_sha256, first_seen \
          FROM known_hosts WHERE host = ? AND port = ? LIMIT 1",
@@ -91,10 +87,28 @@ mod tests {
     async fn upsert_and_get() {
         let p = pool().await;
         assert!(get(&p, "host.example", 22).await.unwrap().is_none());
-        upsert(&p, "host.example", 22, "ssh-ed25519", "legacy-fp", "sha256:abc").await.unwrap();
+        upsert(
+            &p,
+            "host.example",
+            22,
+            "ssh-ed25519",
+            "legacy-fp",
+            "sha256:abc",
+        )
+        .await
+        .unwrap();
         let row = get(&p, "host.example", 22).await.unwrap().unwrap();
         assert_eq!(row.fingerprint_sha256, "sha256:abc");
-        upsert(&p, "host.example", 22, "ssh-ed25519", "legacy-fp", "sha256:def").await.unwrap();
+        upsert(
+            &p,
+            "host.example",
+            22,
+            "ssh-ed25519",
+            "legacy-fp",
+            "sha256:def",
+        )
+        .await
+        .unwrap();
         let row = get(&p, "host.example", 22).await.unwrap().unwrap();
         assert_eq!(row.fingerprint_sha256, "sha256:def");
         remove(&p, "host.example", 22).await.unwrap();

@@ -25,6 +25,20 @@ on those platforms.
   JetBrains tools, …) pop as native Windows windows. The Windows release
   tarball ships VcXsrv in a `vcxsrv/` subfolder so no separate install is
   needed.
+- **Persistent sessions + auto-reconnect** — pick *tmux* or *screen* under
+  Session → Advanced → Persistent session and the shell runs inside a remote
+  `ezterm-<install>-<session>-<tab>` session (the random per-install id keeps
+  other machines / users on a shared account out of yours). Closing the tab or losing the link leaves
+  it running; reconnecting reattaches right where you left off, and with
+  "Reconnect automatically" on, a dropped link (keepalive timeout, Wi-Fi
+  blip, laptop sleep) retries with backoff on its own. Each tab gets its own
+  remote session; right-click → *End remote session* kills it. Falls back to
+  a normal shell with a notice if the tool isn't installed. Tradeoffs:
+  scrollback lives in tmux/screen, so xterm's scrollback and Find only see
+  what's been drawn (enable `set -g mouse on` in `~/.tmux.conf` for wheel
+  scrolling — ezTerm never edits remote dotfiles); closed tabs leave their
+  remote session running, so sessions accumulate until you `exit` them or
+  use *End remote session*.
 - **Port forwarding** — Local (`-L`), Remote (`-R`), and Dynamic / SOCKS5 (`-D`)
   tunnels. Save them to a session to auto-start on connect, or add ad-hoc tunnels
   to a live tab. A side pane shows each tunnel's live state (green running / red
@@ -111,7 +125,8 @@ npm --prefix site run build   # → site/dist/
 ```
 
 The site auto-deploys on every push to `main` that touches `site/**` or
-`docs/release-notes/**` (see `.github/workflows/site.yml`).
+`docs/release-notes/**`, and again after each successful release build
+(see `.github/workflows/site.yml`).
 
 ## Install
 
@@ -189,21 +204,37 @@ ezTerm/
   `ssh_connect` / `local_connect`; the UI buffers until its keystroke
   handler is wired, then arms the channel. Close and error are
   `ssh:close:<id>` / `ssh:error:<id>` events (shared by SSH and local PTY
-  drivers). Keystrokes flow the other way through `ssh_write` /
+  drivers); SSH adds `ssh:lost:<id>` when the transport drops without an
+  exit status, which drives auto-reconnect. Keystrokes flow the other way through `ssh_write` /
   `local_write` commands. A watchdog fails the tab if the channel stalls.
 - **Session kinds** — a single `sessions` table with a `session_kind` column
   (`ssh` / `wsl` / `local`) re-purposes `host` + `username` per kind. The
   connect flow dispatches to either the russh client (SSH) or the
   `portable-pty` backend (WSL / local).
+- **Persistent sessions** — `ssh/persist.rs` probes the host on a short exec
+  channel (`tmux has-session` / `screen -ls`), then the PTY channel execs an
+  attach or create instead of `request_shell`. Commands are fixed templates
+  plus a name built from a validated hex install id and integers, wrapped in
+  `sh -c '…'` so they parse the same under bash, zsh, fish and csh login
+  shells. Auto-reconnect is a React-free state machine in
+  `ui/lib/reconnect-loop.ts`.
 - **X11 forwarding** — russh's `server_channel_open_x11` handler pipes each
   incoming X11 channel bidirectionally into a loopback TCP connection to
   VcXsrv. VcXsrv lifecycle is ref-counted per display.
 
-## Releases
+## CI & Releases
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the tag-push workflow. tl;dr:
-bump the version in `Cargo.toml`, push a `v*` tag, GitHub Actions produces the
-four `tar.xz` archives and opens a draft release for you to review.
+- **Pull requests** (`ci.yml`) run checks only, on GitHub-hosted
+  `ubuntu-latest` runners, and only for the parts a PR touches: Rust
+  (`cargo fmt --check`, clippy (advisory), `cargo test` with warnings as
+  errors, `cargo audit`), UI (`tsc --noEmit`, ESLint, vitest) and site
+  (vitest). No Next.js/Astro/Tauri builds or artifacts. Merges to `main`
+  don't re-run CI.
+- **Releases** (`release.yml`): bump the version in `Cargo.toml`, then
+  `gh release create v<version> --generate-notes`. Publishing the release
+  builds the portable archives and installers on GitHub-hosted Windows,
+  Linux x64, Linux arm64 and macOS runners and uploads them into that
+  release. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Licence
 

@@ -32,10 +32,16 @@ pub struct ConnectRequest {
 /// Parse the SOCKS5 greeting (`VER NMETHODS METHODS...`). Returns Ok(())
 /// if `0x00` (no-auth) is offered; otherwise `Err(NoAuth)`.
 pub fn parse_greeting(buf: &[u8]) -> Result<(), Socks5Error> {
-    if buf.len() < 2 { return Err(Socks5Error::Short); }
-    if buf[0] != 0x05 { return Err(Socks5Error::BadVersion(buf[0])); }
+    if buf.len() < 2 {
+        return Err(Socks5Error::Short);
+    }
+    if buf[0] != 0x05 {
+        return Err(Socks5Error::BadVersion(buf[0]));
+    }
     let nmethods = buf[1] as usize;
-    if buf.len() < 2 + nmethods { return Err(Socks5Error::Short); }
+    if buf.len() < 2 + nmethods {
+        return Err(Socks5Error::Short);
+    }
     if buf[2..2 + nmethods].contains(&0x00) {
         Ok(())
     } else {
@@ -51,23 +57,37 @@ pub fn encode_greeting_reply(accept: bool) -> [u8; 2] {
 
 /// Parse the SOCKS5 request (`VER CMD RSV ATYP DST.ADDR DST.PORT`).
 pub fn parse_request(buf: &[u8]) -> Result<ConnectRequest, Socks5Error> {
-    if buf.len() < 4 { return Err(Socks5Error::Short); }
-    if buf[0] != 0x05 { return Err(Socks5Error::BadVersion(buf[0])); }
-    if buf[1] != 0x01 { return Err(Socks5Error::BadCommand(buf[1])); }
+    if buf.len() < 4 {
+        return Err(Socks5Error::Short);
+    }
+    if buf[0] != 0x05 {
+        return Err(Socks5Error::BadVersion(buf[0]));
+    }
+    if buf[1] != 0x01 {
+        return Err(Socks5Error::BadCommand(buf[1]));
+    }
     // buf[2] reserved, ignore.
     let (host, port_off) = match buf[3] {
         0x01 => {
             // IPv4
-            if buf.len() < 4 + 4 + 2 { return Err(Socks5Error::Short); }
+            if buf.len() < 4 + 4 + 2 {
+                return Err(Socks5Error::Short);
+            }
             let ip = std::net::Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
             (ip.to_string(), 4 + 4)
         }
         0x03 => {
             // Domain — first byte is length.
-            if buf.len() < 5 { return Err(Socks5Error::Short); }
+            if buf.len() < 5 {
+                return Err(Socks5Error::Short);
+            }
             let len = buf[4] as usize;
-            if len == 0 { return Err(Socks5Error::BadDomain); }
-            if buf.len() < 5 + len + 2 { return Err(Socks5Error::Short); }
+            if len == 0 {
+                return Err(Socks5Error::BadDomain);
+            }
+            if buf.len() < 5 + len + 2 {
+                return Err(Socks5Error::Short);
+            }
             let domain = std::str::from_utf8(&buf[5..5 + len])
                 .map_err(|_| Socks5Error::BadDomain)?
                 .to_string();
@@ -75,7 +95,9 @@ pub fn parse_request(buf: &[u8]) -> Result<ConnectRequest, Socks5Error> {
         }
         0x04 => {
             // IPv6
-            if buf.len() < 4 + 16 + 2 { return Err(Socks5Error::Short); }
+            if buf.len() < 4 + 16 + 2 {
+                return Err(Socks5Error::Short);
+            }
             let mut octets = [0u8; 16];
             octets.copy_from_slice(&buf[4..20]);
             let ip = std::net::Ipv6Addr::from(octets);
@@ -91,10 +113,10 @@ pub fn parse_request(buf: &[u8]) -> Result<ConnectRequest, Socks5Error> {
 /// emit — others can be added if the dispatch ever needs to distinguish
 /// e.g. host-unreachable from connection-refused.
 pub mod rep {
-    pub const SUCCESS:                    u8 = 0x00;
-    pub const GENERAL_FAILURE:            u8 = 0x01;
-    pub const CONNECTION_REFUSED:         u8 = 0x05;
-    pub const COMMAND_NOT_SUPPORTED:      u8 = 0x07;
+    pub const SUCCESS: u8 = 0x00;
+    pub const GENERAL_FAILURE: u8 = 0x01;
+    pub const CONNECTION_REFUSED: u8 = 0x05;
+    pub const COMMAND_NOT_SUPPORTED: u8 = 0x07;
     pub const ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
 }
 
@@ -118,7 +140,10 @@ mod tests {
 
     #[test]
     fn greeting_rejects_auth_only() {
-        assert_eq!(parse_greeting(&[0x05, 0x01, 0x02]), Err(Socks5Error::NoAuth));
+        assert_eq!(
+            parse_greeting(&[0x05, 0x01, 0x02]),
+            Err(Socks5Error::NoAuth)
+        );
     }
 
     #[test]
@@ -129,13 +154,22 @@ mod tests {
 
     #[test]
     fn greeting_bad_version() {
-        assert_eq!(parse_greeting(&[0x04, 0x01, 0x00]), Err(Socks5Error::BadVersion(4)));
+        assert_eq!(
+            parse_greeting(&[0x04, 0x01, 0x00]),
+            Err(Socks5Error::BadVersion(4))
+        );
     }
 
     #[test]
     fn request_ipv4() {
         let buf = [0x05, 0x01, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50];
-        assert_eq!(parse_request(&buf), Ok(ConnectRequest { host: "1.2.3.4".into(), port: 80 }));
+        assert_eq!(
+            parse_request(&buf),
+            Ok(ConnectRequest {
+                host: "1.2.3.4".into(),
+                port: 80
+            })
+        );
     }
 
     #[test]
@@ -143,15 +177,27 @@ mod tests {
         let mut buf = vec![0x05, 0x01, 0x00, 0x03, 11];
         buf.extend_from_slice(b"example.com");
         buf.extend_from_slice(&[0x01, 0xBB]);
-        assert_eq!(parse_request(&buf), Ok(ConnectRequest { host: "example.com".into(), port: 443 }));
+        assert_eq!(
+            parse_request(&buf),
+            Ok(ConnectRequest {
+                host: "example.com".into(),
+                port: 443
+            })
+        );
     }
 
     #[test]
     fn request_ipv6() {
         let mut buf = vec![0x05, 0x01, 0x00, 0x04];
-        buf.extend_from_slice(&[0xfe,0x80,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+        buf.extend_from_slice(&[0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
         buf.extend_from_slice(&[0x00, 0x50]);
-        assert_eq!(parse_request(&buf), Ok(ConnectRequest { host: "fe80::1".into(), port: 80 }));
+        assert_eq!(
+            parse_request(&buf),
+            Ok(ConnectRequest {
+                host: "fe80::1".into(),
+                port: 80
+            })
+        );
     }
 
     #[test]
@@ -175,13 +221,19 @@ mod tests {
     #[test]
     fn request_short() {
         assert_eq!(parse_request(&[0x05, 0x01, 0x00]), Err(Socks5Error::Short));
-        assert_eq!(parse_request(&[0x05, 0x01, 0x00, 0x03, 5, b'a']), Err(Socks5Error::Short));
+        assert_eq!(
+            parse_request(&[0x05, 0x01, 0x00, 0x03, 5, b'a']),
+            Err(Socks5Error::Short)
+        );
     }
 
     #[test]
     fn reply_encoding() {
-        assert_eq!(encode_reply(rep::SUCCESS), [0x05, 0, 0, 0x01, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(encode_greeting_reply(true),  [0x05, 0x00]);
+        assert_eq!(
+            encode_reply(rep::SUCCESS),
+            [0x05, 0, 0, 0x01, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(encode_greeting_reply(true), [0x05, 0x00]);
         assert_eq!(encode_greeting_reply(false), [0x05, 0xFF]);
     }
 }

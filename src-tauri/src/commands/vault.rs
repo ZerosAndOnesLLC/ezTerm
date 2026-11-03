@@ -117,10 +117,7 @@ pub async fn vault_verify_password(state: State<'_, AppState>, password: String)
     result
 }
 
-async fn vault_verify_password_inner(
-    state: &State<'_, AppState>,
-    password: &str,
-) -> Result<bool> {
+async fn vault_verify_password_inner(state: &State<'_, AppState>, password: &str) -> Result<bool> {
     if password.len() > MAX_PASSWORD_LEN {
         return Err(AppError::Validation("password too long".into()));
     }
@@ -305,20 +302,14 @@ async fn vault_generate_recovery_code_inner(
 }
 
 #[tauri::command]
-pub async fn vault_unlock_with_recovery(
-    state: State<'_, AppState>,
-    code: String,
-) -> Result<()> {
+pub async fn vault_unlock_with_recovery(state: State<'_, AppState>, code: String) -> Result<()> {
     let mut code = code;
     let result = vault_unlock_with_recovery_inner(&state, &code).await;
     code.zeroize();
     result
 }
 
-async fn vault_unlock_with_recovery_inner(
-    state: &State<'_, AppState>,
-    code: &str,
-) -> Result<()> {
+async fn vault_unlock_with_recovery_inner(state: &State<'_, AppState>, code: &str) -> Result<()> {
     let now = Utc::now().timestamp();
     check_cooldown(state, now)?;
     match vault::recovery::unlock_with_code(&state.db, code).await {
@@ -361,10 +352,7 @@ pub struct ResetResult {
 /// otherwise keep PUTting to the configured remote with credentials
 /// the vault no longer has.
 #[tauri::command]
-pub async fn vault_reset(
-    state: State<'_, AppState>,
-    confirmation: String,
-) -> Result<ResetResult> {
+pub async fn vault_reset(state: State<'_, AppState>, confirmation: String) -> Result<ResetResult> {
     if confirmation != RESET_CONFIRMATION_TOKEN {
         return Err(AppError::Validation(
             "missing or invalid confirmation token".into(),
@@ -403,7 +391,9 @@ fn validate_new_password(new_password: &str) -> Result<()> {
     let has_digit = new_password.chars().any(|c| c.is_ascii_digit());
     let has_other = new_password.chars().any(|c| !c.is_ascii_alphanumeric());
     let classes = [has_lower, has_upper, has_digit, has_other]
-        .into_iter().filter(|b| *b).count();
+        .into_iter()
+        .filter(|b| *b)
+        .count();
     if classes < 2 {
         return Err(AppError::Validation(
             "new password must mix at least two of: lowercase, uppercase, digit, symbol".into(),
@@ -449,7 +439,13 @@ fn clear_failures(state: &State<'_, AppState>) {
 /// sync remote.
 async fn teardown_after_vault_rotation(state: &State<'_, AppState>) {
     // Snapshot ids first, then drop them outside the registry locks.
-    let ssh_ids = state.ssh.list_all().await.into_iter().map(|c| c.id).collect::<Vec<_>>();
+    let ssh_ids = state
+        .ssh
+        .list_all()
+        .await
+        .into_iter()
+        .map(|c| c.id)
+        .collect::<Vec<_>>();
     for id in ssh_ids {
         state.close_connection(id).await;
     }

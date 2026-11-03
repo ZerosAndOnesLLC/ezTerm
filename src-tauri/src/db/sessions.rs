@@ -43,6 +43,15 @@ pub struct Session {
     /// default ($HOME on most servers). Local (cmd/pwsh) rows ignore
     /// this — they use `username` as the Windows cwd.
     pub starting_dir: Option<String>,
+    /// 'off' | 'tmux' | 'screen' — SSH-only. When not 'off' the shell
+    /// runs inside a remote multiplexer session that survives
+    /// disconnects (see `ssh::persist`). `serde(default)` so backups
+    /// written before the column existed still restore.
+    #[serde(default = "default_persistent_shell")]
+    pub persistent_shell: String,
+    /// 0/1 — SSH-only. Reconnect automatically when the transport drops.
+    #[serde(default)]
+    pub auto_reconnect: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +83,14 @@ pub struct SessionInput {
     pub forward_x11: i64,
     #[serde(default)]
     pub starting_dir: Option<String>,
+    #[serde(default = "default_persistent_shell")]
+    pub persistent_shell: String,
+    #[serde(default)]
+    pub auto_reconnect: i64,
+}
+
+fn default_persistent_shell() -> String {
+    "off".to_string()
 }
 
 fn default_session_kind() -> String {
@@ -89,13 +106,14 @@ pub struct EnvPair {
 const SELECT_COLS: &str = "id, folder_id, name, host, port, username, auth_type, \
 credential_id, key_passphrase_credential_id, color, sort, \
 initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
-keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
+keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir, \
+persistent_shell, auto_reconnect";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
-    let sql = format!(
-        "SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id"
-    );
-    Ok(sqlx::query_as::<_, Session>(AssertSqlSafe(sql)).fetch_all(pool).await?)
+    let sql = format!("SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id");
+    Ok(sqlx::query_as::<_, Session>(AssertSqlSafe(sql))
+        .fetch_all(pool)
+        .await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Session> {
@@ -114,7 +132,10 @@ pub async fn env_get(pool: &SqlitePool, session_id: i64) -> Result<Vec<EnvPair>>
     .bind(session_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|(key, value)| EnvPair { key, value }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|(key, value)| EnvPair { key, value })
+        .collect())
 }
 
 async fn env_replace(
@@ -148,8 +169,8 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
          credential_id, key_passphrase_credential_id, color, \
          initial_command, scrollback_lines, font_size, font_family, cursor_style, \
          compression, keepalive_secs, connect_timeout_secs, session_kind, \
-         forward_x11, starting_dir) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         forward_x11, starting_dir, persistent_shell, auto_reconnect) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -171,6 +192,8 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .bind(&input.session_kind)
     .bind(input.forward_x11)
     .bind(&input.starting_dir)
+    .bind(&input.persistent_shell)
+    .bind(input.auto_reconnect)
     .execute(&mut *tx)
     .await?
     .last_insert_rowid();
@@ -186,7 +209,8 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
          auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
          initial_command = ?, scrollback_lines = ?, font_size = ?, font_family = ?, cursor_style = ?, \
          compression = ?, keepalive_secs = ?, connect_timeout_secs = ?, \
-         session_kind = ?, forward_x11 = ?, starting_dir = ? \
+         session_kind = ?, forward_x11 = ?, starting_dir = ?, \
+         persistent_shell = ?, auto_reconnect = ? \
          WHERE id = ?",
     )
     .bind(input.folder_id)
@@ -209,6 +233,8 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(&input.session_kind)
     .bind(input.forward_x11)
     .bind(&input.starting_dir)
+    .bind(&input.persistent_shell)
+    .bind(input.auto_reconnect)
     .bind(id)
     .execute(&mut *tx)
     .await?;
@@ -225,12 +251,7 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn mv(
-    pool: &SqlitePool,
-    id: i64,
-    folder_id: Option<i64>,
-    sort: i64,
-) -> Result<()> {
+pub async fn mv(pool: &SqlitePool, id: i64, folder_id: Option<i64>, sort: i64) -> Result<()> {
     sqlx::query("UPDATE sessions SET folder_id = ?, sort = ? WHERE id = ?")
         .bind(folder_id)
         .bind(sort)
@@ -271,7 +292,8 @@ pub async fn reorder(
 const DUPLICATE_COLS: &str = "folder_id, host, port, username, auth_type, \
 credential_id, key_passphrase_credential_id, color, \
 initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
-keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
+keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir, \
+persistent_shell, auto_reconnect";
 
 /// Copy a session and its env rows server-side in one transaction — no
 /// read-modify-write round trip through Rust, and no window where the
@@ -350,7 +372,44 @@ mod tests {
             session_kind: "ssh".into(),
             forward_x11: 0,
             starting_dir: None,
+            persistent_shell: "off".into(),
+            auto_reconnect: 0,
         }
+    }
+
+    #[tokio::test]
+    async fn persistent_shell_round_trips_and_duplicates() {
+        let p = pool().await;
+        let created = create(&p, &input("plain")).await.unwrap();
+        assert_eq!(created.persistent_shell, "off");
+        assert_eq!(created.auto_reconnect, 0);
+
+        let mut upd = input("plain");
+        upd.persistent_shell = "tmux".into();
+        upd.auto_reconnect = 1;
+        let s = update(&p, created.id, &upd).await.unwrap();
+        assert_eq!(s.persistent_shell, "tmux");
+        assert_eq!(s.auto_reconnect, 1);
+
+        let dupe = duplicate(&p, s.id).await.unwrap();
+        assert_eq!(dupe.persistent_shell, "tmux");
+        assert_eq!(dupe.auto_reconnect, 1);
+    }
+
+    #[test]
+    fn backup_without_new_fields_deserializes_to_defaults() {
+        let json = serde_json::json!({
+            "id": 1, "folder_id": null, "name": "n", "host": "h", "port": 22,
+            "username": "u", "auth_type": "agent", "credential_id": null,
+            "key_passphrase_credential_id": null, "color": null, "sort": 0,
+            "initial_command": null, "scrollback_lines": 5000, "font_size": 13,
+            "font_family": "", "cursor_style": "block", "compression": 0,
+            "keepalive_secs": 60, "connect_timeout_secs": 15, "session_kind": "ssh",
+            "forward_x11": 0, "starting_dir": null
+        });
+        let s: Session = serde_json::from_value(json).unwrap();
+        assert_eq!(s.persistent_shell, "off");
+        assert_eq!(s.auto_reconnect, 0);
     }
 
     #[tokio::test]
@@ -360,8 +419,14 @@ mod tests {
         src.port = 2222;
         src.color = Some("#ff0000".into());
         src.env = vec![
-            EnvPair { key: "LANG".into(), value: "C.UTF-8".into() },
-            EnvPair { key: "TERM".into(), value: "xterm-256color".into() },
+            EnvPair {
+                key: "LANG".into(),
+                value: "C.UTF-8".into(),
+            },
+            EnvPair {
+                key: "TERM".into(),
+                value: "xterm-256color".into(),
+            },
         ];
         let s = create(&p, &src).await.unwrap();
 
@@ -390,11 +455,19 @@ mod tests {
         };
         crate::db::forwards::create(&p, s.id, &fwd).await.unwrap();
         let dupe2 = duplicate(&p, s.id).await.unwrap();
-        let copied = crate::db::forwards::list_for_session(&p, dupe2.id).await.unwrap();
+        let copied = crate::db::forwards::list_for_session(&p, dupe2.id)
+            .await
+            .unwrap();
         assert_eq!(copied.len(), 1);
         assert_eq!(copied[0].bind_port, 15432);
         assert_eq!(copied[0].dest_addr, "db.internal");
-        assert_eq!(crate::db::forwards::list_for_session(&p, s.id).await.unwrap().len(), 1);
+        assert_eq!(
+            crate::db::forwards::list_for_session(&p, s.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Unknown source id surfaces as NotFound with nothing inserted.
         assert!(matches!(
@@ -414,7 +487,10 @@ mod tests {
         let mut upd = input("alpha2");
         upd.port = 2222;
         upd.keepalive_secs = 60;
-        upd.env = vec![EnvPair { key: "LANG".into(), value: "C.UTF-8".into() }];
+        upd.env = vec![EnvPair {
+            key: "LANG".into(),
+            value: "C.UTF-8".into(),
+        }];
         update(&p, s.id, &upd).await.unwrap();
         let got = get(&p, s.id).await.unwrap();
         assert_eq!(got.port, 2222);

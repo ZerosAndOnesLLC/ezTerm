@@ -6,7 +6,7 @@
 //! speaking the S3 API. Uses path-style addressing by default so R2 /
 //! MinIO work out of the box; AWS accepts path-style too.
 
-use s3::{creds::Credentials, Bucket, Region};
+use s3::{Bucket, Region, creds::Credentials};
 
 use crate::error::{AppError, Result};
 
@@ -19,18 +19,18 @@ pub struct S3Driver {
 }
 
 pub struct S3Config<'a> {
-    pub endpoint:         &'a str,
-    pub region:           &'a str,
-    pub bucket:           &'a str,
-    pub prefix:           &'a str,
-    pub access_key_id:    &'a str,
+    pub endpoint: &'a str,
+    pub region: &'a str,
+    pub bucket: &'a str,
+    pub prefix: &'a str,
+    pub access_key_id: &'a str,
     pub secret_access_key: &'a str,
 }
 
 impl S3Driver {
     pub fn new(cfg: S3Config<'_>) -> Result<Self> {
         let region = Region::Custom {
-            region:   cfg.region.to_string(),
+            region: cfg.region.to_string(),
             endpoint: cfg.endpoint.to_string(),
         };
         let creds = Credentials::new(
@@ -97,8 +97,7 @@ impl S3Driver {
         if !(200..300).contains(&code) {
             return Err(AppError::Ssh(format!("s3 get returned HTTP {code}")));
         }
-        let etag = extract_etag(&resp.headers())
-            .unwrap_or_default();
+        let etag = extract_etag(&resp.headers()).unwrap_or_default();
         Ok(Some((resp.bytes().to_vec(), etag)))
     }
 }
@@ -129,7 +128,10 @@ mod tests {
         assert_eq!(join_prefix_key("foo", "x.json"), "foo/x.json");
         assert_eq!(join_prefix_key("foo/", "x.json"), "foo/x.json");
         assert_eq!(join_prefix_key("/foo/", "x.json"), "foo/x.json");
-        assert_eq!(join_prefix_key("nested/path", "x.json"), "nested/path/x.json");
+        assert_eq!(
+            join_prefix_key("nested/path", "x.json"),
+            "nested/path/x.json"
+        );
     }
 
     #[test]

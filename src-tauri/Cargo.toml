@@ -35,7 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 directories = "6"
 
-russh = "0.64"
+russh = "0.65"
 russh-sftp = "3.0"
 sha2 = "0.11"
 base64 = "0.23"

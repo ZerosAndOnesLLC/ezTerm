@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use russh::client::Handle as RusshHandle;
 
@@ -44,6 +44,10 @@ pub struct Connection {
     /// increments it; `terminal_output_sent` reads it so the frontend's
     /// stall watchdog can compare against what it has received.
     pub output_sent: Arc<AtomicU64>,
+    /// Remote tmux/screen session this tab's shell runs in, when the
+    /// session has `persistent_shell` on and the tool was found. Read by
+    /// `ssh_persist_kill` ("End remote session").
+    pub persist: Option<crate::ssh::persist::PersistBinding>,
 }
 
 pub enum ConnectionInput {

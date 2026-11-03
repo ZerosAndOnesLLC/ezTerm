@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::db::known_hosts::{self, KnownHost};
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::ssh::{self, ConnectRequest};
 use crate::state::AppState;
 
@@ -10,17 +10,36 @@ use crate::state::AppState;
 pub struct ConnectResult {
     pub connection_id: u64,
     pub fingerprint_sha256: String,
+    /// Shell is inside tmux/screen — gates "End remote session" in the UI.
+    pub persistent: bool,
+}
+
+/// Connect parameters for [`ssh_connect`], sent by the webview as one
+/// `args` object (camelCase keys) next to the output channel.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConnectArgs {
+    pub session_id: i64,
+    pub cols: u16,
+    pub rows: u16,
+    pub trust_any: bool,
+    /// Omitted by the webview when unset, which means `false`.
+    #[serde(default)]
+    pub disable_x11: bool,
+    /// Tab slot for the persistent remote session name. Omitted = 1.
+    #[serde(default = "default_persist_slot")]
+    pub persist_slot: u32,
+}
+
+fn default_persist_slot() -> u32 {
+    1
 }
 
 #[tauri::command]
 pub async fn ssh_connect(
     state: State<'_, AppState>,
     app: AppHandle,
-    session_id: i64,
-    cols: u16,
-    rows: u16,
-    trust_any: bool,
-    disable_x11: Option<bool>,
+    args: SshConnectArgs,
     output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<ConnectResult> {
     super::require_unlocked(&state).await?;
@@ -29,11 +48,12 @@ pub async fn ssh_connect(
         deps,
         app,
         ConnectRequest {
-            session_id,
-            cols,
-            rows,
-            trust_any,
-            disable_x11: disable_x11.unwrap_or(false),
+            session_id: args.session_id,
+            cols: args.cols,
+            rows: args.rows,
+            trust_any: args.trust_any,
+            disable_x11: args.disable_x11,
+            persist_slot: args.persist_slot,
             output,
         },
     )
@@ -41,6 +61,7 @@ pub async fn ssh_connect(
     Ok(ConnectResult {
         connection_id: out.connection_id,
         fingerprint_sha256: out.fingerprint_sha256,
+        persistent: out.persistent,
     })
 }
 
@@ -74,6 +95,23 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, connection_id: u64) -> R
     Ok(())
 }
 
+/// "End remote session": kill the tmux/screen session this tab is
+/// attached to. The attached client exits, so the tab's channel closes
+/// through the normal `ssh:close` path afterwards.
+#[tauri::command]
+pub async fn ssh_persist_kill(state: State<'_, AppState>, connection_id: u64) -> Result<()> {
+    super::require_unlocked(&state).await?;
+    let conn = state
+        .ssh
+        .get(connection_id)
+        .await
+        .ok_or(AppError::NotFound)?;
+    let binding = conn.persist.clone().ok_or_else(|| {
+        AppError::Validation("this tab is not running in a persistent session".into())
+    })?;
+    ssh::persist::kill(&conn.ssh_handle, &binding).await
+}
+
 #[tauri::command]
 pub async fn known_host_list(state: State<'_, AppState>) -> Result<Vec<KnownHost>> {
     super::require_unlocked(&state).await?;
@@ -81,11 +119,7 @@ pub async fn known_host_list(state: State<'_, AppState>) -> Result<Vec<KnownHost
 }
 
 #[tauri::command]
-pub async fn known_host_remove(
-    state: State<'_, AppState>,
-    host: String,
-    port: i64,
-) -> Result<()> {
+pub async fn known_host_remove(state: State<'_, AppState>, host: String, port: i64) -> Result<()> {
     super::require_unlocked(&state).await?;
     known_hosts::remove(&state.db, &host, port).await
 }

@@ -11,7 +11,11 @@ pub struct KdfParams {
 
 impl Default for KdfParams {
     fn default() -> Self {
-        Self { m_cost_kib: 64 * 1024, t_cost: 3, p_cost: 1 }
+        Self {
+            m_cost_kib: 64 * 1024,
+            t_cost: 3,
+            p_cost: 1,
+        }
     }
 }
 
@@ -36,7 +40,11 @@ mod tests {
     #[test]
     fn derive_is_deterministic_for_same_inputs() {
         let salt = [7u8; 16];
-        let p = KdfParams { m_cost_kib: 8 * 1024, t_cost: 1, p_cost: 1 }; // fast for tests
+        let p = KdfParams {
+            m_cost_kib: 8 * 1024,
+            t_cost: 1,
+            p_cost: 1,
+        }; // fast for tests
         let a = derive_key(b"correct horse", &salt, p).unwrap();
         let b = derive_key(b"correct horse", &salt, p).unwrap();
         assert_eq!(*a, *b);
@@ -45,7 +53,11 @@ mod tests {
     #[test]
     fn derive_differs_with_different_password() {
         let salt = [7u8; 16];
-        let p = KdfParams { m_cost_kib: 8 * 1024, t_cost: 1, p_cost: 1 };
+        let p = KdfParams {
+            m_cost_kib: 8 * 1024,
+            t_cost: 1,
+            p_cost: 1,
+        };
         let a = derive_key(b"aaa", &salt, p).unwrap();
         let b = derive_key(b"bbb", &salt, p).unwrap();
         assert_ne!(*a, *b);

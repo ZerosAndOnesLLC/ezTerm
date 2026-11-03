@@ -5,4 +5,4 @@ pub mod upload_stream;
 
 pub use registry::{FileBrowser, SftpRegistry};
 #[allow(unused_imports)] // re-exports consumed by Bundle 2 command modules
-pub use session::{normalise_remote_path, SftpHandle};
+pub use session::{SftpHandle, normalise_remote_path};

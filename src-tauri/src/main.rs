@@ -83,6 +83,7 @@ async fn main() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_disconnect,
+            commands::ssh::ssh_persist_kill,
             commands::ssh::known_host_list,
             commands::ssh::known_host_remove,
             commands::sftp::sftp_open,

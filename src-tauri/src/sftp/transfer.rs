@@ -231,9 +231,10 @@ pub async fn download(
                 let mut buf = vec![0u8; CHUNK];
                 let mut last_emit = Instant::now();
                 loop {
-                    let n = r.read(&mut buf).await.map_err(|e| {
-                        AppError::Sftp(format!("read: {e}"))
-                    })?;
+                    let n = r
+                        .read(&mut buf)
+                        .await
+                        .map_err(|e| AppError::Sftp(format!("read: {e}")))?;
                     if n == 0 {
                         break;
                     }

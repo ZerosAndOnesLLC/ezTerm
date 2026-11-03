@@ -22,8 +22,8 @@
 //! them under the target vault. The envelope schema is versioned for forward
 //! compatibility; `BACKUP_VERSION` bumps on any breaking change.
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rand::{rngs::SysRng, TryRng};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
+use rand::{TryRng, rngs::SysRng};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -46,14 +46,14 @@ pub const MIN_PASSPHRASE_LEN: usize = 8;
 /// passphrase-encrypted envelope.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Bundle {
-    pub version:      u16,
-    pub created_at:   String,
-    pub app_version:  String,
-    pub folders:      Vec<Folder>,
-    pub sessions:     Vec<SessionEntry>,
-    pub credentials:  Vec<CredentialEntry>,
-    pub known_hosts:  Vec<KnownHost>,
-    pub settings:     Vec<SettingEntry>,
+    pub version: u16,
+    pub created_at: String,
+    pub app_version: String,
+    pub folders: Vec<Folder>,
+    pub sessions: Vec<SessionEntry>,
+    pub credentials: Vec<CredentialEntry>,
+    pub known_hosts: Vec<KnownHost>,
+    pub settings: Vec<SettingEntry>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -66,9 +66,9 @@ pub struct SessionEntry {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CredentialEntry {
-    pub id:        i64,
-    pub kind:      String,
-    pub label:     String,
+    pub id: i64,
+    pub kind: String,
+    pub label: String,
     /// Plaintext secret, base64. Bytes-only, since private keys have
     /// line endings and whitespace that matter, and passwords may be UTF-8.
     pub secret_b64: String,
@@ -76,7 +76,7 @@ pub struct CredentialEntry {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SettingEntry {
-    pub key:   String,
+    pub key: String,
     pub value: String,
 }
 
@@ -84,11 +84,11 @@ pub struct SettingEntry {
 /// passphrase-derived key) to a JSON-encoded `Bundle`.
 #[derive(Serialize, Deserialize)]
 pub struct BackupEnvelope {
-    pub magic:          String,
-    pub version:        u16,
-    pub kdf:            KdfParams,
-    pub salt_b64:       String,
-    pub nonce_b64:      String,
+    pub magic: String,
+    pub version: u16,
+    pub kdf: KdfParams,
+    pub salt_b64: String,
+    pub nonce_b64: String,
     pub ciphertext_b64: String,
 }
 
@@ -113,11 +113,11 @@ pub fn encrypt_bundle(bundle: &Bundle, passphrase: &str) -> Result<Vec<u8>> {
     let (nonce, ciphertext) = aead.encrypt(&plaintext)?;
 
     let env = BackupEnvelope {
-        magic:          MAGIC.to_string(),
-        version:        BACKUP_VERSION,
-        kdf:            params,
-        salt_b64:       B64.encode(salt),
-        nonce_b64:      B64.encode(&nonce),
+        magic: MAGIC.to_string(),
+        version: BACKUP_VERSION,
+        kdf: params,
+        salt_b64: B64.encode(salt),
+        nonce_b64: B64.encode(&nonce),
         ciphertext_b64: B64.encode(&ciphertext),
     };
     Ok(serde_json::to_vec_pretty(&env)?)
@@ -151,7 +151,9 @@ pub fn decrypt_bundle(bytes: &[u8], passphrase: &str) -> Result<Bundle> {
 
     let key: Zeroizing<[u8; 32]> = kdf::derive_key(passphrase.as_bytes(), &salt, env.kdf)?;
     let aead = Aead256::new(&key);
-    let plaintext = aead.decrypt(&nonce, &ciphertext).map_err(|_| AppError::BadPassword)?;
+    let plaintext = aead
+        .decrypt(&nonce, &ciphertext)
+        .map_err(|_| AppError::BadPassword)?;
     let bundle: Bundle = serde_json::from_slice(&plaintext)
         .map_err(|_| AppError::Validation("backup contents are not valid JSON".into()))?;
     Ok(bundle)
@@ -163,11 +165,11 @@ mod tests {
 
     fn sample_bundle() -> Bundle {
         Bundle {
-            version:     BACKUP_VERSION,
-            created_at:  "2026-01-01T00:00:00Z".into(),
+            version: BACKUP_VERSION,
+            created_at: "2026-01-01T00:00:00Z".into(),
             app_version: "test".into(),
-            folders:     Vec::new(),
-            sessions:    Vec::new(),
+            folders: Vec::new(),
+            sessions: Vec::new(),
             credentials: vec![CredentialEntry {
                 id: 1,
                 kind: "password".into(),
@@ -175,7 +177,7 @@ mod tests {
                 secret_b64: B64.encode(b"sup3rsecret"),
             }],
             known_hosts: Vec::new(),
-            settings:    Vec::new(),
+            settings: Vec::new(),
         }
     }
 

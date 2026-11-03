@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::commands::require_unlocked;
 use crate::db::settings;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 /// Settings keys that may be read without unlocking the vault.
@@ -30,5 +30,8 @@ pub async fn settings_list(state: State<'_, AppState>) -> Result<Vec<(String, St
 #[tauri::command]
 pub async fn settings_set(state: State<'_, AppState>, key: String, value: String) -> Result<()> {
     require_unlocked(&state).await?;
+    if settings::is_local_only(&key) {
+        return Err(AppError::Validation("setting is not writable".into()));
+    }
     settings::set(&state.db, &key, &value).await
 }

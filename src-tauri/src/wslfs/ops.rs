@@ -56,8 +56,6 @@ pub async fn realpath(handle: &WslFsHandle, path: &str) -> Result<String> {
     if path == "." {
         return handle.home().await;
     }
-    let out = handle
-        .wsl_exec(&["realpath", "-m", "--", path])
-        .await?;
+    let out = handle.wsl_exec(&["realpath", "-m", "--", path]).await?;
     Ok(out.trim().to_string())
 }

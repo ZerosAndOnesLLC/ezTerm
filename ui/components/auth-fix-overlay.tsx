@@ -91,6 +91,8 @@ export function AuthFixOverlay({ session, errorMessage, onCancel, onSaved }: Pro
         session_kind: session.session_kind,
         forward_x11: session.forward_x11,
         starting_dir: session.starting_dir,
+        persistent_shell: session.persistent_shell,
+        auto_reconnect: session.auto_reconnect,
       };
       const updated = await api.sessionUpdate(session.id, input);
       onSaved(updated);

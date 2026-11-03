@@ -93,16 +93,15 @@ pub(crate) async fn insert(
     nonce: &[u8],
     ciphertext: &[u8],
 ) -> Result<i64> {
-    let id = sqlx::query(
-        "INSERT INTO credentials (kind, label, nonce, ciphertext) VALUES (?, ?, ?, ?)",
-    )
-    .bind(kind)
-    .bind(label)
-    .bind(nonce)
-    .bind(ciphertext)
-    .execute(pool)
-    .await?
-    .last_insert_rowid();
+    let id =
+        sqlx::query("INSERT INTO credentials (kind, label, nonce, ciphertext) VALUES (?, ?, ?, ?)")
+            .bind(kind)
+            .bind(label)
+            .bind(nonce)
+            .bind(ciphertext)
+            .execute(pool)
+            .await?
+            .last_insert_rowid();
     Ok(id)
 }
 
@@ -212,15 +211,25 @@ mod tests {
         assert_eq!(get(&p, id).await.unwrap().ciphertext, vec![8]);
 
         assert!(update(&p, 9999, Some("x"), None).await.is_err());
-        assert!(update(&p, 9999, None, Some((&[0u8; 12], &[1]))).await.is_err());
+        assert!(
+            update(&p, 9999, None, Some((&[0u8; 12], &[1])))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn list_detailed_reports_session_usage() {
         let p = pool().await;
-        let key = insert(&p, "private_key", "key", &[0u8; 12], &[1]).await.unwrap();
-        let pp = insert(&p, "key_passphrase", "pp", &[0u8; 12], &[2]).await.unwrap();
-        let unused = insert(&p, "password", "pw", &[0u8; 12], &[3]).await.unwrap();
+        let key = insert(&p, "private_key", "key", &[0u8; 12], &[1])
+            .await
+            .unwrap();
+        let pp = insert(&p, "key_passphrase", "pp", &[0u8; 12], &[2])
+            .await
+            .unwrap();
+        let unused = insert(&p, "password", "pw", &[0u8; 12], &[3])
+            .await
+            .unwrap();
 
         sqlx::query(
             "INSERT INTO sessions \
@@ -244,8 +253,7 @@ mod tests {
         let details = list_detailed(&p).await.unwrap();
         let by_id = |id: i64| details.iter().find(|d| d.id == id).unwrap();
 
-        let key_usage: Vec<&str> =
-            by_id(key).used_by.iter().map(|r| r.name.as_str()).collect();
+        let key_usage: Vec<&str> = by_id(key).used_by.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(key_usage, vec!["box-a", "box-b"]);
         assert_eq!(by_id(pp).used_by.len(), 1);
         assert!(by_id(unused).used_by.is_empty());

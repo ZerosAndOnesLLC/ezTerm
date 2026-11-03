@@ -26,12 +26,12 @@
 //! which is post-v0.3.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use russh_sftp::client::SftpSession;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot};
 
 use crate::error::{AppError, Result};
 use crate::sftp::{FileBrowser, SftpHandle};
@@ -53,12 +53,14 @@ struct UploadState {
 
 #[derive(Default)]
 pub struct UploadStreamRegistry {
-    inner:    RwLock<HashMap<u64, UploadState>>,
-    next_id:  AtomicU64,
+    inner: RwLock<HashMap<u64, UploadState>>,
+    next_id: AtomicU64,
 }
 
 impl UploadStreamRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     fn alloc_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
@@ -69,18 +71,17 @@ impl UploadStreamRegistry {
     /// lock for its lifetime; for WSL it holds a `tokio::fs::File` on
     /// the UNC path. Either way it shuts down cleanly on
     /// Finish/Abort/channel-close.
-    pub async fn begin(
-        &self,
-        browser: Arc<FileBrowser>,
-        remote_path: String,
-    ) -> Result<u64> {
+    pub async fn begin(&self, browser: Arc<FileBrowser>, remote_path: String) -> Result<u64> {
         let upload_id = self.alloc_id();
         let (tx, rx) = mpsc::channel::<UploadCmd>(CHANNEL_DEPTH);
-        self.inner.write().await.insert(upload_id, UploadState { tx });
+        self.inner
+            .write()
+            .await
+            .insert(upload_id, UploadState { tx });
         tokio::spawn(async move {
             let _ = match &*browser {
                 FileBrowser::Sftp(_) => sftp_writer(browser.clone(), remote_path, rx).await,
-                FileBrowser::Wsl(_)  => wsl_writer(browser.clone(),  remote_path, rx).await,
+                FileBrowser::Wsl(_) => wsl_writer(browser.clone(), remote_path, rx).await,
             };
         });
         Ok(upload_id)

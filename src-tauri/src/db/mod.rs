@@ -22,7 +22,10 @@ pub async fn init_pool(db_path: &Path) -> crate::error::Result<SqlitePool> {
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
-    let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(opts)
+        .await?;
     heal_line_ending_checksums(&pool).await?;
     MIGRATOR.run(&pool).await?;
     Ok(pool)
@@ -78,8 +81,8 @@ async fn heal_line_ending_checksums(pool: &SqlitePool) -> crate::error::Result<(
         let lf_hash = Sha384::digest(lf.as_bytes());
         let crlf_hash = Sha384::digest(crlf.as_bytes());
 
-        let is_line_ending_variant = stored.as_slice() == lf_hash.as_slice()
-            || stored.as_slice() == crlf_hash.as_slice();
+        let is_line_ending_variant =
+            stored.as_slice() == lf_hash.as_slice() || stored.as_slice() == crlf_hash.as_slice();
 
         if is_line_ending_variant {
             sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = ?")

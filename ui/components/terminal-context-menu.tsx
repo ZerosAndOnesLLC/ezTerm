@@ -10,6 +10,8 @@ export interface TerminalMenuProps {
   onClear:      () => void;
   onFind:       () => void;
   onFont:       () => void;
+  /** Present only for tabs running in a persistent tmux/screen session. */
+  onEndRemote?: () => void;
   onClose:      () => void;
 }
 
@@ -23,5 +25,11 @@ export function TerminalContextMenu(p: TerminalMenuProps) {
     { label: 'Font…',            shortcut: 'Ctrl+Wheel',   onClick: p.onFont },
     { label: 'Clear scrollback', onClick: p.onClear },
   ];
+  if (p.onEndRemote) {
+    items.push(
+      { separator: true },
+      { label: 'End remote session…', danger: true, onClick: p.onEndRemote },
+    );
+  }
   return <ContextMenu x={p.x} y={p.y} items={items} onClose={p.onClose} />;
 }

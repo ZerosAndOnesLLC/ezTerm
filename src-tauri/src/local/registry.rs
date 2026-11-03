@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 pub struct Connection {
     pub id: u64,
@@ -22,7 +22,7 @@ pub struct Connection {
 #[derive(Clone, Debug)]
 pub struct WslMeta {
     pub distro: String,
-    pub user:   Option<String>,
+    pub user: Option<String>,
 }
 
 pub enum LocalInput {

@@ -34,15 +34,15 @@ const SSH_KEY_FIELD_INDEX: usize = 13;
 pub struct ParsedMobaSession {
     /// Folder path from `SubRep`, split on `\`. Empty = root.
     pub folder_path: Vec<String>,
-    pub name:     String,
+    pub name: String,
     /// ezTerm session kind: `"ssh"` or `"wsl"`. Other MobaXterm types
     /// (RDP, VNC, Serial, …) are skipped during parse, not reported here.
     pub session_kind: String,
     /// For ssh: remote hostname. For wsl: distro name (empty = default).
-    pub host:     String,
+    pub host: String,
     /// For ssh: TCP port. For wsl: unused (stored as 22 for schema
     /// compatibility; validator ignores it).
-    pub port:     i64,
+    pub port: i64,
     /// For ssh: remote username. For wsl: optional WSL user (empty = distro
     /// default).
     pub username: String,
@@ -125,7 +125,11 @@ fn split_subrep(value: &str) -> Vec<String> {
         .split('\\')
         .filter_map(|s| {
             let t = s.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         })
         .collect()
 }
@@ -294,10 +298,7 @@ bastion=#0#0%bastion.acme.com%22%ops%%
 ";
         let r = parse(ini);
         assert_eq!(r.sessions.len(), 1);
-        assert_eq!(
-            r.sessions[0].folder_path,
-            vec!["Customers", "Acme", "Prod"]
-        );
+        assert_eq!(r.sessions[0].folder_path, vec!["Customers", "Acme", "Prod"]);
     }
 
     #[test]
