@@ -62,7 +62,10 @@ yarn-error.log*
 /package-lock.json
 
 # ---------- Claude Code runtime ----------
-.claude/
+# Everything under .claude/ is per-user except the shared project settings,
+# which turn off Claude attribution in commits and PRs for every contributor.
+.claude/*
+!.claude/settings.json
 
 # ---------- User-local MobaXterm exports (for import testing) ----------
 *.mxtsessions
