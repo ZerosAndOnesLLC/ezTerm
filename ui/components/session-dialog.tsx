@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftRight,
+  Ban,
   Cog,
   Cpu,
   Folder as FolderIcon,
@@ -9,6 +10,7 @@ import {
   Globe2,
   Key,
   KeyRound,
+  Layers,
   Minus,
   MonitorDot,
   Network,
@@ -35,6 +37,7 @@ import type {
   Folder,
   Forward,
   ForwardKind,
+  PersistentShell,
   Platform,
   Session,
   SessionInput,
@@ -87,6 +90,8 @@ function makeDefaults(): Omit<SessionInput, 'folder_id' | 'name' | 'host' | 'por
     session_kind: 'ssh',
     forward_x11: 0,
     starting_dir: null,
+    persistent_shell: 'off',
+    auto_reconnect: 0,
   };
 }
 
@@ -129,6 +134,8 @@ export function SessionDialog(props: Props) {
         session_kind: s.session_kind,
         forward_x11: s.forward_x11,
         starting_dir: s.starting_dir,
+        persistent_shell: s.persistent_shell ?? 'off',
+        auto_reconnect: s.auto_reconnect ?? 0,
       };
     }
     return {
@@ -413,6 +420,10 @@ function GeneralPane({
       auth_type: next === 'ssh' ? cur.auth_type : 'agent',
       credential_id: next === 'ssh' ? cur.credential_id : null,
       key_passphrase_credential_id: next === 'ssh' ? cur.key_passphrase_credential_id : null,
+      // SSH-only; the backend rejects anything else on wsl/local rows.
+      persistent_shell: next === 'ssh' ? cur.persistent_shell : 'off',
+      auto_reconnect: next === 'ssh' ? cur.auto_reconnect : 0,
+      forward_x11: next === 'ssh' ? cur.forward_x11 : 0,
     }));
   }
   const isSsh   = v.session_kind === 'ssh';
@@ -783,6 +794,51 @@ function AdvancedPane({ v, setV }: PaneProps) {
         </div>
       </Section>
 
+      {v.session_kind === 'ssh' && (
+        <Section title="Persistent session">
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Persistent session">
+            <PersistOption value="off" current={v.persistent_shell} Icon={Ban}
+              onSelect={(p) => setV({ ...v, persistent_shell: p })}
+              title="Off" hint="Plain shell" />
+            <PersistOption value="tmux" current={v.persistent_shell} Icon={Layers}
+              onSelect={(p) => setV({
+                ...v, persistent_shell: p,
+                // First pick of a multiplexer turns auto-reconnect on —
+                // the two are what make a dropped link painless.
+                auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
+              })}
+              title="tmux" hint="Run shell in tmux" />
+            <PersistOption value="screen" current={v.persistent_shell} Icon={SquareTerminal}
+              onSelect={(p) => setV({
+                ...v, persistent_shell: p,
+                auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
+              })}
+              title="screen" hint="Run shell in GNU screen" />
+          </div>
+          <p className="text-muted text-xs -mt-1.5">
+            Runs the shell inside tmux or screen on the server. Closing the tab or
+            losing the connection leaves it running; reconnecting picks up exactly
+            where you left off. Each tab gets its own remote session. Falls back to a
+            normal shell if the tool isn&apos;t installed.
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={v.auto_reconnect === 1}
+              onChange={(e) => setV({ ...v, auto_reconnect: e.target.checked ? 1 : 0 })}
+              className="w-4 h-4 accent-accent"
+            />
+            <span>Reconnect automatically if the connection drops</span>
+          </label>
+          {v.auto_reconnect === 1 && v.keepalive_secs === 0 && (
+            <p className="text-warning text-xs -mt-1.5">
+              Keepalive is off, so a dead link may take minutes to notice. Set a
+              keepalive above for faster reconnects.
+            </p>
+          )}
+        </Section>
+      )}
+
       <Section title="Transport">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
@@ -892,6 +948,36 @@ function AuthOption({
   title: string;
   hint: string;
   Icon: LucideIcon;
+}) {
+  const on = value === current;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={() => onSelect(value)}
+      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
+        on
+          ? 'border-accent bg-accent/10 text-fg'
+          : 'border-border hover:border-muted text-muted hover:text-fg'
+      }`}
+    >
+      <Icon size={16} className={on ? 'text-accent' : ''} />
+      <div className="font-medium text-sm">{title}</div>
+      <div className="text-xs text-muted">{hint}</div>
+    </button>
+  );
+}
+
+function PersistOption({
+  value, current, onSelect, title, hint, Icon,
+}: {
+  value:    PersistentShell;
+  current:  PersistentShell;
+  onSelect: (p: PersistentShell) => void;
+  title:    string;
+  hint:     string;
+  Icon:     LucideIcon;
 }) {
   const on = value === current;
   return (

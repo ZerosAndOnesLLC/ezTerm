@@ -108,10 +108,10 @@ export const api = {
   // SSH
   sshConnect:    (
     sessionId: number, cols: number, rows: number, trustAny: boolean,
-    disableX11: boolean | undefined, output: Channel<ArrayBuffer>,
+    disableX11: boolean | undefined, persistSlot: number, output: Channel<ArrayBuffer>,
   ) =>
     invoke<ConnectResult>('ssh_connect', {
-      args: { sessionId, cols, rows, trustAny, disableX11 },
+      args: { sessionId, cols, rows, trustAny, disableX11, persistSlot },
       output,
     }),
   sshWrite:      (connectionId: number, bytes: number[]) =>
@@ -120,6 +120,9 @@ export const api = {
     invoke<void>('ssh_resize', { connectionId, cols, rows }),
   sshDisconnect: (connectionId: number) =>
     invoke<void>('ssh_disconnect', { connectionId }),
+  /** End the tab's remote tmux/screen session ("End remote session"). */
+  sshPersistKill: (connectionId: number) =>
+    invoke<void>('ssh_persist_kill', { connectionId }),
 
   // Known hosts
   knownHostList:   () => invoke<KnownHost[]>('known_host_list'),

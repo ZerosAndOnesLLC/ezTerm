@@ -23,6 +23,20 @@ export interface Tab {
   sftpOpen:     boolean;
   forwardsOpen: boolean;
   cwd:          string;
+  /** Per-saved-session slot (1, 2, …) naming this tab's persistent remote
+   *  session `ezterm-<session_id>-<slot>`. Fixed for the tab's life so
+   *  reconnects reattach to the same tmux/screen session. */
+  persistSlot:  number;
+}
+
+/** Lowest slot ≥ 1 not held by another open tab of the same session —
+ *  so reopening a session after closing its tab reattaches to the remote
+ *  session that tab left running. */
+export function nextPersistSlot(tabs: readonly Tab[], sessionId: number): number {
+  const used = new Set(tabs.filter((t) => t.session.id === sessionId).map((t) => t.persistSlot));
+  let slot = 1;
+  while (used.has(slot)) slot += 1;
+  return slot;
 }
 
 const VIEW_MODE_KEY  = 'ezterm.viewMode';
@@ -229,6 +243,7 @@ export const useTabs = create<TabsState>((set, get) => ({
             sftpOpen: false,
             forwardsOpen: false,
             cwd: '/',
+            persistSlot: nextPersistSlot(s.tabs, session.id),
           },
         ],
         activeId: tabId,

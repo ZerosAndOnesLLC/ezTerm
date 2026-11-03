@@ -65,6 +65,9 @@ export type CloseReason = number | string | null;
 export interface SshEventHandlers {
   onClose: (reason: CloseReason) => void;
   onError: (message: string) => void;
+  /** SSH only: the transport dropped without the remote side ending the
+   *  shell (keepalive timeout, TCP reset). Candidates for auto-reconnect. */
+  onLost?: () => void;
 }
 
 /** Low-volume lifecycle events still travel as Tauri events, keyed by
@@ -76,6 +79,11 @@ export async function subscribeSshEvents(connectionId: number, h: SshEventHandle
   }));
   unlisteners.push(await listen<string>(`ssh:error:${connectionId}`, (e) => {
     h.onError(e.payload);
+  }));
+  // Without an onLost handler a lost link reads as a plain close.
+  unlisteners.push(await listen(`ssh:lost:${connectionId}`, () => {
+    if (h.onLost) h.onLost();
+    else h.onClose(null);
   }));
   return () => unlisteners.forEach((u) => u());
 }

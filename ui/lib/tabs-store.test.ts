@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampSftpColumn, parseSftpColumns,
+  clampSftpColumn, nextPersistSlot, parseSftpColumns,
   SFTP_COL_DEFAULT, SFTP_COL_MAX, SFTP_COL_MIN,
+  type Tab,
 } from './tabs-store';
+
+describe('nextPersistSlot', () => {
+  const tab = (sessionId: number, persistSlot: number) =>
+    ({ session: { id: sessionId }, persistSlot }) as unknown as Tab;
+
+  it('starts at 1 for a session with no open tabs', () => {
+    expect(nextPersistSlot([], 7)).toBe(1);
+    expect(nextPersistSlot([tab(8, 1)], 7)).toBe(1);
+  });
+
+  it('gives each open tab of a session its own slot', () => {
+    expect(nextPersistSlot([tab(7, 1), tab(7, 2)], 7)).toBe(3);
+  });
+
+  it('reuses the lowest freed slot so a reopened tab reattaches', () => {
+    expect(nextPersistSlot([tab(7, 2), tab(7, 3)], 7)).toBe(1);
+    expect(nextPersistSlot([tab(7, 1), tab(7, 3)], 7)).toBe(2);
+  });
+});
 
 describe('parseSftpColumns', () => {
   it('returns defaults for missing or malformed storage', () => {

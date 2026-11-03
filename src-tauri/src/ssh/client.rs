@@ -17,6 +17,7 @@ use crate::log_redacted;
 use crate::sftp::SftpRegistry;
 use crate::ssh::forwards::RemoteDispatch;
 use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
+use crate::ssh::persist::{self, PersistKind, PersistTarget, Probe};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
@@ -34,6 +35,10 @@ pub struct ConnectRequest {
     /// X11" button in the VcXsrv-missing dialog so the user can reach
     /// the host right now without editing the session.
     pub disable_x11: bool,
+    /// Per-tab slot for the persistent remote session name
+    /// (`ezterm-<session_id>-<slot>`). Ignored when the session's
+    /// `persistent_shell` is 'off'. Range-checked in `PersistTarget::new`.
+    pub persist_slot: u32,
     /// Where shell output goes. A Tauri IPC channel created by the
     /// frontend before it invokes `ssh_connect`, so a listener is
     /// guaranteed to exist before the first byte arrives. Payloads are
@@ -374,6 +379,20 @@ async fn connect_impl(
             fingerprint = %fingerprint);
     }
 
+    // 4b. Persistent remote session: find out up front whether the tab's
+    // tmux/screen session already exists. Runs on its own short exec
+    // channel so the main PTY channel below can go straight to the right
+    // attach / create / plain-shell request.
+    let persist_plan: Option<(PersistTarget, Probe)> =
+        match PersistKind::parse(&session.persistent_shell)? {
+            None => None,
+            Some(kind) => {
+                let target = PersistTarget::new(kind, session.id, req.persist_slot)?;
+                let found = persist::probe(&handle, &target).await;
+                Some((target, found))
+            }
+        };
+
     // 5. Open shell channel with PTY.
     let channel = handle
         .channel_open_session()
@@ -428,16 +447,48 @@ async fn connect_impl(
             return Err(AppError::Ssh(format!("request_x11: {e}")));
         }
     }
-    channel
-        .request_shell(true)
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+    // Plain shell, or exec into the remote multiplexer. On reattach the
+    // starting-dir / initial-command keystrokes are skipped — they'd land
+    // inside whatever the user left running. On create they run once in
+    // the new shell inside tmux/screen.
+    let mut notice: Option<Vec<u8>> = None;
+    let (persist_target, run_on_connect) = match persist_plan {
+        None => {
+            channel
+                .request_shell(true)
+                .await
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            (None, true)
+        }
+        Some((target, Probe::Exists { attach_id })) => {
+            channel
+                .exec(true, persist::attach_command(&target, &attach_id))
+                .await
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            (Some(target), false)
+        }
+        Some((target, Probe::Absent)) => {
+            channel
+                .exec(true, persist::create_command(&target))
+                .await
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            (Some(target), true)
+        }
+        Some((target, Probe::Unavailable)) => {
+            channel
+                .request_shell(true)
+                .await
+                .map_err(|e| AppError::Ssh(e.to_string()))?;
+            notice = Some(persist::unavailable_notice(target.kind));
+            (None, true)
+        }
+    };
     // Optional starting directory — written before `initial_command` so the
     // command runs in the right place. Same rationale as initial_command for
     // using the shell channel rather than `channel_exec`: we need the
     // interactive shell to stay alive. Tilde-prefixed paths go through raw
     // so bash expansion still works; everything else is double-quoted.
-    if let Some(raw) = session.starting_dir.as_ref() {
+    if let Some(raw) = session.starting_dir.as_ref().filter(|_| run_on_connect) {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
             let line = format!("cd {}\n", format_cd_target(trimmed));
@@ -451,7 +502,7 @@ async fn connect_impl(
     // stdin the same way the user would have typed them. We intentionally
     // avoid `channel_exec` here so the interactive shell stays alive after
     // the command runs (exec would close the channel on exit).
-    if let Some(cmd) = session.initial_command.as_ref() {
+    if let Some(cmd) = session.initial_command.as_ref().filter(|_| run_on_connect) {
         let trimmed = cmd.trim();
         if !trimmed.is_empty() {
             let line = format!("{trimmed}\n");
@@ -476,6 +527,14 @@ async fn connect_impl(
     ));
     let forwards_for_scan = forwards.clone();
     let output_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    // Fallback notice goes out before the driver starts so it's the first
+    // thing in the terminal; counted like any other chunk so the stall
+    // watchdog's sent/received totals stay in step.
+    if let Some(bytes) = notice
+        && req.output.send(InvokeResponseBody::Raw(bytes)).is_ok()
+    {
+        output_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     deps.ssh
         .insert(Connection {
             id,
@@ -487,6 +546,7 @@ async fn connect_impl(
             x11_display,
             forwards,
             output_sent: output_sent.clone(),
+            persist: persist_target,
         })
         .await;
 
@@ -819,6 +879,7 @@ async fn drive_channel(
     let id = teardown.id;
     let ev_close = format!("ssh:close:{id}");
     let ev_error = format!("ssh:error:{id}");
+    let ev_lost = format!("ssh:lost:{id}");
     loop {
         tokio::select! {
             maybe_msg = channel.wait() => {
@@ -852,7 +913,18 @@ async fn drive_channel(
                         log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
                     }
-                    Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
+                    // `None` = russh dropped the channel without the
+                    // server closing it: the transport itself is gone
+                    // (keepalive timeout, TCP reset, server vanished).
+                    // Reported separately so the frontend can
+                    // auto-reconnect; a server-side Eof/Close or an exit
+                    // status above is a deliberate end and isn't retried.
+                    None => {
+                        let _ = app.emit(&ev_lost, serde_json::Value::Null);
+                        log_redacted!(info, "ssh.channel.lost", connection_id = id);
+                        break;
+                    }
+                    Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => {
                         let _ = app.emit(&ev_close, serde_json::Value::Null);
                         log_redacted!(info, "ssh.channel.closed", connection_id = id);
                         break;
