@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "SSH Port Forwarding in ezTerm — Local, Remote & SOCKS5"
 sidebar:
-  order: 6
+  order: 7
 ---
 
 ezTerm supports all three SSH port-forward kinds — same semantics as the OpenSSH command-line flags.

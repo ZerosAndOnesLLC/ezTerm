@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "SFTP File Browser in ezTerm — Transfers on One Connection"
 sidebar:
-  order: 2
+  order: 3
 ---
 
 Each SSH tab can optionally open an **SFTP side-pane** — a file browser docked on the left of the terminal. The pane uses an SFTP subsystem on the same SSH connection, so there's no second authentication step.

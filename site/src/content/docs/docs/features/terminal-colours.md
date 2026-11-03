@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "Terminal Colour Palettes in ezTerm — Solarized, Dracula, Nord and More"
 sidebar:
-  order: 8
+  order: 9
 ---
 
 ezTerm ships 17 built-in colour palettes for the terminal. The palette sets the 16 ANSI colours plus the background, text, cursor and selection colours for every terminal tab.

@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "WSL Tabs in ezTerm — Linux Distro Terminals on Windows"
 sidebar:
-  order: 3
+  order: 4
 ---
 
 ezTerm can open WSL distros as terminal tabs — same UI as SSH sessions, but the backend is `wsl.exe -d <distro>` under a [ConPTY](https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/) on Windows.
