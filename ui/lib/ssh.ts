@@ -73,18 +73,21 @@ export interface SshEventHandlers {
 /** Low-volume lifecycle events still travel as Tauri events, keyed by
  *  connection id. Local PTYs reuse the same topics. */
 export async function subscribeSshEvents(connectionId: number, h: SshEventHandlers): Promise<UnlistenFn> {
-  const unlisteners: UnlistenFn[] = [];
-  unlisteners.push(await listen<CloseReason>(`ssh:close:${connectionId}`, (e) => {
-    h.onClose(e.payload);
-  }));
-  unlisteners.push(await listen<string>(`ssh:error:${connectionId}`, (e) => {
-    h.onError(e.payload);
-  }));
-  // Without an onLost handler a lost link reads as a plain close.
-  unlisteners.push(await listen(`ssh:lost:${connectionId}`, () => {
-    if (h.onLost) h.onLost();
-    else h.onClose(null);
-  }));
+  // Registered in parallel — each `listen` is its own IPC round trip and
+  // this runs on every connect / reconnect.
+  const unlisteners = await Promise.all([
+    listen<CloseReason>(`ssh:close:${connectionId}`, (e) => {
+      h.onClose(e.payload);
+    }),
+    listen<string>(`ssh:error:${connectionId}`, (e) => {
+      h.onError(e.payload);
+    }),
+    // Without an onLost handler a lost link reads as a plain close.
+    listen(`ssh:lost:${connectionId}`, () => {
+      if (h.onLost) h.onLost();
+      else h.onClose(null);
+    }),
+  ]);
   return () => unlisteners.forEach((u) => u());
 }
 

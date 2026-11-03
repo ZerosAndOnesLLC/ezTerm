@@ -1,6 +1,6 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Loader2, PlugZap, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { AlertCircle, Loader2, PlugZap } from 'lucide-react';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api, errMessage } from '@/lib/tauri';
@@ -18,12 +18,17 @@ import { resolveFontFamily } from '@/lib/xterm';
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
 import { getSetting } from '@/lib/settings';
 import { ConfirmDialog } from './confirm-dialog';
-import { MAX_RECONNECT_ATTEMPTS, reconnectDelayMs } from '@/lib/reconnect';
+import { ReconnectCard } from './reconnect-card';
+import { MAX_RECONNECT_ATTEMPTS, isRetryableConnectError } from '@/lib/reconnect';
+import { ReconnectLoop } from '@/lib/reconnect-loop';
 
-/** How a connect attempt ended — drives the auto-reconnect loop. `fatal`
- *  means the user has to act (host-key prompt, auth fix, X server); the
- *  matching dialog is already up and retrying would just repeat it. */
-type ConnectOutcome = 'ok' | 'fatal' | 'retryable';
+/** How a connect attempt ended — drives the auto-reconnect loop.
+ *  - `fatal`: the user has to act (host-key prompt, auth fix, X server,
+ *    locked vault, …); the matching UI is already up.
+ *  - `retryable`: transient (timeout, refused, network down).
+ *  - `cancelled`: superseded by a newer connect, a Cancel, or unmount —
+ *    the attempt touched no UI and released anything it opened. */
+type ConnectOutcome = 'ok' | 'fatal' | 'retryable' | 'cancelled';
 
 /** Short 880 Hz tick via WebAudio — no asset to ship, ~80 ms. */
 function beep() {
@@ -128,11 +133,16 @@ export function TerminalView({ tab, visible }: Props) {
   const [confirmEndRemote, setConfirmEndRemote] = useState(false);
   /** Auto-reconnect in progress: attempt number and when it fires. */
   const [reconnect, setReconnect] = useState<{ attempt: number; at: number } | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const reconnectTimerRef = useRef<number | null>(null);
-  /** Bumped by every cancel, so an attempt already in flight when the
-   *  user hits Cancel (or Reconnect) can't re-arm the loop when it ends. */
-  const reconnectGenRef = useRef(0);
+  /** The live connection is inside tmux/screen (backend-confirmed, so a
+   *  fallback to a plain shell hides "End remote session"). */
+  const [persistentLive, setPersistentLive] = useState(false);
+  /** Bumped by every runConnect and every cancel. An attempt compares its
+   *  captured value after each await; if it changed, a newer connect, a
+   *  Cancel or unmount superseded it, and it backs out without touching
+   *  the UI — so two connects can never both wire into this terminal. */
+  const connectSeqRef = useRef(0);
+  /** Last transient failure during auto-reconnect, shown on give-up. */
+  const lastReconnectErrorRef = useRef<string | null>(null);
   // Live font state for this tab. Starts from the session row; the
   // context-menu picker and Ctrl+wheel mutate these without rewriting
   // the DB (unless the user explicitly saves via the picker). A ref
@@ -183,19 +193,25 @@ export function TerminalView({ tab, visible }: Props) {
    *  button, host-key trust, auth fix, X server dialog) goes through
    *  runConnect, which calls this first, so a user action always wins
    *  over a timer. */
-  const cancelReconnect = useCallback(() => {
-    reconnectGenRef.current += 1;
-    if (reconnectTimerRef.current !== null) {
-      window.clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-    setReconnect(null);
-  }, []);
+  /** Reconnect attempt / give-up handlers, refreshed by a layout effect
+   *  below; the loop is created once and calls through these. */
+  const attemptRef = useRef<() => Promise<ConnectOutcome>>(async () => 'cancelled');
+  const giveUpRef = useRef<() => void>(() => {});
+  const [loop] = useState(() => new ReconnectLoop({
+    attempt: () => attemptRef.current(),
+    onState: setReconnect,
+    onGiveUp: () => giveUpRef.current(),
+  }));
 
-  /** The link dropped (ssh:lost or stalled output). Set from the render
-   *  body below so it always sees the current session row — the user may
-   *  have flipped auto_reconnect since the tab opened. */
-  const onLinkLostRef = useRef<() => void>(() => {});
+  const cancelReconnect = useCallback(() => {
+    connectSeqRef.current += 1;
+    loop.cancel();
+  }, [loop]);
+
+  /** The link dropped (ssh:lost, or stalled output when `stalled`). Kept
+   *  in a ref refreshed by a layout effect below so it always reads the
+   *  current session row — the user may flip auto_reconnect mid-session. */
+  const onLinkLostRef = useRef<(opts: { stalled: boolean }) => void>(() => {});
 
   const runConnect = useCallback(async (
     trustAny: boolean, disableX11 = false, auto = false,
@@ -203,6 +219,8 @@ export function TerminalView({ tab, visible }: Props) {
     const bundle = bundleRef.current;
     if (!bundle) return 'fatal';
     if (!auto) cancelReconnect();
+    const seq = ++connectSeqRef.current;
+    const stale = () => cancelledRef.current || seq !== connectSeqRef.current;
     // A retry replaces the previous connection wholesale; its listeners
     // must not outlive it or its close event would act on the new one.
     teardownConnection({ disconnect: true });
@@ -213,7 +231,9 @@ export function TerminalView({ tab, visible }: Props) {
     // During auto-reconnect a transient failure stays on the
     // "reconnecting" overlay instead of flashing the error card.
     const softFail = (msg: string): ConnectOutcome => {
-      if (!auto) fail(msg);
+      if (stale()) return 'cancelled';
+      if (auto) lastReconnectErrorRef.current = msg;
+      else fail(msg);
       return 'retryable';
     };
     try {
@@ -232,7 +252,7 @@ export function TerminalView({ tab, visible }: Props) {
       // can never emit into a listener that doesn't exist yet. It buffers
       // until arm() below, once keystroke replies can flow back.
       const output = createOutputChannel((bytes) => bundle.terminal.write(bytes));
-      let result: { connection_id: number };
+      let result: { connection_id: number; persistent?: boolean };
       try {
         result = isLocal
           ? await api.localConnect(tab.session.id, cols, rows, output.channel)
@@ -241,6 +261,7 @@ export function TerminalView({ tab, visible }: Props) {
             );
       } catch (e) {
         output.detach();
+        if (stale()) return 'cancelled';
         const code = (e as { code?: string })?.code;
         // Host-key prompts are SSH-specific; local kinds can't produce them.
         if (!isLocal && code === 'host_key_untrusted') {
@@ -274,12 +295,16 @@ export function TerminalView({ tab, visible }: Props) {
           setAuthFix(true);
           return 'fatal';
         }
+        if (!isRetryableConnectError(code)) {
+          fail(errMessage(e));
+          return 'fatal';
+        }
         return softFail(errMessage(e));
       }
-      if (cancelledRef.current) {
+      if (stale()) {
         output.detach();
-        await term.disconnect(result.connection_id);
-        return 'fatal';
+        await term.disconnect(result.connection_id).catch(() => {});
+        return 'cancelled';
       }
       const cid = result.connection_id;
       const conn: LiveConnection = {
@@ -289,6 +314,7 @@ export function TerminalView({ tab, visible }: Props) {
       const isLive = () => connRef.current === conn;
       connectionIdRef.current = cid;
       setConn(tab.tabId, cid);
+      setPersistentLive(result.persistent === true);
       setStatus(tab.tabId, 'connected');
       if (
         getSetting('sessions.autoOpenSftp') &&
@@ -319,13 +345,16 @@ export function TerminalView({ tab, visible }: Props) {
         onLost: () => {
           if (!isLive()) return;
           teardownConnection({ disconnect: false });
-          onLinkLostRef.current();
+          onLinkLostRef.current({ stalled: false });
         },
       });
-      if (!isLive() || cancelledRef.current) {
+      if (!isLive() || stale()) {
         unlisten();
-        teardownConnection({ disconnect: true });
-        return 'fatal';
+        // Only tear down what this attempt owns — a newer connect may
+        // already be live in connRef.
+        if (isLive()) teardownConnection({ disconnect: true });
+        else term.disconnect(cid).catch(() => {});
+        return 'cancelled';
       }
       conn.unlisten = unlisten;
 
@@ -350,11 +379,7 @@ export function TerminalView({ tab, visible }: Props) {
         () => {
           if (!isLive()) return;
           teardownConnection({ disconnect: true });
-          if (!isLocal && useTabs.getState().tabs.find((t) => t.tabId === tab.tabId)?.session.auto_reconnect === 1) {
-            onLinkLostRef.current();
-            return;
-          }
-          fail('Terminal output stalled — the connection was dropped. Reconnect to continue.');
+          onLinkLostRef.current({ stalled: true });
         },
       );
 
@@ -370,42 +395,28 @@ export function TerminalView({ tab, visible }: Props) {
     setStatus, setConn, teardownConnection, cancelReconnect,
   ]);
 
-  /** Arm auto-reconnect attempt `attempt` after its backoff delay. */
-  const scheduleReconnect = useCallback((attempt: number) => {
-    if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current);
-    reconnectTimerRef.current = null;
-    if (attempt > MAX_RECONNECT_ATTEMPTS) {
-      setReconnect(null);
-      setStatus(tab.tabId, 'closed', 'connection lost');
-      return;
-    }
-    const delay = reconnectDelayMs(attempt);
-    setStatus(tab.tabId, 'connecting');
-    setReconnect({ attempt, at: Date.now() + delay });
-    setNow(Date.now());
-    const gen = reconnectGenRef.current;
-    reconnectTimerRef.current = window.setTimeout(async () => {
-      reconnectTimerRef.current = null;
-      if (cancelledRef.current) return;
-      const outcome = await runConnect(false, false, true);
-      if (cancelledRef.current || gen !== reconnectGenRef.current) return;
-      if (outcome === 'retryable') scheduleReconnect(attempt + 1);
-      else setReconnect(null);
-    }, delay);
-  }, [tab.tabId, setStatus, runConnect]);
-
-  onLinkLostRef.current = () => {
-    const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
-    if (cur?.session.auto_reconnect === 1) scheduleReconnect(1);
-    else setStatus(tab.tabId, 'closed', 'connection lost');
-  };
-
-  // Countdown tick for the "next try in Ns" line.
-  useEffect(() => {
-    if (!reconnect) return;
-    const id = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(id);
-  }, [reconnect]);
+  useLayoutEffect(() => {
+    attemptRef.current = () => runConnect(false, false, true);
+    giveUpRef.current = () => {
+      const last = lastReconnectErrorRef.current;
+      setStatus(
+        tab.tabId, 'error',
+        `Gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts${last ? `: ${last}` : '.'}`,
+      );
+    };
+    onLinkLostRef.current = ({ stalled }) => {
+      const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+      if (cur?.session.auto_reconnect === 1) {
+        lastReconnectErrorRef.current = null;
+        setStatus(tab.tabId, 'connecting');
+        loop.start();
+      } else if (stalled) {
+        setStatus(tab.tabId, 'error', 'Terminal output stalled — the connection was dropped. Reconnect to continue.');
+      } else {
+        setStatus(tab.tabId, 'closed', 'connection lost');
+      }
+    };
+  }, [runConnect, setStatus, tab.tabId, loop]);
 
   // Mount xterm and start the first connect attempt.
   //
@@ -488,10 +499,9 @@ export function TerminalView({ tab, visible }: Props) {
     return () => {
       cancelledRef.current = true;
       window.clearTimeout(openTimer);
-      if (reconnectTimerRef.current !== null) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
+      // Also invalidates any attempt in flight (strict-mode remount resets
+      // cancelledRef, so the sequence bump is what stops it).
+      cancelReconnect();
       // Stop output before the terminal goes away (see teardownConnection).
       teardownConnection({ disconnect: true });
       resizeObsRef.current?.disconnect();
@@ -759,43 +769,14 @@ export function TerminalView({ tab, visible }: Props) {
               </>
             )}
             {tab.status === 'connecting' && reconnect && (
-              <>
-                <RefreshCw size={28} className="text-accent animate-spin mx-auto mb-2" />
-                <div className="text-sm font-medium">Connection lost — reconnecting</div>
-                <div className="text-muted text-xs mt-1">
-                  Attempt {reconnect.attempt} of {MAX_RECONNECT_ATTEMPTS}
-                  {reconnect.at > now
-                    ? ` · next try in ${Math.ceil((reconnect.at - now) / 1000)}s`
-                    : ' · trying now…'}
-                </div>
-                <div className="text-muted text-xs mt-0.5 font-mono">{summary}</div>
-                <div className="flex gap-2 justify-center mt-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const attempt = reconnect.attempt;
-                      cancelReconnect();
-                      const gen = reconnectGenRef.current;
-                      void runConnect(false, false, true).then((o) => {
-                        if (cancelledRef.current || gen !== reconnectGenRef.current) return;
-                        if (o === 'retryable') scheduleReconnect(attempt + 1);
-                      });
-                    }}
-                    disabled={reconnect.at <= now}
-                    className="btn-primary focus-ring"
-                  >
-                    <PlugZap size={12} />
-                    Retry now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { cancelReconnect(); setStatus(tab.tabId, 'closed', 'connection lost'); }}
-                    className="btn-ghost focus-ring"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
+              <ReconnectCard
+                attempt={reconnect.attempt}
+                at={reconnect.at}
+                summary={summary}
+                active={visible}
+                onRetryNow={() => loop.retryNow()}
+                onCancel={() => { cancelReconnect(); setStatus(tab.tabId, 'closed', 'connection lost'); }}
+              />
             )}
             {tab.status === 'error' && (
               <>
@@ -845,9 +826,7 @@ export function TerminalView({ tab, visible }: Props) {
           onFind={() => { setFind(true); setMenu(null); }}
           onFont={() => { setFontPicker(true); setMenu(null); }}
           onEndRemote={
-            tab.session.session_kind === 'ssh' &&
-            tab.session.persistent_shell !== 'off' &&
-            tab.status === 'connected'
+            persistentLive && tab.status === 'connected'
               ? () => { setConfirmEndRemote(true); setMenu(null); }
               : undefined
           }

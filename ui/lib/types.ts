@@ -282,6 +282,9 @@ export interface AppErrorPayload {
 export interface ConnectResult {
   connection_id: number;
   fingerprint_sha256: string;
+  /** SSH only: the shell is running inside a tmux/screen session (false
+   *  when persistence is configured but fell back to a plain shell). */
+  persistent?: boolean;
 }
 
 export interface KnownHost {

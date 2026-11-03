@@ -435,15 +435,15 @@ function GeneralPane({
     <>
       <Section title="Type">
         <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Session type">
-          <KindOption
+          <RadioCard
             value="ssh" current={v.session_kind} Icon={Network}
             onSelect={switchKind}
             title="SSH" hint="Remote Linux / Unix server" />
-          <KindOption
+          <RadioCard
             value="wsl" current={v.session_kind} Icon={SquareTerminal}
             onSelect={switchKind}
             title="WSL" hint="Local Linux subsystem distro" />
-          <KindOption
+          <RadioCard
             value="local" current={v.session_kind} Icon={MonitorDot}
             onSelect={switchKind}
             title="Local Shell"
@@ -597,13 +597,13 @@ function GeneralPane({
         <Section title="Authentication">
           <Field label="Method">
             <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Auth method">
-              <AuthOption value="password" current={v.auth_type} Icon={Key}
+              <RadioCard value="password" current={v.auth_type} Icon={Key}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="Password" hint="Static password in vault" />
-              <AuthOption value="key" current={v.auth_type} Icon={KeyRound}
+              <RadioCard value="key" current={v.auth_type} Icon={KeyRound}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="Private Key" hint="PEM / OpenSSH key" />
-              <AuthOption value="agent" current={v.auth_type} Icon={Cpu}
+              <RadioCard value="agent" current={v.auth_type} Icon={Cpu}
                 onSelect={(a) => setV({ ...v, auth_type: a, credential_id: null, key_passphrase_credential_id: null })}
                 title="SSH Agent" hint="Pageant / OpenSSH Agent" />
             </div>
@@ -797,10 +797,10 @@ function AdvancedPane({ v, setV }: PaneProps) {
       {v.session_kind === 'ssh' && (
         <Section title="Persistent session">
           <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Persistent session">
-            <PersistOption value="off" current={v.persistent_shell} Icon={Ban}
+            <RadioCard value="off" current={v.persistent_shell} Icon={Ban}
               onSelect={(p) => setV({ ...v, persistent_shell: p })}
               title="Off" hint="Plain shell" />
-            <PersistOption value="tmux" current={v.persistent_shell} Icon={Layers}
+            <RadioCard value="tmux" current={v.persistent_shell} Icon={Layers}
               onSelect={(p) => setV({
                 ...v, persistent_shell: p,
                 // First pick of a multiplexer turns auto-reconnect on —
@@ -808,7 +808,7 @@ function AdvancedPane({ v, setV }: PaneProps) {
                 auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
               })}
               title="tmux" hint="Run shell in tmux" />
-            <PersistOption value="screen" current={v.persistent_shell} Icon={SquareTerminal}
+            <RadioCard value="screen" current={v.persistent_shell} Icon={SquareTerminal}
               onSelect={(p) => setV({
                 ...v, persistent_shell: p,
                 auto_reconnect: v.persistent_shell === 'off' ? 1 : v.auto_reconnect,
@@ -939,100 +939,43 @@ function EnvEditor({
   );
 }
 
-function AuthOption({
-  value, current, onSelect, title, hint, Icon,
-}: {
-  value: AuthType;
-  current: AuthType;
-  onSelect: (a: AuthType) => void;
-  title: string;
-  hint: string;
-  Icon: LucideIcon;
-}) {
-  const on = value === current;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      onClick={() => onSelect(value)}
-      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
-        on
-          ? 'border-accent bg-accent/10 text-fg'
-          : 'border-border hover:border-muted text-muted hover:text-fg'
-      }`}
-    >
-      <Icon size={16} className={on ? 'text-accent' : ''} />
-      <div className="font-medium text-sm">{title}</div>
-      <div className="text-xs text-muted">{hint}</div>
-    </button>
-  );
-}
-
-function PersistOption({
-  value, current, onSelect, title, hint, Icon,
-}: {
-  value:    PersistentShell;
-  current:  PersistentShell;
-  onSelect: (p: PersistentShell) => void;
-  title:    string;
-  hint:     string;
-  Icon:     LucideIcon;
-}) {
-  const on = value === current;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      onClick={() => onSelect(value)}
-      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
-        on
-          ? 'border-accent bg-accent/10 text-fg'
-          : 'border-border hover:border-muted text-muted hover:text-fg'
-      }`}
-    >
-      <Icon size={16} className={on ? 'text-accent' : ''} />
-      <div className="font-medium text-sm">{title}</div>
-      <div className="text-xs text-muted">{hint}</div>
-    </button>
-  );
-}
-
-function KindOption({
-  value, current, onSelect, title, hint, Icon,
-}: {
-  value:    SessionKind;
-  current:  SessionKind;
-  onSelect: (k: SessionKind) => void;
-  title:    string;
-  hint:     string;
-  Icon:     LucideIcon;
-}) {
-  const on = value === current;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      onClick={() => onSelect(value)}
-      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
-        on
-          ? 'border-accent bg-accent/10 text-fg'
-          : 'border-border hover:border-muted text-muted hover:text-fg'
-      }`}
-    >
-      <Icon size={16} className={on ? 'text-accent' : ''} />
-      <div className="font-medium text-sm">{title}</div>
-      <div className="text-xs text-muted">{hint}</div>
-    </button>
-  );
-}
-
 /** Pick a sensible `host` default when the user switches `session_kind`.
  *  For local shells we prefer the first detected shell (so the dropdown
  *  has a real selection rather than the "Custom path…" placeholder),
  *  falling back to an empty string while detection is in flight. */
+/** One option in a card-style radio group (session type, auth method,
+ *  persistent session). Generic over the option's string-literal type so
+ *  `onSelect` hands back the exact union the caller stores. */
+function RadioCard<T extends string>({
+  value, current, onSelect, title, hint, Icon,
+}: {
+  value:    T;
+  current:  T;
+  onSelect: (v: T) => void;
+  title:    string;
+  hint:     string;
+  Icon:     LucideIcon;
+}) {
+  const on = value === current;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={() => onSelect(value)}
+      className={`flex flex-col items-start gap-1 text-left p-3 rounded border transition ${
+        on
+          ? 'border-accent bg-accent/10 text-fg'
+          : 'border-border hover:border-muted text-muted hover:text-fg'
+      }`}
+    >
+      <Icon size={16} className={on ? 'text-accent' : ''} />
+      <div className="font-medium text-sm">{title}</div>
+      <div className="text-xs text-muted">{hint}</div>
+    </button>
+  );
+}
+
 function defaultHostForKind(kind: SessionKind, shells: DetectedShell[] | null): string {
   if (kind === 'local') return shells?.[0]?.program ?? '';
   return '';
