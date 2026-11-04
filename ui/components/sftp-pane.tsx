@@ -174,7 +174,9 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   // keeps the directory the user was in.
   useEffect(() => {
     const cid = tab.connectionId;
-    if (cid == null || !tab.sftpOpen || opened) return;
+    // Hidden panes (other tabs) wait until shown, so a reconnect of many
+    // background tabs doesn't open an SFTP channel on each one at once.
+    if (cid == null || !tab.sftpOpen || opened || !isVisible) return;
     const firstOpen = openedOn === null;
     let cancelled = false;
     (async () => {
@@ -193,7 +195,7 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
       }
     })();
     return () => { cancelled = true; };
-  }, [tab.connectionId, tab.sftpOpen, tab.tabId, opened, openedOn, setCwd]);
+  }, [tab.connectionId, tab.sftpOpen, tab.tabId, opened, openedOn, isVisible, setCwd]);
 
   // Reload on cwd change (post-open).
   useEffect(() => { refresh(); }, [refresh]);

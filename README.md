@@ -212,8 +212,9 @@ ezTerm/
   connect flow dispatches to either the russh client (SSH) or the
   `portable-pty` backend (WSL / local).
 - **Persistent sessions** — `ssh/persist.rs` probes the host on a short exec
-  channel (`tmux has-session` / `screen -ls`), then the PTY channel execs an
-  attach or create instead of `request_shell`. Commands are fixed templates
+  channel (`tmux list-sessions | grep -x` / `screen -ls`, which work on every
+  version), then the PTY channel execs an attach (falling back to create if
+  the session vanished) or a create instead of `request_shell`. Commands are fixed templates
   plus a name built from a validated hex install id and integers, wrapped in
   `sh -c '…'` so they parse the same under bash, zsh, fish and csh login
   shells. Auto-reconnect is a React-free state machine in
