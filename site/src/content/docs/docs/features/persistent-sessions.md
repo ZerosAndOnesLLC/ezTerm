@@ -29,6 +29,14 @@ Save and connect. Nothing else changes about how you use the terminal.
 
 Typing `exit` or detaching from tmux (`Ctrl-b d`) ends the tab normally. That isn't a dropped connection, so ezTerm doesn't reconnect.
 
+### When reconnecting gets tricky
+
+- **The server is slow to come back.** If ezTerm reconnects but can't confirm your tmux or screen session in time, it doesn't leave you in a bare shell. It drops that connection and tries again, so you land back in your session once the server catches up.
+- **The link keeps flapping.** A drop within a minute of a successful reconnect counts as the same outage, so the 20 attempts aren't reset each time and a flaky link still gives up eventually.
+- **The link drops in the middle of logging in.** ezTerm retries once. If it happens again straight away, it stops and tells you, rather than risk tripping fail2ban or locking your account.
+- **Your session disappeared** (the server rebooted, or someone ended it). Reconnecting creates a fresh one instead of failing.
+- **You change your mind.** Turning **Reconnect automatically** off while a countdown is running stops it immediately.
+
 ## One remote session per tab
 
 Each tab gets its own remote session, named `ezterm-<install>-<session>-<tab>`. Open the same saved session in two tabs and you get two independent shells, not one mirrored screen. The `<install>` part is a random id for this copy of ezTerm, so other people (or your other machines) using the same server account never attach to yours.
@@ -39,9 +47,20 @@ Each tab gets its own remote session, named `ezterm-<install>-<session>-<tab>`. 
 - Login failures from your SSH agent or the server ("too many authentication failures") are not retried either, so ezTerm won't trip fail2ban or lock your account.
 - The commands ezTerm sends to the server are fixed templates. Nothing you type into a session's settings is spliced into them.
 
-## If tmux or screen isn't installed
+## Supported servers
 
-You get a normal shell and a one-line yellow notice in the terminal, such as *tmux not found on this host — using a normal shell*. Auto-reconnect still works, but the shell itself won't survive a drop. Install the tool on the server (`apt install tmux`, `dnf install tmux`, `brew install tmux`, …) and reconnect.
+Any Linux, BSD or macOS server with tmux or GNU screen works, including old releases like RHEL/CentOS 7 (tmux 1.8) and Debian 8 (tmux 1.9). ezTerm runs its commands through `sh`, so your login shell can be bash, zsh, fish, csh or anything else.
+
+## If tmux or screen can't be used
+
+You get a normal shell and a one-line yellow notice in the terminal explaining why:
+
+- **tmux (or screen) not found on this host.** Install it (`apt install tmux`, `dnf install tmux`, `brew install tmux`, …) and reconnect.
+- **The login shell can't run it.** The server's shell isn't a POSIX shell, for example Windows OpenSSH with cmd.exe or PowerShell, or a restricted shell.
+- **The server allows only one session channel** (`MaxSessions 1`).
+- **screen can't start sessions.** Its socket directory is missing or has the wrong permissions.
+
+Auto-reconnect still works in each case, but the shell itself won't survive a drop.
 
 ## Scrolling and Find
 
