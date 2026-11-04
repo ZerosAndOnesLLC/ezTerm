@@ -83,7 +83,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             build-essential \
-            curl wget file xz-utils patchelf
+            curl wget file xz-utils patchelf \
+            openssh-sftp-server
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -104,6 +105,10 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 
       - name: cargo test
+        # The SFTP listing test talks to a real OpenSSH sftp-server over
+        # stdio; with CI set it fails (not skips) if the binary is missing.
+        env:
+          EZTERM_SFTP_SERVER: /usr/lib/openssh/sftp-server
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
   audit:

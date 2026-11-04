@@ -198,7 +198,8 @@ async fn wsl_writer(
         FileBrowser::Wsl(h) => h,
         _ => return Err(AppError::Sftp("wsl_writer: wrong browser kind".into())),
     };
-    let unc = handle.linux_to_unc(&remote_path);
+    // Follow symlinks inside the distro: Windows can't follow them over 9P.
+    let unc = handle.physical_unc(&remote_path).await?;
     let mut w = tokio::fs::File::create(&unc)
         .await
         .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;

@@ -1,110 +1,49 @@
-//! Directory listing for WSL connections. Shells out to GNU `ls -la
-//! --time-style=+%s` inside the distro and parses the symbolic-mode
-//! lines back into the `SftpEntry` shape the frontend already consumes
-//! for SSH SFTP listings.
+//! Directory listing for WSL connections.
 //!
-//! Why not `find -printf` / `stat -c …`? `ls -la` is by far the most
-//! widely deployed (GNU coreutils ships in every mainstream WSL distro
-//! image — Ubuntu, Debian, Kali, openSUSE, Oracle Linux, …). It does
-//! mean Alpine/busybox-only distros need `apk add coreutils` first;
-//! that's a knowingly-narrow v1 scope.
+//! One `sh` script inside the distro runs two GNU `find`s and prints
+//! NUL-separated records, so a listing costs one `wsl.exe` process with no
+//! per-entry forks, and filenames containing spaces, newlines or " -> "
+//! survive intact (the old `ls -la` parser split on lines and on " -> ").
+//!
+//! 1. `find -H DIR -mindepth 1 -maxdepth 1 -printf '%y\0%Y\0%m\0%s\0%T@\0%l\0%f\0'`
+//!    — per entry: its own type, its target's type (follows links; `N` =
+//!    dangling, `L` = loop), permission bits, own size, mtime, link
+//!    target, name. `-H` follows DIR itself when it's a link to a folder,
+//!    so opening a folder link lists the folder (plain `find DIR` / `ls
+//!    -la DIR` would just show the link).
+//! 2. `printf '==\0'` — section marker (the first field of a section-1
+//!    record is always one character, so this can't be mistaken for one).
+//! 3. `find -L DIR … -printf '%s\0%T@\0%f\0'` — the *target's* size and
+//!    mtime, keyed by name, for links to files.
+//!
+//! GNU findutils ships in every mainstream WSL image (Ubuntu, Debian, Kali,
+//! openSUSE, Oracle Linux). Busybox-only distros (Alpine) need
+//! `apk add findutils`.
+
+use std::collections::HashMap;
 
 use crate::commands::sftp::{LinkResolution, SftpEntry, apply_link_resolution};
 use crate::error::Result;
 
 use super::handle::WslFsHandle;
 
+const LIST_SCRIPT: &str = "d=$1; \
+find -H \"$d\" -mindepth 1 -maxdepth 1 -printf '%y\\0%Y\\0%m\\0%s\\0%T@\\0%l\\0%f\\0' || exit $?; \
+printf '==\\0'; \
+find -L \"$d\" -mindepth 1 -maxdepth 1 -printf '%s\\0%T@\\0%f\\0' 2>/dev/null; \
+exit 0";
+
 /// One directory listing. `path` must already have been normalised by
 /// `sftp::normalise_remote_path`. Returns entries sorted directories-
-/// first, name-ascending, matching the SSH SFTP path.
+/// first (links to directories included), name-ascending, matching the
+/// SSH SFTP path.
 pub async fn list(handle: &WslFsHandle, path: &str) -> Result<Vec<SftpEntry>> {
-    // `--time-style=+%s` forces numeric unix-epoch mtime. `-a` includes
-    // dotfiles. `-l` long format. We do NOT pass `-A` because we want
-    // the parser to know `.` and `..` exist and silently drop them.
-    // `--` so a path beginning with `-` isn't taken as a flag.
+    // `sh -c SCRIPT sh PATH`: the literal `sh` fills $0, PATH is $1 and is
+    // only ever used quoted — never parsed by the shell.
     let stdout = handle
-        .wsl_exec(&["ls", "-la", "--time-style=+%s", "--", path])
+        .wsl_exec(&["sh", "-c", LIST_SCRIPT, "sh", path])
         .await?;
-    let mut entries = parse_ls_output(&stdout, path);
-    resolve_wsl_links(handle, &mut entries).await;
-    Ok(sorted(entries))
-}
-
-/// Follows each argument and prints one line per path, in order: `d` for
-/// a directory (or a link to one), `f <size>` for anything else that
-/// exists, `x` for a dangling link. `"$@"`-driven, so paths are never
-/// parsed by the shell.
-const RESOLVE_SCRIPT: &str = "for f do if [ -d \"$f\" ]; then echo d; \
-elif [ -e \"$f\" ]; then s=$(stat -L -c %s -- \"$f\" 2>/dev/null) || s=0; echo \"f $s\"; \
-else echo x; fi; done";
-
-/// Keep each `wsl.exe` command line well under Windows' 32 K limit.
-const RESOLVE_BATCH_CHARS: usize = 16_000;
-
-/// Resolve the symlinks in a WSL listing (one `sh` per batch, not one
-/// process per link). A batch that fails leaves its links as they were
-/// listed: still marked as links with their target, just not followed.
-async fn resolve_wsl_links(handle: &WslFsHandle, entries: &mut [SftpEntry]) {
-    let links: Vec<usize> = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.is_symlink)
-        .map(|(i, _)| i)
-        .collect();
-    for batch in batches(&links, entries) {
-        let mut argv: Vec<&str> = vec!["sh", "-c", RESOLVE_SCRIPT, "sh"];
-        argv.extend(batch.iter().map(|&i| entries[i].full_path.as_str()));
-        let Ok(out) = handle.wsl_exec(&argv).await else {
-            continue;
-        };
-        let results = parse_resolve_output(&out);
-        if results.len() != batch.len() {
-            continue;
-        }
-        for (&i, res) in batch.iter().zip(results) {
-            let target = entries[i].link_target.take();
-            apply_link_resolution(&mut entries[i], res, target);
-        }
-    }
-}
-
-/// Split link indices into batches whose paths fit one command line.
-fn batches(links: &[usize], entries: &[SftpEntry]) -> Vec<Vec<usize>> {
-    let mut out: Vec<Vec<usize>> = Vec::new();
-    let mut cur: Vec<usize> = Vec::new();
-    let mut len = 0;
-    for &i in links {
-        let n = entries[i].full_path.len() + 3;
-        if !cur.is_empty() && len + n > RESOLVE_BATCH_CHARS {
-            out.push(std::mem::take(&mut cur));
-            len = 0;
-        }
-        cur.push(i);
-        len += n;
-    }
-    if !cur.is_empty() {
-        out.push(cur);
-    }
-    out
-}
-
-fn parse_resolve_output(stdout: &str) -> Vec<LinkResolution> {
-    stdout
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let l = l.trim();
-            if l == "d" {
-                LinkResolution::Dir
-            } else if let Some(size) = l.strip_prefix("f ") {
-                LinkResolution::File {
-                    size: size.trim().parse().unwrap_or(0),
-                }
-            } else {
-                LinkResolution::Broken
-            }
-        })
-        .collect()
+    Ok(sorted(parse_listing(&stdout, path)))
 }
 
 fn sorted(mut v: Vec<SftpEntry>) -> Vec<SftpEntry> {
@@ -112,94 +51,116 @@ fn sorted(mut v: Vec<SftpEntry>) -> Vec<SftpEntry> {
     v
 }
 
-fn parse_ls_output(stdout: &str, parent: &str) -> Vec<SftpEntry> {
+/// Section 1 record: type, target type, perms, size, mtime, target, name.
+const ENTRY_FIELDS: usize = 7;
+/// Section 2 record: target size, target mtime, name.
+const TARGET_FIELDS: usize = 3;
+
+fn parse_listing(stdout: &str, parent: &str) -> Vec<SftpEntry> {
+    let fields: Vec<&str> = stdout.split('\0').collect();
+    // The marker can only sit where a record would start (every record's
+    // first field is a one-letter type), so a *file* named "==" can't be
+    // mistaken for it.
+    let marker = (0..fields.len())
+        .step_by(ENTRY_FIELDS)
+        .find(|&i| fields[i] == "==");
+    let (entries, targets) = match marker {
+        Some(m) => (&fields[..m], &fields[m + 1..]),
+        None => (&fields[..], &[][..]),
+    };
+
+    // Target size / mtime by name (from the `find -L` pass).
+    let mut target_meta: HashMap<&str, (u64, Option<i64>)> = HashMap::new();
+    for rec in targets.chunks(TARGET_FIELDS) {
+        if let [size, mtime, name] = rec {
+            target_meta.insert(name, (size.parse().unwrap_or(0), parse_mtime(mtime)));
+        }
+    }
+
     let mut out = Vec::new();
-    for line in stdout.lines() {
-        // Skip the leading `total N` line and any blank lines.
-        if line.is_empty() || line.starts_with("total ") {
-            continue;
+    let (records, rest) = entries.as_chunks::<ENTRY_FIELDS>();
+    for rec in records {
+        match parse_record(rec, parent, &target_meta) {
+            Some(e) => out.push(e),
+            None => tracing::warn!("wsl listing: skipped a malformed record"),
         }
-        if let Some(entry) = parse_ls_line(line, parent) {
-            // Filter the same entries `russh-sftp::ReadDir` filters so
-            // the UI doesn't have to special-case them.
-            if entry.name == "." || entry.name == ".." {
-                continue;
-            }
-            out.push(entry);
-        }
+    }
+    // A trailing empty field is the terminator after the last NUL; any
+    // other remainder means the output was cut short.
+    if !(rest.is_empty() || rest == [""]) {
+        tracing::warn!(fields = rest.len(), "wsl listing: output ended mid-record");
     }
     out
 }
 
-fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
-    // Standard `ls -la` line:
-    //   mode  links  owner  group  size  mtime  name [-> target]
-    //
-    // Columns are whitespace-aligned (size is right-padded), so a
-    // simple `splitn` would create empty intermediate tokens and
-    // misalign the fields. We chew one token at a time off the front
-    // of the line and keep the remainder *as-is* for the name so
-    // multiple consecutive spaces inside a filename survive.
-    let (mode_str, rest1) = next_token(line)?;
-    let (_links, rest2) = next_token(rest1)?;
-    let (_owner, rest3) = next_token(rest2)?;
-    let (_group, rest4) = next_token(rest3)?;
-    let (size_str, rest5) = next_token(rest4)?;
-    let (mtime_str, rest6) = next_token(rest5)?;
-    let rest = rest6.trim_start_matches([' ', '\t']);
-    if rest.is_empty() {
+fn parse_record(
+    rec: &[&str; ENTRY_FIELDS],
+    parent: &str,
+    target_meta: &HashMap<&str, (u64, Option<i64>)>,
+) -> Option<SftpEntry> {
+    let [own, target_type, perms, size, mtime, link, name] = rec;
+    if name.is_empty() || *name == "." || *name == ".." || name.contains('/') {
         return None;
     }
-
-    if mode_str.len() != 10 {
-        return None;
-    }
-
-    let mode = parse_mode_str(mode_str);
-    let is_dir = mode_str.starts_with('d');
-    let is_symlink = mode_str.starts_with('l');
-    let size: u64 = size_str.parse().ok()?;
-    let mtime_unix: i64 = mtime_str.parse().ok()?;
-
-    // Split ` -> target` off symlinks: the name is the link itself, the
-    // target is shown alongside it (and the link is resolved after the
-    // listing, see `resolve_wsl_links`).
-    let (name, link_target) = if is_symlink {
-        match rest.split_once(" -> ") {
-            Some((n, t)) => (n.to_string(), Some(t.to_string())),
-            None => (rest.to_string(), None),
-        }
-    } else {
-        (rest.to_string(), None)
-    };
-
-    let full_path = join_remote(parent, &name);
-
-    Some(SftpEntry {
-        name,
-        full_path,
-        is_dir,
-        is_symlink,
-        size,
-        mtime_unix,
-        mode,
-        link_target,
+    let own = own.chars().next()?;
+    let perm_bits = u32::from_str_radix(perms, 8).ok()? & 0o7777;
+    let mut e = SftpEntry {
+        name: name.to_string(),
+        full_path: join_remote(parent, name),
+        is_dir: own == 'd',
+        is_symlink: own == 'l',
+        size: size.parse().ok()?,
+        mtime_unix: parse_mtime(mtime).unwrap_or(0),
+        mode: type_bits(own) | perm_bits,
+        link_target: None,
         link_broken: false,
-    })
+        link_unresolved: false,
+        is_special: is_special_type(own),
+    };
+    if e.is_symlink {
+        let target = (!link.is_empty()).then(|| link.to_string());
+        let (tsize, tmtime) = target_meta.get(name).copied().unwrap_or((e.size, None));
+        let res = match target_type.chars().next() {
+            Some('d') => LinkResolution::Dir { mtime: tmtime },
+            Some('N') | Some('L') => LinkResolution::Broken,
+            Some('f') => LinkResolution::File {
+                size: tsize,
+                mtime: tmtime,
+                special: false,
+            },
+            Some(t) if is_special_type(t) => LinkResolution::File {
+                size: tsize,
+                mtime: tmtime,
+                special: true,
+            },
+            _ => LinkResolution::Unresolved,
+        };
+        apply_link_resolution(&mut e, res, target);
+    }
+    Some(e)
 }
 
-/// Pull one whitespace-delimited token off the front of `s`. Returns
-/// the token and the remainder (still includes the separator + any
-/// later tokens). `None` if `s` contains no non-whitespace bytes.
-fn next_token(s: &str) -> Option<(&str, &str)> {
-    let s = s.trim_start_matches([' ', '\t']);
-    if s.is_empty() {
-        return None;
+fn parse_mtime(s: &str) -> Option<i64> {
+    s.parse::<f64>().ok().map(|f| f as i64)
+}
+
+/// `find %y` letter → `st_mode` file-type bits (what the SFTP path reports).
+fn type_bits(t: char) -> u32 {
+    match t {
+        'd' => 0o040000,
+        'f' => 0o100000,
+        'l' => 0o120000,
+        'p' => 0o010000,
+        's' => 0o140000,
+        'c' => 0o020000,
+        'b' => 0o060000,
+        _ => 0,
     }
-    match s.find([' ', '\t']) {
-        Some(i) => Some((&s[..i], &s[i..])),
-        None => Some((s, "")),
-    }
+}
+
+/// FIFO, socket, character or block device.
+fn is_special_type(t: char) -> bool {
+    matches!(t, 'p' | 's' | 'c' | 'b')
 }
 
 fn join_remote(parent: &str, name: &str) -> String {
@@ -212,103 +173,102 @@ fn join_remote(parent: &str, name: &str) -> String {
     }
 }
 
-/// Translate the 10-character symbolic mode string (`drwxr-xr-x` etc.)
-/// into the standard POSIX mode word, including the high-nibble file-
-/// type bits. Matches what russh-sftp returns in `FileAttributes.permissions`
-/// so the frontend's mode column doesn't need a kind-aware branch.
-fn parse_mode_str(s: &str) -> u32 {
-    let b = s.as_bytes();
-    let mut mode: u32 = match b[0] {
-        b'd' => 0o040000, // S_IFDIR
-        b'l' => 0o120000, // S_IFLNK
-        b'-' => 0o100000, // S_IFREG
-        b'c' => 0o020000, // S_IFCHR
-        b'b' => 0o060000, // S_IFBLK
-        b'p' => 0o010000, // S_IFIFO
-        b's' => 0o140000, // S_IFSOCK
-        _ => 0,
-    };
-    if b[1] == b'r' {
-        mode |= 0o400;
-    }
-    if b[2] == b'w' {
-        mode |= 0o200;
-    }
-    match b[3] {
-        b'x' => mode |= 0o100,
-        b's' => {
-            mode |= 0o100 | 0o4000;
-        }
-        b'S' => mode |= 0o4000,
-        _ => {}
-    }
-    if b[4] == b'r' {
-        mode |= 0o040;
-    }
-    if b[5] == b'w' {
-        mode |= 0o020;
-    }
-    match b[6] {
-        b'x' => mode |= 0o010,
-        b's' => {
-            mode |= 0o010 | 0o2000;
-        }
-        b'S' => mode |= 0o2000,
-        _ => {}
-    }
-    if b[7] == b'r' {
-        mode |= 0o004;
-    }
-    if b[8] == b'w' {
-        mode |= 0o002;
-    }
-    match b[9] {
-        b'x' => mode |= 0o001,
-        b't' => {
-            mode |= 0o001 | 0o1000;
-        }
-        b'T' => mode |= 0o1000,
-        _ => {}
-    }
-    mode
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn parses_basic_listing() {
-        let sample = "\
-total 12
-drwxr-xr-x 3 ron ron 4096 1700000000 .
-drwxr-xr-x 5 ron ron 4096 1699999999 ..
--rw-r--r-- 1 ron ron   42 1700000100 file.txt
-lrwxrwxrwx 1 ron ron   10 1700000200 link -> /etc/hostname
-drwxrwxrwt 1 ron ron 4096 1700000300 sticky-dir
-";
-        let entries = parse_ls_output(sample, "/home/ron");
-        // `.` and `..` filtered out.
-        assert_eq!(entries.len(), 3);
+    fn rec(fields: &[&str]) -> String {
+        let mut s = String::new();
+        for f in fields {
+            s.push_str(f);
+            s.push('\0');
+        }
+        s
+    }
 
-        let f = entries.iter().find(|e| e.name == "file.txt").unwrap();
-        assert_eq!(f.size, 42);
-        assert_eq!(f.mtime_unix, 1700000100);
-        assert!(!f.is_dir);
-        assert!(!f.is_symlink);
-        assert_eq!(f.mode & 0o777, 0o644);
-        assert_eq!(f.mode & 0o170000, 0o100000);
+    #[test]
+    fn parses_entries_links_and_target_metadata() {
+        let mut out = String::new();
+        out += &rec(&["f", "f", "644", "42", "1700000100.5", "", "file.txt"]);
+        out += &rec(&["d", "d", "1777", "4096", "1700000300", "", "sticky-dir"]);
+        out += &rec(&["l", "d", "777", "7", "1700000400", "releases/42", "current"]);
+        out += &rec(&["l", "f", "777", "8", "1700000400", "file.txt", "readme"]);
+        out += &rec(&["l", "N", "777", "5", "1700000400", "/gone", "dangling"]);
+        out += &rec(&["l", "L", "777", "4", "1700000400", "loop", "loop"]);
+        out += &rec(&["p", "p", "644", "0", "1700000500", "", "fifo"]);
+        out += &rec(&["l", "p", "777", "4", "1700000500", "fifo", "to-fifo"]);
+        out += "==\0";
+        out += &rec(&["42", "1700000100.5", "file.txt"]);
+        out += &rec(&["4096", "1700009999", "current"]);
+        out += &rec(&["42", "1700000100.5", "readme"]);
+        let list = parse_listing(&out, "/home/ron");
+        let by = |n: &str| list.iter().find(|e| e.name == n).unwrap();
+
+        let f = by("file.txt");
+        assert!(!f.is_dir && !f.is_symlink && !f.is_special);
+        assert_eq!((f.size, f.mtime_unix), (42, 1700000100));
+        assert_eq!(f.mode, 0o100644);
         assert_eq!(f.full_path, "/home/ron/file.txt");
 
-        let l = entries.iter().find(|e| e.name == "link").unwrap();
-        assert!(l.is_symlink);
-        assert_eq!(l.mode & 0o170000, 0o120000);
-        assert_eq!(l.link_target.as_deref(), Some("/etc/hostname"));
-        assert!(!l.link_broken);
-
-        let d = entries.iter().find(|e| e.name == "sticky-dir").unwrap();
+        let d = by("sticky-dir");
         assert!(d.is_dir);
-        assert_eq!(d.mode & 0o1000, 0o1000); // sticky bit set
+        assert_eq!(d.mode & 0o1000, 0o1000);
+
+        let cur = by("current");
+        assert!(cur.is_symlink && cur.is_dir && !cur.link_broken);
+        assert_eq!(cur.link_target.as_deref(), Some("releases/42"));
+        assert_eq!(cur.mtime_unix, 1700009999, "target mtime");
+        assert_eq!(cur.mode, 0o120777, "link keeps its own mode");
+
+        let readme = by("readme");
+        assert!(readme.is_symlink && !readme.is_dir);
+        assert_eq!(readme.size, 42, "target size, not the link's");
+
+        assert!(by("dangling").link_broken);
+        assert!(by("loop").link_broken);
+        assert!(by("fifo").is_special);
+        let tf = by("to-fifo");
+        assert!(tf.is_symlink && tf.is_special && !tf.link_broken);
+    }
+
+    #[test]
+    fn names_with_newlines_and_arrows_survive() {
+        let mut out = String::new();
+        out += &rec(&["f", "f", "644", "1", "1", "", "new\nline"]);
+        out += &rec(&["l", "f", "777", "6", "1", "x -> y", "we -> ird"]);
+        out += "==\0";
+        let list = parse_listing(&out, "/t");
+        assert_eq!(list.len(), 2);
+        let l = list.iter().find(|e| e.is_symlink).unwrap();
+        assert_eq!(l.name, "we -> ird");
+        assert_eq!(l.link_target.as_deref(), Some("x -> y"));
+        assert_eq!(l.full_path, "/t/we -> ird");
+        assert!(list.iter().any(|e| e.name == "new\nline"));
+    }
+
+    #[test]
+    fn a_file_named_like_the_marker_is_just_a_file() {
+        let mut out = String::new();
+        out += &rec(&["f", "f", "644", "1", "1", "", "=="]);
+        out += "==\0";
+        out += &rec(&["1", "1", "=="]);
+        let list = parse_listing(&out, "/t");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "==");
+    }
+
+    #[test]
+    fn malformed_records_are_skipped_not_misaligned() {
+        let mut out = String::new();
+        out += &rec(&["f", "f", "644", "notanumber", "1", "", "bad"]);
+        out += &rec(&["f", "f", "644", "3", "1", "", "good"]);
+        out += &rec(&["f", "f", "644", "3", "1", "", "a/b"]);
+        out += "==\0";
+        let list = parse_listing(&out, "/t");
+        assert_eq!(
+            list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["good"]
+        );
     }
 
     #[test]
@@ -318,91 +278,57 @@ drwxrwxrwt 1 ron ron 4096 1700000300 sticky-dir
         assert_eq!(join_remote("/home/ron/", "x"), "/home/ron/x");
     }
 
-    #[test]
-    fn parses_setuid_setgid() {
-        // `-rwsr-xr-x` — setuid bit + owner-exec.
-        let line = "-rwsr-xr-x 1 root root 12345 1700000000 mount";
-        let e = parse_ls_line(line, "/usr/bin").unwrap();
-        assert_eq!(e.mode & 0o4000, 0o4000);
-        assert_eq!(e.mode & 0o100, 0o100);
-    }
-
-    #[test]
-    fn link_target_keeps_spaces_and_arrows_in_name_order() {
-        let e = parse_ls_line(
-            "lrwxrwxrwx 1 ron ron 9 1700000000 my link -> ../some dir",
-            "/home/ron",
-        )
-        .unwrap();
-        assert_eq!(e.name, "my link");
-        assert_eq!(e.link_target.as_deref(), Some("../some dir"));
-        assert_eq!(e.full_path, "/home/ron/my link");
-    }
-
-    #[test]
-    fn resolve_output_maps_to_resolutions() {
-        assert_eq!(
-            parse_resolve_output("d\nf 4096\nx\nf junk\n"),
-            vec![
-                LinkResolution::Dir,
-                LinkResolution::File { size: 4096 },
-                LinkResolution::Broken,
-                LinkResolution::File { size: 0 },
-            ]
-        );
-    }
-
-    #[test]
-    fn batches_split_on_command_line_budget() {
-        let mk = |n: usize| SftpEntry {
-            name: format!("l{n}"),
-            full_path: format!("/{}", "a".repeat(5_000)),
-            is_dir: false,
-            is_symlink: true,
-            size: 0,
-            mtime_unix: 0,
-            mode: 0,
-            link_target: None,
-            link_broken: false,
-        };
-        let entries: Vec<SftpEntry> = (0..7).map(mk).collect();
-        let idx: Vec<usize> = (0..7).collect();
-        let b = batches(&idx, &entries);
-        assert!(b.len() >= 3);
-        assert_eq!(b.iter().map(Vec::len).sum::<usize>(), 7);
-        assert!(batches(&[], &entries).is_empty());
-    }
-
-    /// The resolve script, run by a real `sh` against real links.
+    /// The real script, run by `sh` + the local `find` against real files
+    /// and links — including listing *through* a folder link.
     #[cfg(unix)]
     #[test]
-    fn resolve_script_against_real_links() {
+    fn list_script_against_real_tree() {
+        let ci = std::env::var_os("CI").is_some();
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         std::fs::create_dir(d.join("real dir")).unwrap();
+        std::fs::write(d.join("real dir").join("inside.txt"), b"in").unwrap();
         std::fs::write(d.join("file.txt"), b"hello").unwrap();
-        std::os::unix::fs::symlink(d.join("real dir"), d.join("to-dir")).unwrap();
-        std::os::unix::fs::symlink("file.txt", d.join("to file")).unwrap();
+        std::os::unix::fs::symlink("real dir", d.join("to-dir")).unwrap();
+        std::os::unix::fs::symlink("file.txt", d.join("we -> ird")).unwrap();
         std::os::unix::fs::symlink("/nonexistent/x", d.join("dangling")).unwrap();
-        let paths: Vec<String> = ["to-dir", "to file", "dangling"]
-            .iter()
-            .map(|n| d.join(n).to_string_lossy().into_owned())
-            .collect();
-        let Ok(out) = std::process::Command::new("sh")
-            .args(["-c", RESOLVE_SCRIPT, "sh"])
-            .args(&paths)
-            .output()
-        else {
-            return;
+        std::fs::write(d.join("new\nline"), b"x").unwrap();
+        let run = |p: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", LIST_SCRIPT, "sh", p])
+                .output()
         };
-        let got = parse_resolve_output(&String::from_utf8_lossy(&out.stdout));
+        let path = d.to_string_lossy().into_owned();
+        let out = match run(&path) {
+            Ok(o) if o.status.success() => o,
+            other => {
+                assert!(!ci, "sh/find unavailable in CI: {other:?}");
+                return;
+            }
+        };
+        let list = parse_listing(&String::from_utf8_lossy(&out.stdout), &path);
+        let by = |n: &str| {
+            list.iter()
+                .find(|e| e.name == n)
+                .unwrap_or_else(|| panic!("{n} missing: {list:?}"))
+        };
+        let td = by("to-dir");
+        assert!(td.is_symlink && td.is_dir);
+        let l = by("we -> ird");
+        assert!(l.is_symlink && !l.is_dir && !l.link_broken);
+        assert_eq!(l.size, 5);
+        assert_eq!(l.link_target.as_deref(), Some("file.txt"));
+        assert!(by("dangling").link_broken);
+        by("new\nline");
+        // Opening the folder link lists the folder's contents.
+        let inner = run(&format!("{path}/to-dir")).unwrap();
+        let inner = parse_listing(
+            &String::from_utf8_lossy(&inner.stdout),
+            &format!("{path}/to-dir"),
+        );
         assert_eq!(
-            got,
-            vec![
-                LinkResolution::Dir,
-                LinkResolution::File { size: 5 },
-                LinkResolution::Broken,
-            ]
+            inner.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["inside.txt"]
         );
     }
 }

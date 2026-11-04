@@ -30,9 +30,10 @@ pub struct TransferTicket {
 ///
 /// Symlinks are resolved: `is_dir` is true for a directory *or* a link
 /// that resolves to one (so it opens, sorts and accepts drops like a
-/// folder), `size` is the target's size for a link to a file, and
-/// `is_symlink` / `link_target` / `link_broken` describe the link itself.
-/// `mode` stays the link's own mode bits (`lrwxrwxrwx`).
+/// folder), `size` / `mtime_unix` are the target's for a link, and
+/// `is_symlink` / `link_target` / `link_broken` / `link_unresolved`
+/// describe the link itself. `mode` stays the link's own mode bits
+/// (`lrwxrwxrwx`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SftpEntry {
     pub name: String,
@@ -49,37 +50,89 @@ pub struct SftpEntry {
     /// A symlink whose target doesn't exist or can't be reached.
     #[serde(default)]
     pub link_broken: bool,
+    /// A symlink we didn't get to resolve in time (slow or stalled
+    /// server). Not known to be broken; the UI lets the user try it.
+    #[serde(default)]
+    pub link_unresolved: bool,
+    /// The entry (or a link's target) is neither a regular file nor a
+    /// directory: FIFO, socket, block / character device. Not offered for
+    /// download — reading one can block forever or never end.
+    #[serde(default)]
+    pub is_special: bool,
 }
 
 /// What resolving one symlink found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkResolution {
     /// Target is a directory.
-    Dir,
-    /// Target is a file (or other non-directory) of this size.
-    File { size: u64 },
-    /// Target doesn't exist or can't be stat'd.
+    Dir { mtime: Option<i64> },
+    /// Target is a non-directory. `special` = FIFO / socket / device.
+    File {
+        size: u64,
+        mtime: Option<i64>,
+        special: bool,
+    },
+    /// Target doesn't exist, loops, or can't be stat'd.
     Broken,
+    /// Resolution didn't finish before the listing's deadline.
+    Unresolved,
 }
 
 /// Fold a resolved link back into its entry. Shared by the SFTP and WSL
 /// listings so both present links identically.
 pub fn apply_link_resolution(e: &mut SftpEntry, res: LinkResolution, target: Option<String>) {
     e.link_target = target;
+    e.link_broken = false;
+    e.link_unresolved = false;
     match res {
-        LinkResolution::Dir => {
+        LinkResolution::Dir { mtime } => {
             e.is_dir = true;
-            e.link_broken = false;
+            e.is_special = false;
+            if let Some(m) = mtime {
+                e.mtime_unix = m;
+            }
         }
-        LinkResolution::File { size } => {
+        LinkResolution::File {
+            size,
+            mtime,
+            special,
+        } => {
             e.is_dir = false;
             e.size = size;
-            e.link_broken = false;
+            e.is_special = special;
+            if let Some(m) = mtime {
+                e.mtime_unix = m;
+            }
         }
         LinkResolution::Broken => {
             e.is_dir = false;
             e.link_broken = true;
         }
+        LinkResolution::Unresolved => {
+            e.is_dir = false;
+            e.link_unresolved = true;
+        }
+    }
+}
+
+/// Turn a followed `stat` into a resolution.
+fn resolution_from_attrs(m: &russh_sftp::client::fs::Metadata) -> LinkResolution {
+    use russh_sftp::protocol::FileType;
+    let mtime = m.mtime.map(i64::from);
+    match m.file_type() {
+        FileType::Dir => LinkResolution::Dir { mtime },
+        FileType::File => LinkResolution::File {
+            size: m.size.unwrap_or(0),
+            mtime,
+            special: false,
+        },
+        // A followed stat never reports a symlink; anything else is a
+        // FIFO / socket / device.
+        _ => LinkResolution::File {
+            size: m.size.unwrap_or(0),
+            mtime,
+            special: true,
+        },
     }
 }
 
@@ -109,6 +162,10 @@ async fn list_sftp_dir(s: &russh_sftp::client::SftpSession, path: &str) -> Resul
             mode: attrs.permissions.unwrap_or(0),
             link_target: None,
             link_broken: false,
+            link_unresolved: false,
+            // Plain special files are known from the listing itself;
+            // links get theirs from the resolution below.
+            is_special: matches!(attrs.file_type(), russh_sftp::protocol::FileType::Other),
         });
     }
     resolve_sftp_links(s, &mut acc).await;
@@ -116,14 +173,20 @@ async fn list_sftp_dir(s: &russh_sftp::client::SftpSession, path: &str) -> Resul
     Ok(acc)
 }
 
-/// Symlinks resolved concurrently per listing. SFTP requests pipeline on
-/// one channel, so this turns N round trips into ~N/16 without flooding
-/// the server.
-const LINK_RESOLVE_CONCURRENCY: usize = 16;
+/// Symlinks resolved concurrently per listing. russh-sftp tags each
+/// request and keeps it in flight, so these pipeline on one channel
+/// (OpenSSH's own client keeps 64 outstanding too).
+const LINK_RESOLVE_CONCURRENCY: usize = 64;
+
+/// Upper bound on resolving one listing's links. A link into a stale NFS
+/// mount (or a stalling server) would otherwise hold the listing — and the
+/// SFTP session lock — for as long as each request's timeout, per link.
+/// Links not done by then are shown as unresolved, not broken.
+const LINK_RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// Resolve every symlink in `acc` with `stat` (follows the link) and
-/// `readlink`. A failed `stat` marks the link broken; a failed `readlink`
-/// just leaves the target unknown.
+/// `readlink`, both at once. A failed `stat` marks the link broken; a
+/// failed `readlink` just leaves the target unknown.
 async fn resolve_sftp_links(s: &russh_sftp::client::SftpSession, acc: &mut [SftpEntry]) {
     use futures_util::stream::{self, StreamExt};
     let links: Vec<(usize, String)> = acc
@@ -135,17 +198,20 @@ async fn resolve_sftp_links(s: &russh_sftp::client::SftpSession, acc: &mut [Sftp
     if links.is_empty() {
         return;
     }
+    let deadline = tokio::time::Instant::now() + LINK_RESOLVE_DEADLINE;
     let resolved: Vec<(usize, LinkResolution, Option<String>)> = stream::iter(links)
         .map(|(i, path)| async move {
-            let res = match s.metadata(path.clone()).await {
-                Ok(m) if m.is_dir() => LinkResolution::Dir,
-                Ok(m) => LinkResolution::File {
-                    size: m.size.unwrap_or(0),
-                },
-                Err(_) => LinkResolution::Broken,
-            };
-            let target = s.read_link(path).await.ok();
-            (i, res, target)
+            let both = async { tokio::join!(s.metadata(path.clone()), s.read_link(path.clone())) };
+            match tokio::time::timeout_at(deadline, both).await {
+                Ok((stat, target)) => {
+                    let res = match stat {
+                        Ok(m) => resolution_from_attrs(&m),
+                        Err(_) => LinkResolution::Broken,
+                    };
+                    (i, res, target.ok())
+                }
+                Err(_) => (i, LinkResolution::Unresolved, None),
+            }
         })
         .buffer_unordered(LINK_RESOLVE_CONCURRENCY)
         .collect()
@@ -153,6 +219,46 @@ async fn resolve_sftp_links(s: &russh_sftp::client::SftpSession, acc: &mut [Sftp
     for (i, res, target) in resolved {
         apply_link_resolution(&mut acc[i], res, target);
     }
+}
+
+/// Reject local download destinations that could escape the folder the
+/// user picked. The multi-file download joins a user-picked folder with a
+/// *server-supplied* file name, and on Windows a name like
+/// `..\\..\\AppData\\…\\Startup\\x.bat` (legal on a Linux server) would
+/// climb out of it. Paths from the save / folder dialogs never contain a
+/// `..` component, so refusing any is safe. Reserved Windows device names
+/// (`CON`, `NUL`, `COM1`, …) are refused too: writing to them does
+/// something other than create a file.
+fn validate_local_download_path(local: &str) -> Result<()> {
+    use std::path::Component;
+    let p = std::path::Path::new(local);
+    // On a Unix build `\` isn't a separator, so check it by hand too.
+    let has_parent = p.components().any(|c| matches!(c, Component::ParentDir))
+        || local.split(['/', '\\']).any(|seg| seg == "..");
+    if has_parent {
+        return Err(AppError::PathTraversal);
+    }
+    let leaf = local.rsplit(['/', '\\']).next().unwrap_or("");
+    if is_reserved_windows_name(leaf) {
+        return Err(AppError::Validation(format!(
+            "{leaf} is a reserved device name on Windows"
+        )));
+    }
+    Ok(())
+}
+
+fn is_reserved_windows_name(leaf: &str) -> bool {
+    let stem = leaf
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.']);
+    let up = stem.to_ascii_uppercase();
+    matches!(up.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((up.starts_with("COM") || up.starts_with("LPT"))
+            && up.len() == 4
+            && up.as_bytes()[3].is_ascii_digit()
+            && up.as_bytes()[3] != b'0')
 }
 
 /// Open the file browser for `connection_id`. Routes by connection kind:
@@ -503,6 +609,7 @@ pub async fn sftp_download(
 ) -> Result<TransferTicket> {
     super::require_unlocked(&state).await?;
     let remote_path = crate::sftp::normalise_remote_path(&remote_path)?;
+    validate_local_download_path(&local_path)?;
     let browser = require_browser(&state, connection_id).await?;
     let transfer_id = next_transfer_id();
 
@@ -605,16 +712,23 @@ mod link_tests {
             mode: 0o120777,
             link_target: None,
             link_broken: false,
+            link_unresolved: false,
+            is_special: false,
         }
     }
 
     #[test]
     fn dir_link_becomes_a_directory() {
         let mut e = link();
-        apply_link_resolution(&mut e, LinkResolution::Dir, Some("releases/42".into()));
+        apply_link_resolution(
+            &mut e,
+            LinkResolution::Dir { mtime: Some(99) },
+            Some("releases/42".into()),
+        );
         assert!(e.is_dir && e.is_symlink && !e.link_broken);
         assert_eq!(e.link_target.as_deref(), Some("releases/42"));
         assert_eq!(e.mode, 0o120777, "mode stays the link's own");
+        assert_eq!(e.mtime_unix, 99, "target mtime");
     }
 
     #[test]
@@ -622,11 +736,38 @@ mod link_tests {
         let mut e = link();
         apply_link_resolution(
             &mut e,
-            LinkResolution::File { size: 4096 },
+            LinkResolution::File {
+                size: 4096,
+                mtime: Some(7),
+                special: false,
+            },
             Some("/etc/hosts".into()),
         );
-        assert!(!e.is_dir && !e.link_broken);
-        assert_eq!(e.size, 4096);
+        assert!(!e.is_dir && !e.link_broken && !e.is_special);
+        assert_eq!((e.size, e.mtime_unix), (4096, 7));
+    }
+
+    #[test]
+    fn link_to_a_fifo_is_special() {
+        let mut e = link();
+        apply_link_resolution(
+            &mut e,
+            LinkResolution::File {
+                size: 0,
+                mtime: None,
+                special: true,
+            },
+            None,
+        );
+        assert!(e.is_special && !e.is_dir && !e.link_broken);
+        assert_eq!(e.mtime_unix, 1, "unknown target mtime keeps the link's");
+    }
+
+    #[test]
+    fn timed_out_link_is_unresolved_not_broken() {
+        let mut e = link();
+        apply_link_resolution(&mut e, LinkResolution::Unresolved, None);
+        assert!(e.link_unresolved && !e.link_broken && !e.is_dir);
     }
 
     #[test]
@@ -664,12 +805,28 @@ mod sftp_server_tests {
     #[tokio::test]
     async fn lists_and_resolves_symlinks_over_real_sftp() {
         let Some(bin) = sftp_server() else {
+            // CI installs openssh-sftp-server; a missing binary there must
+            // fail loudly rather than pass without testing anything.
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "sftp-server not found in CI (install openssh-sftp-server or set EZTERM_SFTP_SERVER)"
+            );
             eprintln!("sftp-server not installed; skipping");
             return;
         };
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         std::fs::create_dir(d.join("releases")).unwrap();
+        std::fs::write(d.join("releases").join("app.bin"), b"abc").unwrap();
+        let fifo = d.join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::os::unix::fs::symlink("pipe", d.join("to-pipe")).unwrap();
         std::fs::write(d.join("notes.txt"), b"0123456789").unwrap();
         std::os::unix::fs::symlink("releases", d.join("current")).unwrap();
         std::os::unix::fs::symlink("notes.txt", d.join("readme")).unwrap();
@@ -705,8 +862,48 @@ mod sftp_server_tests {
         let first_file = names.iter().position(|n| *n == "dangling").unwrap();
         assert!(names.iter().position(|n| *n == "current").unwrap() < first_file);
 
-        // And can be listed through.
-        let inside = list_sftp_dir(&s, &format!("{path}/current")).await;
-        assert!(inside.is_ok());
+        // Special files (and links to them) are flagged, so they're never
+        // offered for download.
+        assert!(by("pipe").is_special);
+        let to_pipe = by("to-pipe");
+        assert!(to_pipe.is_symlink && to_pipe.is_special && !to_pipe.link_broken);
+        assert!(!by("notes.txt").is_special);
+
+        // Listing *through* the folder link shows the folder's contents.
+        let inside = list_sftp_dir(&s, &format!("{path}/current")).await.unwrap();
+        assert_eq!(
+            inside.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["app.bin"]
+        );
+        assert_eq!(inside[0].size, 3);
+    }
+}
+
+#[cfg(test)]
+mod local_path_tests {
+    use super::validate_local_download_path as v;
+
+    #[test]
+    fn dialog_paths_are_accepted() {
+        assert!(v(r"C:\Users\me\Downloads\report.txt").is_ok());
+        assert!(v("/home/me/Downloads/report.txt").is_ok());
+        assert!(v(r"C:\Users\me\Downloads\..foo").is_ok());
+        assert!(v("/home/me/console.log").is_ok());
+    }
+
+    #[test]
+    fn traversal_through_server_names_is_rejected() {
+        assert!(v(r"C:\Users\me\Downloads\..\..\AppData\Roaming\x.bat").is_err());
+        assert!(v("/home/me/Downloads/../.bashrc").is_err());
+        assert!(v(r"C:\Users\me\Downloads\a/../b").is_err());
+    }
+
+    #[test]
+    fn reserved_device_names_are_rejected() {
+        for n in ["CON", "nul.txt", "Com1", "LPT9.log", "aux "] {
+            assert!(v(&format!(r"C:\d\{n}")).is_err(), "{n}");
+        }
+        assert!(v(r"C:\d\COM0").is_ok());
+        assert!(v(r"C:\d\COMPANY.txt").is_ok());
     }
 }
