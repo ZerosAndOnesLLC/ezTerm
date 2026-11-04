@@ -21,7 +21,10 @@ Click the **SFTP toggle** on the active tab's right edge.
 - **Upload** — drag files or whole folders from Explorer into the pane, or use the Upload button. Drop onto a folder row to upload into that folder. Uploads are 32 KiB-chunked with live progress; folder uploads show a per-file count.
 - **Select several** — Ctrl-click toggles a row, Shift-click selects a range.
 - **New folder, Rename, Delete** — toolbar button and right-click context menu.
-- **Symbolic links** — links show where they point (`current → releases/42`). A link to a folder opens, sorts and accepts drag-drop uploads like a folder; a link to a file downloads the file it points to and shows its size. Broken links are struck through with a red icon. Deleting a link removes only the link; the file or folder it points to is never touched.
+- **Symbolic links** — links show where they point (`current → releases/42`). A link to a folder opens, sorts and accepts drag-drop uploads like a folder; a link to a file downloads the file it points to and shows its size and date. Broken links are struck through with a red icon. Deleting a link removes only the link; the file or folder it points to is never touched.
+  - Uploading a file onto the name of an existing link to a file replaces the contents of the file it points to, the same as `cp` on the server would.
+  - If the server is slow to answer, a link can show a grey question-mark icon (*not resolved yet*). Double-click still tries to open it, and refreshing the folder resolves it again.
+- **Special files** — FIFOs, sockets and devices (and links to them) are listed with a cog icon but can't be downloaded, since reading one can block forever or never end.
 
 ## Resizing
 

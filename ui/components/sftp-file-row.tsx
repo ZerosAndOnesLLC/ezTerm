@@ -1,16 +1,18 @@
 'use client';
 import { useState } from 'react';
-import { File, FileSymlink, FileX, Folder, FolderSymlink } from 'lucide-react';
+import { File, FileCog, FileQuestion, FileSymlink, FileX, Folder, FolderSymlink } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SftpEntry } from '@/lib/types';
-import { entryKind, entryTitle, type EntryKind } from '@/lib/sftp-entry';
+import { displayTarget, entryKind, entryTitle, type EntryKind } from '@/lib/sftp-entry';
 
 const ICONS: Record<EntryKind, { Icon: LucideIcon; cls: string }> = {
-  'dir':         { Icon: Folder,        cls: 'text-accent' },
-  'dir-link':    { Icon: FolderSymlink, cls: 'text-accent' },
-  'file':        { Icon: File,          cls: 'text-muted' },
-  'file-link':   { Icon: FileSymlink,   cls: 'text-warning' },
-  'broken-link': { Icon: FileX,         cls: 'text-danger' },
+  'dir':             { Icon: Folder,        cls: 'text-accent' },
+  'dir-link':        { Icon: FolderSymlink, cls: 'text-accent' },
+  'file':            { Icon: File,          cls: 'text-muted' },
+  'special':         { Icon: FileCog,       cls: 'text-muted' },
+  'file-link':       { Icon: FileSymlink,   cls: 'text-warning' },
+  'broken-link':     { Icon: FileX,         cls: 'text-danger' },
+  'unresolved-link': { Icon: FileQuestion,  cls: 'text-muted' },
 };
 
 interface Props {
@@ -103,11 +105,12 @@ export function SftpFileRow({
     >
       <span className="truncate flex items-center gap-1.5 min-w-0" title={entryTitle(entry)}>
         <Icon size={13} className={`${iconCls} shrink-0`} aria-hidden="true" />
-        <span className={`truncate ${kind === 'broken-link' ? 'text-muted line-through' : ''}`}>
+        <span className={`truncate min-w-0 ${kind === 'broken-link' ? 'text-muted line-through' : ''}`}>
           {entry.name}
         </span>
         {entry.is_symlink && entry.link_target && (
-          <span className="truncate text-muted shrink-[2]">→ {entry.link_target}</span>
+          // Capped at half the cell so a long target never hides the name.
+          <span className="truncate text-muted max-w-[50%] shrink-0">→ {displayTarget(entry.link_target)}</span>
         )}
       </span>
       <span className="text-muted text-right tabular-nums">

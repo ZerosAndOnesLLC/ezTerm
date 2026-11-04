@@ -4,7 +4,9 @@ import { FolderPlus, Inbox, Loader2, RefreshCw, Upload, UploadCloud } from 'luci
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
 import type { SftpEntry } from '@/lib/types';
-import { canDownload, deleteAction, deleteConfirmBody } from '@/lib/sftp-entry';
+import {
+  canDownload, canOpen, deleteAction, deleteConfirmBody, displayTarget, isSafeLocalName,
+} from '@/lib/sftp-entry';
 import {
   useTabs, type Tab, type SftpColumns,
   SFTP_PANE_MIN, SFTP_PANE_MAX, SFTP_PANE_DEFAULT,
@@ -152,6 +154,10 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const setNameWidth = useCallback((w: number) => setSftpColumn('name', w), [setSftpColumn]);
   const setSizeWidth = useCallback((w: number) => setSftpColumn('size', w), [setSftpColumn]);
 
+  // Bumped by every listing request; a response that comes back after a
+  // newer request (fast clicking through slow, link-heavy folders) is
+  // dropped instead of overwriting the newer listing.
+  const listSeq = useRef(0);
   const refresh = useCallback(async () => {
     if (tab.connectionId == null || !opened) return;
     // Skip the listing IPC when the pane is hidden (display:none in
@@ -159,11 +165,14 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     // survives mode flips, but the user can't see results — and we
     // shouldn't be hitting the remote with sftpList while invisible.
     if (!isVisible) return;
+    const seq = ++listSeq.current;
     try {
       setError(null);
       const list = await api.sftpList(tab.connectionId, tab.cwd);
+      if (seq !== listSeq.current) return;
       setEntries(list);
     } catch (e) {
+      if (seq !== listSeq.current) return;
       setError(errMessage(e));
     }
   }, [tab.connectionId, tab.cwd, opened, isVisible]);
@@ -213,10 +222,12 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   }, [tab.cwd]);
 
   function navigateInto(e: SftpEntry) {
-    // Links to directories have is_dir set, so they open like folders.
-    if (e.is_dir) setCwd(tab.tabId, e.full_path);
+    // Folder links have is_dir set, so they open like folders. A link we
+    // couldn't resolve in time is tried too; the listing reports an error
+    // if it isn't a folder after all.
+    if (canOpen(e)) setCwd(tab.tabId, e.full_path);
     else if (e.link_broken) {
-      toast.danger('Broken link', `${e.name} points to ${e.link_target ?? 'a missing target'}.`);
+      toast.danger('Broken link', `${e.name} points to ${displayTarget(e.link_target) || 'a missing target'}.`);
     }
   }
 
@@ -250,6 +261,12 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
             const base = destDir.replace(/[\\/]+$/, '');
             const newTransfers: TrackedTransfer[] = [];
             for (const ent of multiTargets) {
+              // The name comes from the server: never let it pick a path
+              // outside the folder the user chose (the backend re-checks).
+              if (!isSafeLocalName(ent.name)) {
+                toast.danger('Skipped unsafe file name', ent.name);
+                continue;
+              }
               try {
                 const localPath = `${base}${sep}${ent.name}`;
                 const t = await api.sftpDownload(cid, ent.full_path, localPath);
@@ -446,6 +463,21 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     }
 
     for (const d of dirWork) {
+      // Dropping folder "x" where the current listing already has a
+      // *file* (or a link to one) called "x": mkdir would fail and every
+      // child upload after it too. Say so once instead.
+      if (targetDir === tab.cwd) {
+        const clash = entries.find((en) => en.name === d.rootName && !en.is_dir);
+        if (clash) {
+          toast.danger(
+            `Can't upload folder "${d.rootName}"`,
+            clash.is_symlink
+              ? 'A link with that name already exists here and it points to a file.'
+              : 'A file with that name already exists here.',
+          );
+          continue;
+        }
+      }
       const jobId = nextDirJobId.current++;
       setDirJobs((js) => [...js, {
         id: jobId, rootName: d.rootName, total: 1, done: 0, failed: 0, finished: false,

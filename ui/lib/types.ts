@@ -321,6 +321,10 @@ export interface SftpEntry {
   link_target?: string | null;
   /** A symlink whose target is missing or unreachable. */
   link_broken?: boolean;
+  /** A symlink not resolved in time (slow server); may still work. */
+  link_unresolved?: boolean;
+  /** FIFO / socket / device (or a link to one): never downloadable. */
+  is_special?: boolean;
 }
 
 export interface TransferProgress {
