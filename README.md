@@ -87,7 +87,10 @@ on those platforms.
   columns resizable from the header (drag, double-click to reset, arrow
   keys when focused; the list scrolls sideways once the columns outgrow
   the pane) — breadcrumb navigation, right-click context menu (Download, Rename, Delete), drag-drop
-  upload from Explorer with streaming 32 KiB chunks and live progress. WSL
+  upload from Explorer with streaming 32 KiB chunks and live progress.
+  Symbolic links work: links to folders open and sort like folders, links to
+  files download their target, each link shows `→ target`, broken links are
+  flagged, and Delete removes the link without touching its target. WSL
   tabs browse the distro's filesystem through the Plan 9 bridge
   (`\\wsl.localhost\<distro>\…`) and shell out to the distro's coreutils
   for POSIX-aware listing + `chmod` — same UX as MobaXterm's WSL pane,

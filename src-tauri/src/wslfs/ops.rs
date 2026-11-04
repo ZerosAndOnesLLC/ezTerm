@@ -12,29 +12,45 @@ use crate::error::{AppError, Result};
 use super::handle::WslFsHandle;
 
 pub async fn mkdir(handle: &WslFsHandle, path: &str) -> Result<()> {
-    let unc = handle.linux_to_unc(path);
+    // Parent may be (or sit under) a folder link.
+    let unc = handle.physical_unc_keep_leaf(path).await?;
     fs::create_dir(&unc)
         .await
         .map_err(|e| AppError::Sftp(format!("mkdir: {e}")))
 }
 
 pub async fn rmdir(handle: &WslFsHandle, path: &str) -> Result<()> {
-    let unc = handle.linux_to_unc(path);
+    // Keep the leaf: the UI only sends real directories here (links are
+    // always unlinked via `remove`), so never resolve *through* the leaf.
+    let unc = handle.physical_unc_keep_leaf(path).await?;
     fs::remove_dir(&unc)
         .await
         .map_err(|e| AppError::Sftp(format!("rmdir: {e}")))
 }
 
+/// Remove a file or a symlink — the link itself, never its target. Runs
+/// `rm` inside the distro rather than `remove_file` on the 9P UNC path:
+/// Windows sees a WSL symlink to a directory as a directory reparse
+/// point, so `remove_file` refuses it. Plain `rm` (no `-r`) still refuses
+/// real directories, so this can't delete a tree.
+///
+/// Differences from the old Windows-side delete, accepted on purpose:
+/// errors read "rm: cannot remove …" (wrapped as `remove: wsl.exe exited
+/// 1: …`), and a write-protected file is removed like any other — POSIX
+/// semantics, where deleting depends on the directory's permissions, not
+/// the file's. `rm` never prompts here: stdin isn't a terminal.
 pub async fn remove(handle: &WslFsHandle, path: &str) -> Result<()> {
-    let unc = handle.linux_to_unc(path);
-    fs::remove_file(&unc)
+    handle
+        .wsl_exec(&["rm", "--", path])
         .await
+        .map(|_| ())
         .map_err(|e| AppError::Sftp(format!("remove: {e}")))
 }
 
 pub async fn rename(handle: &WslFsHandle, from: &str, to: &str) -> Result<()> {
-    let unc_from = handle.linux_to_unc(from);
-    let unc_to = handle.linux_to_unc(to);
+    // Resolve the parents only: renaming a link must rename the link.
+    let unc_from = handle.physical_unc_keep_leaf(from).await?;
+    let unc_to = handle.physical_unc_keep_leaf(to).await?;
     fs::rename(&unc_from, &unc_to)
         .await
         .map_err(|e| AppError::Sftp(format!("rename: {e}")))

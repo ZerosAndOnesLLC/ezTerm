@@ -1,7 +1,19 @@
 'use client';
 import { useState } from 'react';
-import { File, FileSymlink, Folder } from 'lucide-react';
+import { File, FileCog, FileQuestion, FileSymlink, FileX, Folder, FolderSymlink } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { SftpEntry } from '@/lib/types';
+import { displayTarget, entryKind, entryTitle, type EntryKind } from '@/lib/sftp-entry';
+
+const ICONS: Record<EntryKind, { Icon: LucideIcon; cls: string }> = {
+  'dir':             { Icon: Folder,        cls: 'text-accent' },
+  'dir-link':        { Icon: FolderSymlink, cls: 'text-accent' },
+  'file':            { Icon: File,          cls: 'text-muted' },
+  'special':         { Icon: FileCog,       cls: 'text-muted' },
+  'file-link':       { Icon: FileSymlink,   cls: 'text-warning' },
+  'broken-link':     { Icon: FileX,         cls: 'text-danger' },
+  'unresolved-link': { Icon: FileQuestion,  cls: 'text-muted' },
+};
 
 interface Props {
   entry: SftpEntry;
@@ -50,10 +62,8 @@ export function SftpFileRow({
     onSelectMouseDown?.(entry, e);
   }
 
-  let Icon = File;
-  let iconCls = 'text-muted';
-  if (entry.is_dir) { Icon = Folder; iconCls = 'text-accent'; }
-  else if (entry.is_symlink) { Icon = FileSymlink; iconCls = 'text-warning'; }
+  const kind = entryKind(entry);
+  const { Icon, cls: iconCls } = ICONS[kind];
 
   // Per-folder drop wiring. We stop propagation so the pane-wide
   // handler in SftpPane doesn't ALSO see the drop and double-upload.
@@ -93,9 +103,15 @@ export function SftpFileRow({
             : 'hover:bg-surface2/60'
       }`}
     >
-      <span className="truncate flex items-center gap-1.5 min-w-0">
-        <Icon size={13} className={`${iconCls} shrink-0`} />
-        <span className="truncate">{entry.name}</span>
+      <span className="truncate flex items-center gap-1.5 min-w-0" title={entryTitle(entry)}>
+        <Icon size={13} className={`${iconCls} shrink-0`} aria-hidden="true" />
+        <span className={`truncate min-w-0 ${kind === 'broken-link' ? 'text-muted line-through' : ''}`}>
+          {entry.name}
+        </span>
+        {entry.is_symlink && entry.link_target && (
+          // Capped at half the cell so a long target never hides the name.
+          <span className="truncate text-muted max-w-[50%] shrink-0">→ {displayTarget(entry.link_target)}</span>
+        )}
       </span>
       <span className="text-muted text-right tabular-nums">
         {entry.is_dir ? '' : formatSize(entry.size)}

@@ -73,6 +73,52 @@ impl WslFsHandle {
         }
     }
 
+    /// Resolve `path` inside the distro (`realpath -m`: follows every
+    /// symlink, tolerates a missing leaf) and return the UNC path of the
+    /// physical location. Windows' Plan 9 client can't reliably follow
+    /// WSL symlinks — absolute targets especially — so file I/O through a
+    /// linked folder or onto a linked file has to use the resolved path.
+    pub async fn physical_unc(&self, path: &str) -> Result<PathBuf> {
+        let resolved = self.realpath_m(path).await?;
+        Ok(self.linux_to_unc(&resolved))
+    }
+
+    /// Like `physical_unc`, but keeps the last path component as-is: only
+    /// the parent directory is resolved. For operations on the entry
+    /// itself (rename a link, mkdir), where following a link at the leaf
+    /// would act on its target instead.
+    pub async fn physical_unc_keep_leaf(&self, path: &str) -> Result<PathBuf> {
+        let (parent, leaf) = match path.rsplit_once('/') {
+            Some(("", leaf)) => ("/", leaf),
+            Some((p, leaf)) => (p, leaf),
+            None => return Ok(self.linux_to_unc(path)),
+        };
+        if leaf.is_empty() {
+            return self.physical_unc(path).await;
+        }
+        let resolved = self.realpath_m(parent).await?;
+        let joined = if resolved.ends_with('/') {
+            format!("{resolved}{leaf}")
+        } else {
+            format!("{resolved}/{leaf}")
+        };
+        Ok(self.linux_to_unc(&joined))
+    }
+
+    async fn realpath_m(&self, path: &str) -> Result<String> {
+        let out = self.wsl_exec(&["realpath", "-m", "--", path]).await?;
+        let resolved = out.strip_suffix('\n').unwrap_or(&out);
+        // Same rules as user-supplied paths: an absolute Linux path with
+        // no NUL or backslash (a `\` would become a separator in the UNC
+        // form and point somewhere else).
+        if !resolved.starts_with('/') || resolved.contains('\0') || resolved.contains('\\') {
+            return Err(AppError::Sftp(format!(
+                "unexpected realpath result for {path}"
+            )));
+        }
+        Ok(resolved.to_string())
+    }
+
     /// Spawn `wsl.exe -d <distro> [-u <user>] -- <argv…>` and return
     /// captured stdout on success, or an error string built from the
     /// process exit code + stderr. Used by `ls -la`, `chmod`, `realpath`.

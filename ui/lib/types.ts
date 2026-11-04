@@ -309,11 +309,22 @@ export interface HostKeyMismatchError {
 export interface SftpEntry {
   name: string;
   full_path: string;
+  /** True for a directory *or* a symlink that resolves to one. */
   is_dir: boolean;
   is_symlink: boolean;
+  /** For a symlink to a file: the target's size. */
   size: number;
   mtime_unix: number;
+  /** The entry's own mode bits (a link keeps `lrwxrwxrwx`). */
   mode: number;
+  /** Where a symlink points, as stored in the link (may be relative). */
+  link_target?: string | null;
+  /** A symlink whose target is missing or unreachable. */
+  link_broken?: boolean;
+  /** A symlink not resolved in time (slow server); may still work. */
+  link_unresolved?: boolean;
+  /** FIFO / socket / device (or a link to one): never downloadable. */
+  is_special?: boolean;
 }
 
 export interface TransferProgress {

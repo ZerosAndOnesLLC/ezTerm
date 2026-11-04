@@ -33,7 +33,8 @@ pub async fn upload(
     let event = format!("sftp:transfer:{transfer_id}");
     let mut local = tokio::fs::File::open(local_path).await?;
     let total = local.metadata().await?.len();
-    let unc = handle.linux_to_unc(remote_path);
+    // Follow symlinks inside the distro: Windows can't follow them over 9P.
+    let unc = handle.physical_unc(remote_path).await?;
 
     let result: Result<()> = async {
         let mut remote = tokio::fs::File::create(&unc)
@@ -106,7 +107,8 @@ pub async fn upload_bytes(
 ) -> Result<()> {
     let event = format!("sftp:transfer:{transfer_id}");
     let total = bytes.len() as u64;
-    let unc = handle.linux_to_unc(remote_path);
+    // Follow symlinks inside the distro: Windows can't follow them over 9P.
+    let unc = handle.physical_unc(remote_path).await?;
 
     let result: Result<()> = async {
         let mut remote = tokio::fs::File::create(&unc)
@@ -173,7 +175,8 @@ pub async fn download(
     local_path: &Path,
 ) -> Result<()> {
     let event = format!("sftp:transfer:{transfer_id}");
-    let unc = handle.linux_to_unc(remote_path);
+    // Follow symlinks inside the distro: Windows can't follow them over 9P.
+    let unc = handle.physical_unc(remote_path).await?;
 
     let mut local = tokio::fs::File::create(local_path).await?;
 
