@@ -175,3 +175,20 @@ pushing a tmux/screen config to the host, auto-reconnect for WSL/local tabs.
 - UI: `npm run lint`, `npm test` (slot allocation + backoff schedule unit tests).
 - Manual: tmux and screen hosts, host without either, kill network → auto
   reattach; `exit` → no reconnect; End remote session.
+
+## Hardening (post-v1.14.0 review)
+
+A deep review after release found gaps between the promise ("reconnect without losing anything") and edge-case behaviour. Changes:
+
+- **Login drops are retryable.** russh 0.65 reports a transport that dies mid-auth as a plain auth *failure*, which read as a wrong password. `ClientHandler::disconnected` now records whether the *server* sent SSH_MSG_DISCONNECT. After auth: transport gone with no server disconnect → retryable `Ssh("connection lost during authentication")`. Server disconnect (e.g. "Too many authentication failures") → `AuthError`, which is never retried. Transport up and auth said no → `AuthFailed`.
+- **tmux probe works on every version.** `tmux list-sessions -F "#S" | grep -qx NAME` replaces `has-session -t =NAME` (`=` targets need tmux 2.1+). The probe also prints `tmux -V`. On tmux 2.1+ the attach id is `=NAME`; on older tmux it's the plain name (exact matches win once the probe proved one exists). Create uses `new-session -A` on tmux 1.8+, so a racing duplicate attaches instead of failing.
+- **Attach falls back to create.** `tmux attach-session -d -t ID || exec tmux new-session -A -s NAME` (screen: `screen -d -r ID || exec screen -S NAME`). If the session vanished between probe and attach, the user gets a fresh session instead of a bare "exit 1".
+- **screen socket errors** (`Cannot …`, `Permission denied`, `must have mode`) exit 3 → ProbeFailed (plain shell + notice), not "absent → create → fail".
+- **Probe timeout is 10 s** (was 4 s), and a timed-out probe channel is closed explicitly. russh sends no CLOSE on drop, so an abandoned probe kept its session slot on the server.
+- **End remote session always re-probes** for the current exact id, so a stale plain name can't prefix-match another tab's session.
+- **Reattach is verified.** If an auto-reconnect connects but comes back *without* persistence after the previous connection had it, the attempt is dropped and retried ("could not reattach to the remote session").
+- **Flapping links still give up.** A link that drops again within 60 s of a successful auto-reconnect continues the attempt count instead of restarting at 1. Turning auto-reconnect off mid-loop stops it at the next attempt.
+- **SFTP pane re-opens after reconnect.** The pane tracks which connection it opened SFTP on, and the tab's `connectionId` is cleared on teardown.
+- **The X server ref is released on every early return** after it's acquired (`XServerRefGuard`).
+- **Exit codes are shown.** OpenSSH sends EOF before exit-status, so the driver now waits up to 2 s after EOF for the status, and "Disconnected (exit 1)" appears again.
+- **Too many tabs** (>99 of one session) reads "too many tabs open for this session (persistent sessions allow 99)".

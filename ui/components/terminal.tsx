@@ -31,6 +31,10 @@ import { ReconnectLoop } from '@/lib/reconnect-loop';
  *    the attempt touched no UI and released anything it opened. */
 type ConnectOutcome = 'ok' | 'fatal' | 'retryable' | 'cancelled';
 
+/** A link that drops again within this long of an auto-reconnect counts
+ *  as the same outage (see lastReconnectOkRef). */
+const FLAP_WINDOW_MS = 60_000;
+
 /** Short 880 Hz tick via WebAudio — no asset to ship, ~80 ms. */
 function beep() {
   try {
@@ -149,6 +153,14 @@ export function TerminalView({ tab, visible }: Props) {
   const connectSeqRef = useRef(0);
   /** Last transient failure during auto-reconnect, shown on give-up. */
   const lastReconnectErrorRef = useRef<string | null>(null);
+  /** The last connection really ran inside tmux/screen. An auto-reconnect
+   *  that comes back *without* it (probe timed out on a loaded server) is
+   *  not "back where you were", so it is retried instead of accepted. */
+  const wasPersistentRef = useRef(false);
+  /** When the last auto-reconnect succeeded and on which attempt. A link
+   *  that drops again soon after continues that count rather than
+   *  restarting at 1, so a flapping link still runs out of attempts. */
+  const lastReconnectOkRef = useRef<{ at: number; attempt: number } | null>(null);
   // Live font state for this tab. Starts from the session row; the
   // context-menu picker and Ctrl+wheel mutate these without rewriting
   // the DB (unless the user explicitly saves via the picker). A ref
@@ -192,8 +204,12 @@ export function TerminalView({ tab, visible }: Props) {
     c.onData?.dispose();
     c.unlisten?.();
     if (connectionIdRef.current === c.id) connectionIdRef.current = null;
+    // Clear the store's id too, so the SFTP / forwards panes stop calling
+    // a dead connection and re-open on the next one.
+    const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+    if (cur?.connectionId === c.id) setConn(tab.tabId, null);
     if (opts.disconnect) c.disconnect(c.id).catch(() => {});
-  }, []);
+  }, [tab.tabId, setConn]);
 
   /** Stop any pending auto-reconnect. Every manual connect path (Reconnect
    *  button, host-key trust, auth fix, X server dialog) goes through
@@ -201,10 +217,10 @@ export function TerminalView({ tab, visible }: Props) {
    *  over a timer. */
   /** Reconnect attempt / give-up handlers, refreshed by a layout effect
    *  below; the loop is created once and calls through these. */
-  const attemptRef = useRef<() => Promise<ConnectOutcome>>(async () => 'cancelled');
+  const attemptRef = useRef<(attempt: number) => Promise<ConnectOutcome>>(async () => 'cancelled');
   const giveUpRef = useRef<() => void>(() => {});
   const [loop] = useState(() => new ReconnectLoop({
-    attempt: () => attemptRef.current(),
+    attempt: (n) => attemptRef.current(n),
     onState: setReconnect,
     onGiveUp: () => giveUpRef.current(),
   }));
@@ -313,6 +329,16 @@ export function TerminalView({ tab, visible }: Props) {
         return 'cancelled';
       }
       const cid = result.connection_id;
+      const wantPersistent = useTabs.getState().tabs
+        .find((t) => t.tabId === tab.tabId)?.session.persistent_shell !== 'off';
+      if (auto && wasPersistentRef.current && wantPersistent && result.persistent !== true) {
+        // Connected, but the remote session couldn't be reattached (the
+        // probe failed or timed out). Drop this plain shell and try again
+        // rather than strand the user's tmux/screen session.
+        output.detach();
+        await term.disconnect(cid).catch(() => {});
+        return softFail('reconnected, but could not reattach to the remote session');
+      }
       const conn: LiveConnection = {
         id: cid, output, stopWatchdog: null, onData: null, unlisten: null, disconnect: term.disconnect,
       };
@@ -321,6 +347,7 @@ export function TerminalView({ tab, visible }: Props) {
       connectionIdRef.current = cid;
       setConn(tab.tabId, cid);
       setPersistentLive(result.persistent === true);
+      wasPersistentRef.current = result.persistent === true;
       setStatus(tab.tabId, 'connected');
       if (
         getSetting('sessions.autoOpenSftp') &&
@@ -402,7 +429,18 @@ export function TerminalView({ tab, visible }: Props) {
   ]);
 
   useLayoutEffect(() => {
-    attemptRef.current = () => runConnect(false, false, true);
+    attemptRef.current = async (attempt) => {
+      // Re-read the row each attempt: if the user turned auto-reconnect off
+      // mid-loop, stop here instead of finishing the run.
+      const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+      if (cur?.session.auto_reconnect !== 1) {
+        setStatus(tab.tabId, 'closed', 'connection lost');
+        return 'fatal';
+      }
+      const outcome = await runConnect(false, false, true);
+      if (outcome === 'ok') lastReconnectOkRef.current = { at: Date.now(), attempt };
+      return outcome;
+    };
     giveUpRef.current = () => {
       const last = lastReconnectErrorRef.current;
       setStatus(
@@ -415,7 +453,9 @@ export function TerminalView({ tab, visible }: Props) {
       if (cur?.session.auto_reconnect === 1) {
         lastReconnectErrorRef.current = null;
         setStatus(tab.tabId, 'connecting');
-        loop.start();
+        const prev = lastReconnectOkRef.current;
+        const flapping = prev !== null && Date.now() - prev.at < FLAP_WINDOW_MS;
+        loop.start(flapping ? prev.attempt + 1 : 1);
       } else if (stalled) {
         setStatus(tab.tabId, 'error', 'Terminal output stalled — the connection was dropped. Reconnect to continue.');
       } else {
