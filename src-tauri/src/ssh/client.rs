@@ -17,7 +17,7 @@ use crate::log_redacted;
 use crate::sftp::SftpRegistry;
 use crate::ssh::forwards::RemoteDispatch;
 use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
-use crate::ssh::persist::{self, PersistBinding, PersistKind, PersistTarget, Probe};
+use crate::ssh::persist::{self, PersistKind, PersistTarget, Probe};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
@@ -36,8 +36,9 @@ pub struct ConnectRequest {
     /// the host right now without editing the session.
     pub disable_x11: bool,
     /// Per-tab slot for the persistent remote session name
-    /// (`ezterm-<session_id>-<slot>`). Ignored when the session's
-    /// `persistent_shell` is 'off'. Range-checked in `PersistTarget::new`.
+    /// (`ezterm-<install_id>-<session_id>-<slot>`). Ignored when the
+    /// session's `persistent_shell` is 'off'. Range-checked in
+    /// `PersistTarget::new`.
     pub persist_slot: u32,
     /// Where shell output goes. A Tauri IPC channel created by the
     /// frontend before it invokes `ssh_connect`, so a listener is
@@ -83,10 +84,34 @@ pub struct ClientHandler {
     /// out — no awaits while held — and the russh event loop benefits
     /// from a non-blocking read path.
     forwarded_tcpip_dispatch: RemoteDispatch,
+    /// Set when the *server* ended the session with SSH_MSG_DISCONNECT
+    /// (e.g. "Too many authentication failures"), holding its message.
+    /// Stays `None` when the transport just died. `connect_impl` uses it to
+    /// tell a refused login (don't retry) from a link that dropped
+    /// mid-login (retry). Std mutex for the same HRTB reason as
+    /// `server_key`; never held across an await.
+    server_disconnect: Arc<StdMutex<Option<String>>>,
 }
 
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
+
+    async fn disconnected(
+        &mut self,
+        reason: client::DisconnectReason<Self::Error>,
+    ) -> std::result::Result<(), Self::Error> {
+        match reason {
+            client::DisconnectReason::ReceivedDisconnect(info) => {
+                *self
+                    .server_disconnect
+                    .lock()
+                    .expect("server_disconnect poisoned") = Some(info.message);
+                Ok(())
+            }
+            // Same as russh's default: surface transport errors.
+            client::DisconnectReason::Error(e) => Err(e),
+        }
+    }
 
     async fn check_server_key(
         &mut self,
@@ -294,7 +319,9 @@ async fn connect_impl(
     // writes are rare (forward setup/teardown only).
     let forwarded_tcpip_dispatch: RemoteDispatch =
         Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+    let server_disconnect = Arc::new(StdMutex::new(None));
     let handler = ClientHandler {
+        server_disconnect: server_disconnect.clone(),
         server_key: server_key.clone(),
         x11_display,
         forwarded_tcpip_dispatch: forwarded_tcpip_dispatch.clone(),
@@ -368,18 +395,38 @@ async fn connect_impl(
     // inside it runs at the end of that function call — our in-process copy of
     // the secret is erased before we proceed. (See SECURITY NOTE on
     // `AuthMaterial` about the non-zeroized russh-side copy.)
-    // Transport-level failures inside the auth exchange (agent errors,
-    // "too many authentication failures" disconnects, agent timeouts) are
-    // re-tagged `AuthError` so auto-reconnect treats them as fatal instead
-    // of re-offering credentials 20 times and tripping fail2ban / lockout.
-    let authed = authenticate(&mut handle, &session, auth_material)
-        .await
-        .map_err(|e| match e {
-            AppError::Ssh(msg) => AppError::AuthError(msg),
-            other => other,
-        })?;
-    if !authed {
-        return Err(AppError::AuthFailed);
+    //
+    // Classifying the outcome matters for auto-reconnect:
+    // - transport gone and the server sent no DISCONNECT → the link
+    //   dropped mid-login. russh 0.65 reports that as a plain auth
+    //   *failure* (its reply channel closes), so without this check it
+    //   would read as a wrong password. Retryable `Ssh`.
+    // - the server sent DISCONNECT (e.g. "Too many authentication
+    //   failures") → `AuthError`, never retried, so we don't keep
+    //   re-offering credentials and trip fail2ban / an account lockout.
+    // - transport still up and auth said no → `AuthFailed`.
+    // - other errors during auth (agent unreachable / timed out) →
+    //   `AuthError`.
+    let auth_result = authenticate(&mut handle, &session, auth_material).await;
+    let refused_by_server = server_disconnect
+        .lock()
+        .expect("server_disconnect poisoned")
+        .take();
+    match (auth_result, handle.is_closed(), refused_by_server) {
+        (Ok(true), false, _) => {}
+        (_, true, Some(msg)) => {
+            return Err(AppError::AuthError(format!(
+                "server closed the connection: {msg}"
+            )));
+        }
+        (_, true, None) => {
+            return Err(AppError::Ssh(
+                "connection lost during authentication".into(),
+            ));
+        }
+        (Ok(_), false, _) => return Err(AppError::AuthFailed),
+        (Err(AppError::Ssh(msg)), false, _) => return Err(AppError::AuthError(msg)),
+        (Err(e), false, _) => return Err(e),
     }
     {
         let host = &session.host;
@@ -392,7 +439,7 @@ async fn connect_impl(
     }
 
     // 4b. Persistent remote session target (tmux/screen), if enabled.
-    let persist_target: Option<PersistTarget> = match PersistKind::parse(&session.persistent_shell)?
+    let wanted_target: Option<PersistTarget> = match PersistKind::parse(&session.persistent_shell)?
     {
         None => None,
         Some(kind) => {
@@ -413,7 +460,7 @@ async fn connect_impl(
     // time: if our open loses that race it is retried once the probe's
     // channel has closed; if the probe loses, it reports ProbeFailed and
     // the tab falls back to a plain shell with a notice.
-    let (persist_plan, first_open) = match persist_target {
+    let (persist_plan, first_open) = match wanted_target {
         None => (None, handle.channel_open_session().await),
         Some(target) => {
             let (found, opened) = tokio::join!(
@@ -468,24 +515,25 @@ async fn connect_impl(
     // request_shell, per OpenSSH's behaviour. If VcXsrv isn't installed we
     // surface the install error now rather than letting the channel race
     // into the shell with DISPLAY set but no local server listening.
+    // From here until the connection is registered (and its teardown owns
+    // the ref), every early return must give the display ref back. The
+    // guard releases it on drop unless disarmed below.
+    let mut x11_guard = None;
     if let Some(display) = x11_display {
         deps.xserver.acquire(display).await?;
+        x11_guard = Some(XServerRefGuard::new(deps.xserver.clone(), display));
         let cookie = xserver::generate_cookie();
-        if let Err(e) = channel
+        channel
             .request_x11(false, false, "MIT-MAGIC-COOKIE-1", cookie, 0)
             .await
-        {
-            // Already acquired — release so we don't leak a ref.
-            deps.xserver.release(display).await;
-            return Err(AppError::Ssh(format!("request_x11: {e}")));
-        }
+            .map_err(|e| AppError::Ssh(format!("request_x11: {e}")))?;
     }
     // Plain shell, or exec into the remote multiplexer. On reattach the
     // starting-dir / initial-command keystrokes are skipped — they'd land
     // inside whatever the user left running. On create they run once in
     // the new shell inside tmux/screen.
     let mut notice: Option<Vec<u8>> = None;
-    let (persist_binding, run_on_connect) = match persist_plan {
+    let (persist_target, run_on_connect) = match persist_plan {
         None => {
             channel
                 .request_shell(true)
@@ -493,28 +541,19 @@ async fn connect_impl(
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
             (None, true)
         }
-        Some((target, Probe::Exists { attach_id })) => {
+        Some((target, Probe::Exists { attach_id, caps })) => {
             channel
-                .exec(true, persist::attach_command(&target, &attach_id))
+                .exec(true, persist::attach_command(&target, &attach_id, caps))
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
-            (
-                Some(PersistBinding {
-                    target,
-                    attach_id: Some(attach_id),
-                }),
-                false,
-            )
+            (Some(target), false)
         }
-        Some((target, Probe::Absent)) => {
+        Some((target, Probe::Absent { caps })) => {
             channel
-                .exec(true, persist::create_command(&target))
+                .exec(true, persist::create_command(&target, caps))
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
-            // tmux's `=NAME` is known up front; a new screen session's PID
-            // isn't, so `kill` will look it up.
-            let attach_id = target.static_attach_id();
-            (Some(PersistBinding { target, attach_id }), true)
+            (Some(target), true)
         }
         Some((target, Probe::Unavailable(why))) => {
             channel
@@ -588,7 +627,7 @@ async fn connect_impl(
             x11_display,
             forwards,
             output_sent: output_sent.clone(),
-            persist: persist_binding.clone(),
+            persist: persist_target.clone(),
         })
         .await;
 
@@ -668,6 +707,10 @@ async fn connect_impl(
     // SFTP + SSH state in every exit branch (EOF / Close / ExitStatus / error).
     // Without this the `SftpRegistry` entry would outlive the transport and
     // `SftpHandle`s would leak until app shutdown (audit I-1).
+    // The connection's teardown releases the X server ref from now on.
+    if let Some(guard) = x11_guard.take() {
+        guard.disarm();
+    }
     let teardown = ConnectionTeardown {
         id,
         ssh_reg: deps.ssh.clone(),
@@ -688,7 +731,7 @@ async fn connect_impl(
     Ok(ConnectOutcome {
         connection_id: id,
         fingerprint_sha256: fp,
-        persistent: persist_binding.is_some(),
+        persistent: persist_target.is_some(),
     })
 }
 
@@ -923,9 +966,24 @@ async fn drive_channel(
     let ev_close = format!("ssh:close:{id}");
     let ev_error = format!("ssh:error:{id}");
     let ev_lost = format!("ssh:lost:{id}");
+    // OpenSSH sends CHANNEL_EOF *before* exit-status, so ending on Eof would
+    // lose the exit code. After Eof, wait briefly for the status / Close;
+    // a server that never follows up still ends the tab after the grace.
+    let mut eof_grace: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         tokio::select! {
+            () = async { eof_grace.as_mut().expect("guarded by if").await }, if eof_grace.is_some() => {
+                let _ = app.emit(&ev_close, serde_json::Value::Null);
+                log_redacted!(info, "ssh.channel.closed", connection_id = id);
+                break;
+            }
             maybe_msg = channel.wait() => {
+                if let Some(russh::ChannelMsg::Eof) = &maybe_msg {
+                    if eof_grace.is_none() {
+                        eof_grace = Some(Box::pin(tokio::time::sleep(EOF_GRACE)));
+                    }
+                    continue;
+                }
                 // `send` only fails once the webview itself is gone; a
                 // closed tab is torn down by the frontend's disconnect
                 // call arriving as ConnectionInput::Close below, not by
@@ -988,6 +1046,10 @@ async fn drive_channel(
     teardown.run().await;
 }
 
+/// How long to wait after CHANNEL_EOF for the exit status before treating
+/// the channel as closed.
+const EOF_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// How a shell channel ended, as reported to the frontend.
 #[derive(Debug, PartialEq, Eq)]
 enum ChannelEnd {
@@ -995,7 +1057,9 @@ enum ChannelEnd {
     Exit(u32),
     /// Killed by a signal — OOM killer, kill -9 (`ssh:close` with reason).
     Signal(String),
-    /// Server sent Eof / Close without a status (`ssh:close`, null).
+    /// Server sent Close without a status (`ssh:close`, null). Eof is not
+    /// an end on its own: `drive_channel` waits a moment after it for the
+    /// exit status that OpenSSH sends next.
     Closed,
     /// russh dropped the channel without the server closing it: the
     /// transport itself is gone (keepalive timeout, TCP reset, server
@@ -1021,7 +1085,7 @@ fn channel_end(msg: Option<&russh::ChannelMsg>) -> Option<ChannelEnd> {
                 other => format!("{other:?}"),
             }))
         }
-        Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => Some(ChannelEnd::Closed),
+        Some(russh::ChannelMsg::Close) => Some(ChannelEnd::Closed),
         Some(_) => None,
     }
 }
@@ -1038,10 +1102,8 @@ mod channel_end_tests {
             channel_end(Some(&ChannelMsg::Close)),
             Some(ChannelEnd::Closed)
         );
-        assert_eq!(
-            channel_end(Some(&ChannelMsg::Eof)),
-            Some(ChannelEnd::Closed)
-        );
+        // Eof only starts the grace period (handled in drive_channel).
+        assert_eq!(channel_end(Some(&ChannelMsg::Eof)), None);
         assert_eq!(
             channel_end(Some(&ChannelMsg::ExitStatus { exit_status: 0 })),
             Some(ChannelEnd::Exit(0))
@@ -1056,6 +1118,37 @@ mod channel_end_tests {
             Some(ChannelEnd::Signal("KILL".into()))
         );
         assert_eq!(channel_end(Some(&ChannelMsg::Success)), None);
+    }
+}
+
+/// Holds an acquired X server display ref during connect and releases it
+/// if connect bails out before the connection's teardown takes ownership.
+/// `release` is async, so the drop path hands it to a spawned task.
+struct XServerRefGuard {
+    xserver: Option<Arc<XServerManager>>,
+    display: u8,
+}
+
+impl XServerRefGuard {
+    fn new(xserver: Arc<XServerManager>, display: u8) -> Self {
+        Self {
+            xserver: Some(xserver),
+            display,
+        }
+    }
+
+    /// Ownership of the ref passed to `ConnectionTeardown`.
+    fn disarm(mut self) {
+        self.xserver = None;
+    }
+}
+
+impl Drop for XServerRefGuard {
+    fn drop(&mut self) {
+        if let Some(xserver) = self.xserver.take() {
+            let display = self.display;
+            tokio::spawn(async move { xserver.release(display).await });
+        }
     }
 }
 

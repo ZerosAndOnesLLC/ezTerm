@@ -106,10 +106,10 @@ pub async fn ssh_persist_kill(state: State<'_, AppState>, connection_id: u64) ->
         .get(connection_id)
         .await
         .ok_or(AppError::NotFound)?;
-    let binding = conn.persist.clone().ok_or_else(|| {
+    let target = conn.persist.clone().ok_or_else(|| {
         AppError::Validation("this tab is not running in a persistent session".into())
     })?;
-    ssh::persist::kill(&conn.ssh_handle, &binding).await
+    ssh::persist::kill(&conn.ssh_handle, &target).await
 }
 
 #[tauri::command]
