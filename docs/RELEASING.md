@@ -37,11 +37,18 @@ being offered to users.
    `cargo check` to refresh `Cargo.lock`. Write
    `docs/release-notes/vX.Y.Z.md`. Commit as `chore(release): vX.Y.Z` and
    push to `main`.
-2. **Create it as a pre-release**:
+2. **Create it as a pre-release** with the script, not by hand:
    ```bash
-   gh release create vX.Y.Z --target main --prerelease \
-     --title "ezTerm vX.Y.Z" --notes-file docs/release-notes/vX.Y.Z.md
+   scripts/release.sh X.Y.Z            # --dry-run to preview
    ```
+   It runs `gh release create vX.Y.Z --target main --prerelease …`, so
+   the release is a pre-release **from the moment it exists**. It is never
+   created as a normal release and flipped afterwards, so it can't be
+   picked up as *latest* even briefly. It refuses to run unless you're on a
+   clean `main` in sync with origin, all three version files say X.Y.Z,
+   the notes file exists, and the tag doesn't. Afterwards it checks that
+   GitHub reports the release as a pre-release, not a draft.
+
    A pre-release still counts as *published*, so the `release` workflow
    runs: all four build jobs in parallel, then `upload to release` uploads
    the archives, installers, `SHA256SUMS` and `latest.json` and swaps in
@@ -49,10 +56,14 @@ being offered to users.
 3. **Test** the pre-release builds from its release page.
 4. **Promote** it once it's good:
    ```bash
-   gh release edit vX.Y.Z --prerelease=false --latest
-   gh workflow run site.yml --ref main   # /dl/ now serves the new MSI
+   scripts/promote-release.sh X.Y.Z    # --dry-run to preview
    ```
-   From this moment the updater offers it. The site redeploy is manual
+   It only promotes a release that is currently a pre-release *and* has
+   its `latest.json`, `SHA256SUMS` and MSI uploaded, so an empty or
+   half-built release can never become latest. Then it runs `gh release
+   edit vX.Y.Z --prerelease=false --latest` and `gh workflow run site.yml
+   --ref main`, so `/dl/` serves the new MSI. From this moment the updater
+   offers it. The site redeploy is manual
    here because `site.yml`'s automatic run fires when the *build* finishes
    (while the release is still a pre-release), and the `github-pages`
    environment only accepts deploys from `main`.
