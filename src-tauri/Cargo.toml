@@ -37,6 +37,8 @@ directories = "6"
 
 russh = "0.65"
 russh-sftp = "3.0"
+# Pipelines the per-symlink stat/readlink round trips in sftp_list.
+futures-util = "0.3"
 sha2 = "0.11"
 base64 = "0.23"
 async-channel = "2"

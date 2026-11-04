@@ -21,6 +21,7 @@ Click the **SFTP toggle** on the active tab's right edge.
 - **Upload** — drag files or whole folders from Explorer into the pane, or use the Upload button. Drop onto a folder row to upload into that folder. Uploads are 32 KiB-chunked with live progress; folder uploads show a per-file count.
 - **Select several** — Ctrl-click toggles a row, Shift-click selects a range.
 - **New folder, Rename, Delete** — toolbar button and right-click context menu.
+- **Symbolic links** — links show where they point (`current → releases/42`). A link to a folder opens, sorts and accepts drag-drop uploads like a folder; a link to a file downloads the file it points to and shows its size. Broken links are struck through with a red icon. Deleting a link removes only the link; the file or folder it points to is never touched.
 
 ## Resizing
 
@@ -32,6 +33,5 @@ The pane and its columns are both adjustable, and every width is remembered acro
 
 ## What you can't do (yet)
 
-- Symbolic links are listed but not followed graphically.
 - No "Open in editor" (would need a local editor handoff).
 - No chmod dialog; the Mode column is read-only.

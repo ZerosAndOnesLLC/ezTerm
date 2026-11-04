@@ -4,6 +4,7 @@ import { FolderPlus, Inbox, Loader2, RefreshCw, Upload, UploadCloud } from 'luci
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errMessage } from '@/lib/tauri';
 import type { SftpEntry } from '@/lib/types';
+import { canDownload, deleteAction, deleteConfirmBody } from '@/lib/sftp-entry';
 import {
   useTabs, type Tab, type SftpColumns,
   SFTP_PANE_MIN, SFTP_PANE_MAX, SFTP_PANE_DEFAULT,
@@ -212,7 +213,11 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   }, [tab.cwd]);
 
   function navigateInto(e: SftpEntry) {
+    // Links to directories have is_dir set, so they open like folders.
     if (e.is_dir) setCwd(tab.tabId, e.full_path);
+    else if (e.link_broken) {
+      toast.danger('Broken link', `${e.name} points to ${e.link_target ?? 'a missing target'}.`);
+    }
   }
 
   function openContext(e: SftpEntry, x: number, y: number) {
@@ -224,8 +229,8 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     // once for a destination folder. Otherwise it falls back to the
     // single-file save-as flow on the right-clicked entry.
     const multiTargets =
-      !e.is_dir && selected.has(e.full_path) && selected.size > 1
-        ? entries.filter((ent) => selected.has(ent.full_path) && !ent.is_dir)
+      canDownload(e) && selected.has(e.full_path) && selected.size > 1
+        ? entries.filter((ent) => selected.has(ent.full_path) && canDownload(ent))
         : null;
     if (multiTargets && multiTargets.length > 1) {
       items.push({
@@ -259,7 +264,7 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
           }
         },
       });
-    } else if (!e.is_dir) {
+    } else if (canDownload(e)) {
       items.push({
         label: 'Download…',
         onClick: async () => {
@@ -731,18 +736,18 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
       {confirm?.kind === 'delete' && (
         <ConfirmDialog
           kind="danger"
-          title={`Delete "${confirm.entry.name}"?`}
-          body={confirm.entry.is_dir
-            ? 'The directory must be empty on the remote server.'
-            : 'This cannot be undone.'}
+          title={confirm.entry.is_symlink
+            ? `Remove link "${confirm.entry.name}"?`
+            : `Delete "${confirm.entry.name}"?`}
+          body={deleteConfirmBody(confirm.entry)}
           confirmText="Delete"
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
             const cid = tab.connectionId;
             if (cid == null) { setConfirm(null); return; }
             try {
-              if (confirm.entry.is_dir) await api.sftpRmdir(cid, confirm.entry.full_path);
-              else                      await api.sftpRemove(cid, confirm.entry.full_path);
+              if (deleteAction(confirm.entry) === 'rmdir') await api.sftpRmdir(cid, confirm.entry.full_path);
+              else                                           await api.sftpRemove(cid, confirm.entry.full_path);
               refresh();
               toast.success('Deleted', confirm.entry.name);
             } catch (e) {

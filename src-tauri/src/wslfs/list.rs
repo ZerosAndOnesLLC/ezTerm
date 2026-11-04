@@ -9,7 +9,7 @@
 //! mean Alpine/busybox-only distros need `apk add coreutils` first;
 //! that's a knowingly-narrow v1 scope.
 
-use crate::commands::sftp::SftpEntry;
+use crate::commands::sftp::{LinkResolution, SftpEntry, apply_link_resolution};
 use crate::error::Result;
 
 use super::handle::WslFsHandle;
@@ -25,8 +25,86 @@ pub async fn list(handle: &WslFsHandle, path: &str) -> Result<Vec<SftpEntry>> {
     let stdout = handle
         .wsl_exec(&["ls", "-la", "--time-style=+%s", "--", path])
         .await?;
-    let entries = parse_ls_output(&stdout, path);
+    let mut entries = parse_ls_output(&stdout, path);
+    resolve_wsl_links(handle, &mut entries).await;
     Ok(sorted(entries))
+}
+
+/// Follows each argument and prints one line per path, in order: `d` for
+/// a directory (or a link to one), `f <size>` for anything else that
+/// exists, `x` for a dangling link. `"$@"`-driven, so paths are never
+/// parsed by the shell.
+const RESOLVE_SCRIPT: &str = "for f do if [ -d \"$f\" ]; then echo d; \
+elif [ -e \"$f\" ]; then s=$(stat -L -c %s -- \"$f\" 2>/dev/null) || s=0; echo \"f $s\"; \
+else echo x; fi; done";
+
+/// Keep each `wsl.exe` command line well under Windows' 32 K limit.
+const RESOLVE_BATCH_CHARS: usize = 16_000;
+
+/// Resolve the symlinks in a WSL listing (one `sh` per batch, not one
+/// process per link). A batch that fails leaves its links as they were
+/// listed: still marked as links with their target, just not followed.
+async fn resolve_wsl_links(handle: &WslFsHandle, entries: &mut [SftpEntry]) {
+    let links: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.is_symlink)
+        .map(|(i, _)| i)
+        .collect();
+    for batch in batches(&links, entries) {
+        let mut argv: Vec<&str> = vec!["sh", "-c", RESOLVE_SCRIPT, "sh"];
+        argv.extend(batch.iter().map(|&i| entries[i].full_path.as_str()));
+        let Ok(out) = handle.wsl_exec(&argv).await else {
+            continue;
+        };
+        let results = parse_resolve_output(&out);
+        if results.len() != batch.len() {
+            continue;
+        }
+        for (&i, res) in batch.iter().zip(results) {
+            let target = entries[i].link_target.take();
+            apply_link_resolution(&mut entries[i], res, target);
+        }
+    }
+}
+
+/// Split link indices into batches whose paths fit one command line.
+fn batches(links: &[usize], entries: &[SftpEntry]) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    let mut cur: Vec<usize> = Vec::new();
+    let mut len = 0;
+    for &i in links {
+        let n = entries[i].full_path.len() + 3;
+        if !cur.is_empty() && len + n > RESOLVE_BATCH_CHARS {
+            out.push(std::mem::take(&mut cur));
+            len = 0;
+        }
+        cur.push(i);
+        len += n;
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+fn parse_resolve_output(stdout: &str) -> Vec<LinkResolution> {
+    stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            let l = l.trim();
+            if l == "d" {
+                LinkResolution::Dir
+            } else if let Some(size) = l.strip_prefix("f ") {
+                LinkResolution::File {
+                    size: size.trim().parse().unwrap_or(0),
+                }
+            } else {
+                LinkResolution::Broken
+            }
+        })
+        .collect()
 }
 
 fn sorted(mut v: Vec<SftpEntry>) -> Vec<SftpEntry> {
@@ -83,16 +161,16 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
     let size: u64 = size_str.parse().ok()?;
     let mtime_unix: i64 = mtime_str.parse().ok()?;
 
-    // Strip ` -> target` for symlinks so the displayed name matches
-    // the source side only. We could capture the target for a future
-    // tooltip, but the existing SftpEntry shape has no field for it.
-    let name = if is_symlink {
+    // Split ` -> target` off symlinks: the name is the link itself, the
+    // target is shown alongside it (and the link is resolved after the
+    // listing, see `resolve_wsl_links`).
+    let (name, link_target) = if is_symlink {
         match rest.split_once(" -> ") {
-            Some((n, _t)) => n.to_string(),
-            None => rest.to_string(),
+            Some((n, t)) => (n.to_string(), Some(t.to_string())),
+            None => (rest.to_string(), None),
         }
     } else {
-        rest.to_string()
+        (rest.to_string(), None)
     };
 
     let full_path = join_remote(parent, &name);
@@ -105,6 +183,8 @@ fn parse_ls_line(line: &str, parent: &str) -> Option<SftpEntry> {
         size,
         mtime_unix,
         mode,
+        link_target,
+        link_broken: false,
     })
 }
 
@@ -223,6 +303,8 @@ drwxrwxrwt 1 ron ron 4096 1700000300 sticky-dir
         let l = entries.iter().find(|e| e.name == "link").unwrap();
         assert!(l.is_symlink);
         assert_eq!(l.mode & 0o170000, 0o120000);
+        assert_eq!(l.link_target.as_deref(), Some("/etc/hostname"));
+        assert!(!l.link_broken);
 
         let d = entries.iter().find(|e| e.name == "sticky-dir").unwrap();
         assert!(d.is_dir);
@@ -243,5 +325,84 @@ drwxrwxrwt 1 ron ron 4096 1700000300 sticky-dir
         let e = parse_ls_line(line, "/usr/bin").unwrap();
         assert_eq!(e.mode & 0o4000, 0o4000);
         assert_eq!(e.mode & 0o100, 0o100);
+    }
+
+    #[test]
+    fn link_target_keeps_spaces_and_arrows_in_name_order() {
+        let e = parse_ls_line(
+            "lrwxrwxrwx 1 ron ron 9 1700000000 my link -> ../some dir",
+            "/home/ron",
+        )
+        .unwrap();
+        assert_eq!(e.name, "my link");
+        assert_eq!(e.link_target.as_deref(), Some("../some dir"));
+        assert_eq!(e.full_path, "/home/ron/my link");
+    }
+
+    #[test]
+    fn resolve_output_maps_to_resolutions() {
+        assert_eq!(
+            parse_resolve_output("d\nf 4096\nx\nf junk\n"),
+            vec![
+                LinkResolution::Dir,
+                LinkResolution::File { size: 4096 },
+                LinkResolution::Broken,
+                LinkResolution::File { size: 0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn batches_split_on_command_line_budget() {
+        let mk = |n: usize| SftpEntry {
+            name: format!("l{n}"),
+            full_path: format!("/{}", "a".repeat(5_000)),
+            is_dir: false,
+            is_symlink: true,
+            size: 0,
+            mtime_unix: 0,
+            mode: 0,
+            link_target: None,
+            link_broken: false,
+        };
+        let entries: Vec<SftpEntry> = (0..7).map(mk).collect();
+        let idx: Vec<usize> = (0..7).collect();
+        let b = batches(&idx, &entries);
+        assert!(b.len() >= 3);
+        assert_eq!(b.iter().map(Vec::len).sum::<usize>(), 7);
+        assert!(batches(&[], &entries).is_empty());
+    }
+
+    /// The resolve script, run by a real `sh` against real links.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_script_against_real_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        std::fs::create_dir(d.join("real dir")).unwrap();
+        std::fs::write(d.join("file.txt"), b"hello").unwrap();
+        std::os::unix::fs::symlink(d.join("real dir"), d.join("to-dir")).unwrap();
+        std::os::unix::fs::symlink("file.txt", d.join("to file")).unwrap();
+        std::os::unix::fs::symlink("/nonexistent/x", d.join("dangling")).unwrap();
+        let paths: Vec<String> = ["to-dir", "to file", "dangling"]
+            .iter()
+            .map(|n| d.join(n).to_string_lossy().into_owned())
+            .collect();
+        let Ok(out) = std::process::Command::new("sh")
+            .args(["-c", RESOLVE_SCRIPT, "sh"])
+            .args(&paths)
+            .output()
+        else {
+            return;
+        };
+        let got = parse_resolve_output(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(
+            got,
+            vec![
+                LinkResolution::Dir,
+                LinkResolution::File { size: 5 },
+                LinkResolution::Broken,
+            ]
+        );
     }
 }

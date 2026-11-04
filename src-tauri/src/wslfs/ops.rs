@@ -25,10 +25,16 @@ pub async fn rmdir(handle: &WslFsHandle, path: &str) -> Result<()> {
         .map_err(|e| AppError::Sftp(format!("rmdir: {e}")))
 }
 
+/// Remove a file or a symlink — the link itself, never its target. Runs
+/// `rm` inside the distro rather than `remove_file` on the 9P UNC path:
+/// Windows sees a WSL symlink to a directory as a directory reparse
+/// point, so `remove_file` refuses it. Plain `rm` (no `-r`) still refuses
+/// real directories, so this can't delete a tree.
 pub async fn remove(handle: &WslFsHandle, path: &str) -> Result<()> {
-    let unc = handle.linux_to_unc(path);
-    fs::remove_file(&unc)
+    handle
+        .wsl_exec(&["rm", "--", path])
         .await
+        .map(|_| ())
         .map_err(|e| AppError::Sftp(format!("remove: {e}")))
 }
 
