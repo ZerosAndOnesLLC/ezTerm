@@ -12,6 +12,8 @@ pub struct ConnectResult {
     pub fingerprint_sha256: String,
     /// Shell is inside tmux/screen — gates "End remote session" in the UI.
     pub persistent: bool,
+    /// Why persistence fell back to a plain shell, if it did.
+    pub persist_unavailable: Option<&'static str>,
 }
 
 /// Connect parameters for [`ssh_connect`], sent by the webview as one
@@ -62,6 +64,7 @@ pub async fn ssh_connect(
         connection_id: out.connection_id,
         fingerprint_sha256: out.fingerprint_sha256,
         persistent: out.persistent,
+        persist_unavailable: out.persist_unavailable,
     })
 }
 

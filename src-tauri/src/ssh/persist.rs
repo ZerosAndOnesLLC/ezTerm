@@ -154,10 +154,30 @@ impl PersistTarget {
 pub enum Unavailable {
     /// Probe ran in sh and reported the tool isn't on PATH.
     Missing,
-    /// Probe didn't run cleanly: timeout, channel refused (MaxSessions),
-    /// no POSIX sh, screen's socket directory unusable, or an unexpected
-    /// exit code.
+    /// No probe marker: the login shell never ran `sh` (Windows OpenSSH
+    /// with cmd.exe / PowerShell, a restricted or ForceCommand shell).
+    NoPosixShell,
+    /// The server refused a second session channel (`MaxSessions 1`).
+    ChannelRefused,
+    /// The tool is there but can't work: screen's socket directory is
+    /// missing, has the wrong mode or owner.
+    ToolError,
+    /// The probe itself didn't complete: timed out, exited oddly, or gave
+    /// output we couldn't trust. Possibly transient (a loaded server).
     ProbeFailed,
+}
+
+impl Unavailable {
+    /// Stable code for the frontend (`ConnectResult.persist_unavailable`).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::NoPosixShell => "no_posix_shell",
+            Self::ChannelRefused => "channel_refused",
+            Self::ToolError => "tool_error",
+            Self::ProbeFailed => "probe_failed",
+        }
+    }
 }
 
 /// What the probe found on the host.
@@ -232,7 +252,8 @@ pub fn probe_command(t: &PersistTarget) -> String {
             "echo {PROBE_MARKER}; \
              command -v tmux >/dev/null 2>&1 || exit 127; \
              tmux -V 2>/dev/null; \
-             tmux list-sessions -F \"#S\" 2>/dev/null | grep -qx {name} && exit 0; exit 1"
+             {} && exit 0; exit 1",
+            tmux_exact_exists(name)
         )),
         PersistKind::Screen => wrap(&format!(
             "echo {PROBE_MARKER}; \
@@ -240,7 +261,7 @@ pub fn probe_command(t: &PersistTarget) -> String {
              screen -wipe >/dev/null 2>&1; \
              o=$(screen -ls 2>&1); \
              case \"$o\" in *\"No Sockets found\"*) exit 1;; \
-             *\"Cannot \"*|*\"ermission denied\"*|*\"must have mode\"*) exit 3;; esac; \
+             *\"Cannot \"*|*\"ermission denied\"*|*\"must have mode\"*|*\"not the owner\"*|*\"is not a directory\"*) exit 3;; esac; \
              s=$(echo \"$o\" | grep -o \"[0-9][0-9]*[.]{name}[[:space:]]\" | head -n 1); \
              [ -n \"$s\" ] && {{ echo $s; exit 0; }}; exit 1"
         )),
@@ -249,23 +270,48 @@ pub fn probe_command(t: &PersistTarget) -> String {
 
 /// Reattach, detaching any stale client left over from the dead link
 /// (plain `-d` on both tools — screen's `-D` would also log the other
-/// client's whole SSH session out). If the session vanished between the
-/// probe and here, the attach fails at once and the fallback creates it,
-/// instead of the tab closing with a bare "exit 1". The fallback only runs
-/// when the attach itself fails: a normal exit or detach exits 0, and a
-/// client hung up by a dead link has no terminal left, so its fallback
-/// fails immediately too.
+/// client's whole SSH session out).
+///
+/// If the session vanished between the probe and here, the attach fails
+/// at once with status 1 and the script creates it instead of the tab
+/// closing with a bare "exit 1". The fallback is limited to *exactly* that:
+/// status 1 within a few seconds of starting. A normal exit or detach is
+/// 0; a client killed by a signal is 128+n; a tmux server that dies (or
+/// `kill-server`) later in a long session also exits 1 but well past the
+/// window — all of those end the tab and report as usual.
+///
+/// On tmux without `=` targets the plain name could prefix-match another
+/// tab's session (`…-5-1` → `…-5-10`) if ours vanished after the probe, so
+/// the exact-name check is repeated right before attaching.
 pub fn attach_command(t: &PersistTarget, attach_id: &str, caps: Caps) -> String {
     let name = &t.name;
-    match t.kind {
-        PersistKind::Tmux => wrap(&format!(
-            "tmux attach-session -d -t {attach_id} || exec {}",
-            tmux_create(name, caps)
-        )),
-        PersistKind::Screen => wrap(&format!(
-            "screen -d -r {attach_id} || exec screen -S {name}"
-        )),
-    }
+    let create = match t.kind {
+        PersistKind::Tmux => tmux_create(name, caps),
+        PersistKind::Screen => format!("screen -S {name}"),
+    };
+    let attach = match t.kind {
+        PersistKind::Tmux => format!("tmux attach-session -d -t {attach_id}"),
+        PersistKind::Screen => format!("screen -d -r {attach_id}"),
+    };
+    let recheck = if t.kind == PersistKind::Tmux && !caps.exact_target {
+        format!("{} || exec {create}; ", tmux_exact_exists(name))
+    } else {
+        String::new()
+    };
+    wrap(&format!(
+        "{recheck}s=$(date +%s); {attach}; r=$?; \
+         [ $r -eq 1 ] && [ $(( $(date +%s) - s )) -lt {ATTACH_FAIL_WINDOW_SECS} ] && exec {create}; \
+         exit $r"
+    ))
+}
+
+/// Seconds within which an attach exiting 1 is read as "session not found"
+/// (see `attach_command`).
+const ATTACH_FAIL_WINDOW_SECS: u32 = 3;
+
+/// `list-sessions | grep -x`: an exact-name test that works on every tmux.
+fn tmux_exact_exists(name: &str) -> String {
+    format!("tmux list-sessions -F \"#S\" 2>/dev/null | grep -qx {name}")
 }
 
 pub fn create_command(t: &PersistTarget, caps: Caps) -> String {
@@ -287,9 +333,18 @@ fn tmux_create(name: &str, caps: Caps) -> String {
     }
 }
 
-fn kill_command(t: &PersistTarget, attach_id: &str) -> String {
+/// On tmux without `=` targets, re-check the exact name in the same script
+/// so a session that vanished since the probe can't be confused with a
+/// prefix-matching neighbour (`kill-session -t …-5-1` ending `…-5-10`).
+fn kill_command(t: &PersistTarget, attach_id: &str, caps: Caps) -> String {
     match t.kind {
-        PersistKind::Tmux => wrap(&format!("tmux kill-session -t {attach_id}")),
+        PersistKind::Tmux if caps.exact_target => {
+            wrap(&format!("tmux kill-session -t {attach_id}"))
+        }
+        PersistKind::Tmux => wrap(&format!(
+            "{} || exit 0; tmux kill-session -t {attach_id}",
+            tmux_exact_exists(&t.name)
+        )),
         PersistKind::Screen => wrap(&format!("screen -S {attach_id} -X quit")),
     }
 }
@@ -302,7 +357,7 @@ fn kill_command(t: &PersistTarget, attach_id: &str) -> String {
 fn interpret_probe(t: &PersistTarget, status: Option<u32>, stdout: &str) -> Probe {
     let mut lines = stdout.lines().map(str::trim);
     if !lines.any(|l| l == PROBE_MARKER) {
-        return Probe::Unavailable(Unavailable::ProbeFailed);
+        return Probe::Unavailable(Unavailable::NoPosixShell);
     }
     let ours: Vec<&str> = lines.filter(|l| !l.is_empty()).collect();
     let caps = match t.kind {
@@ -318,6 +373,7 @@ fn interpret_probe(t: &PersistTarget, status: Option<u32>, stdout: &str) -> Prob
             None => Probe::Unavailable(Unavailable::ProbeFailed),
         },
         Some(1) => Probe::Absent { caps },
+        Some(3) => Probe::Unavailable(Unavailable::ToolError),
         Some(127) => Probe::Unavailable(Unavailable::Missing),
         _ => Probe::Unavailable(Unavailable::ProbeFailed),
     }
@@ -338,25 +394,49 @@ fn parse_attach_id(t: &PersistTarget, line: &str, caps: Caps) -> Option<String> 
     }
 }
 
+/// Why an exec channel run failed.
+#[derive(Debug)]
+enum ExecError {
+    /// The server refused the session channel (`MaxSessions`).
+    Refused(String),
+    /// The whole run (open + exec + read) passed its deadline.
+    TimedOut,
+    /// The channel opened but exec / read failed.
+    Other(String),
+}
+
+impl From<ExecError> for AppError {
+    fn from(e: ExecError) -> Self {
+        match e {
+            ExecError::Refused(m) | ExecError::Other(m) => AppError::Ssh(m),
+            ExecError::TimedOut => AppError::Ssh("remote command timed out".into()),
+        }
+    }
+}
+
+/// How long to wait for a CLOSE we send after giving up on a channel.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// Run `command` on a fresh exec channel (no PTY) and return
 /// `(exit_status, stdout)`. `None` status = channel ended without one.
-/// On timeout the channel is closed explicitly: russh's `Channel` sends no
-/// CLOSE on drop, so an abandoned probe would keep its session slot on the
-/// server (and break the `MaxSessions 1` retry in `connect_impl`).
+/// One deadline covers open + exec + read. On timeout or error the channel
+/// is closed explicitly (bounded): russh's `Channel` sends no CLOSE on
+/// drop, so an abandoned probe would keep its session slot on the server
+/// and break the `MaxSessions 1` retry in `connect_impl`.
 async fn run_exec(
     handle: &Handle<ClientHandler>,
     command: &str,
     limit: Duration,
-) -> Result<(Option<u32>, String)> {
-    let timed_out = || AppError::Ssh("remote command timed out".into());
-    let mut ch = tokio::time::timeout(limit, handle.channel_open_session())
+) -> std::result::Result<(Option<u32>, String), ExecError> {
+    let deadline = tokio::time::Instant::now() + limit;
+    let mut ch = tokio::time::timeout_at(deadline, handle.channel_open_session())
         .await
-        .map_err(|_| timed_out())?
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
-    let run = tokio::time::timeout(limit, async {
+        .map_err(|_| ExecError::TimedOut)?
+        .map_err(|e| ExecError::Refused(e.to_string()))?;
+    let run = tokio::time::timeout_at(deadline, async {
         ch.exec(true, command)
             .await
-            .map_err(|e| AppError::Ssh(e.to_string()))?;
+            .map_err(|e| ExecError::Other(e.to_string()))?;
         let mut out: Vec<u8> = Vec::new();
         let mut status = None;
         while let Some(msg) = ch.wait().await {
@@ -370,20 +450,16 @@ async fn run_exec(
                 _ => {}
             }
         }
-        Ok::<_, AppError>((status, String::from_utf8_lossy(&out).into_owned()))
+        Ok::<_, ExecError>((status, String::from_utf8_lossy(&out).into_owned()))
     })
     .await;
-    match run {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => {
-            let _ = ch.close().await;
-            Err(e)
-        }
-        Err(_) => {
-            let _ = ch.close().await;
-            Err(timed_out())
-        }
-    }
+    let failed = match run {
+        Ok(Ok(v)) => return Ok(v),
+        Ok(Err(e)) => e,
+        Err(_) => ExecError::TimedOut,
+    };
+    let _ = tokio::time::timeout(CLOSE_TIMEOUT, ch.close()).await;
+    Err(failed)
 }
 
 /// Find out whether the target session exists. Never fails the connect:
@@ -395,16 +471,20 @@ pub async fn probe(handle: &Handle<ClientHandler>, t: &PersistTarget) -> Probe {
             let found = interpret_probe(t, status, &stdout);
             if let Probe::Unavailable(reason) = &found {
                 let code = status.map_or(-1, i64::from);
-                let why = format!("{reason:?}");
+                let why = reason.code();
                 log_redacted!(info, "ssh.persist.unavailable", tool = %tool, reason = %why, status = code);
             }
             found
         }
         Err(e) => {
+            let reason = match &e {
+                ExecError::Refused(_) => Unavailable::ChannelRefused,
+                ExecError::TimedOut | ExecError::Other(_) => Unavailable::ProbeFailed,
+            };
             // `log_redacted!` only accepts bare idents after `%`.
-            let err = e;
+            let err = format!("{e:?}");
             log_redacted!(warn, "ssh.persist.probe_failed", tool = %tool, error = %err);
-            Probe::Unavailable(Unavailable::ProbeFailed)
+            Probe::Unavailable(reason)
         }
     }
 }
@@ -412,11 +492,12 @@ pub async fn probe(handle: &Handle<ClientHandler>, t: &PersistTarget) -> Probe {
 /// End the remote session (tab context menu → "End remote session").
 /// Always probes first for the exact current id: a remembered id could be
 /// stale, and on tmux without `=` targets a stale plain name would
-/// prefix-match a *different* tab's session. The attached client then
-/// exits and the tab closes normally.
+/// prefix-match a *different* tab's session (the kill script re-checks the
+/// exact name too). The attached client then exits and the tab closes
+/// normally.
 pub async fn kill(handle: &Handle<ClientHandler>, t: &PersistTarget) -> Result<()> {
-    let attach_id = match probe(handle, t).await {
-        Probe::Exists { attach_id, .. } => attach_id,
+    let (attach_id, caps) = match probe(handle, t).await {
+        Probe::Exists { attach_id, caps } => (attach_id, caps),
         // Already gone — nothing to end.
         Probe::Absent { .. } => return Ok(()),
         Probe::Unavailable(_) => {
@@ -426,7 +507,7 @@ pub async fn kill(handle: &Handle<ClientHandler>, t: &PersistTarget) -> Result<(
             )));
         }
     };
-    match run_exec(handle, &kill_command(t, &attach_id), KILL_TIMEOUT).await? {
+    match run_exec(handle, &kill_command(t, &attach_id, caps), KILL_TIMEOUT).await? {
         (Some(0), _) => Ok(()),
         (status, _) => Err(AppError::Ssh(format!(
             "could not end remote session (exit {})",
@@ -440,6 +521,11 @@ pub fn unavailable_notice(kind: PersistKind, why: &Unavailable) -> Vec<u8> {
     let tool = kind.tool();
     let msg = match why {
         Unavailable::Missing => format!("{tool} not found on this host"),
+        Unavailable::NoPosixShell => format!("this host's login shell can't run {tool}"),
+        Unavailable::ChannelRefused => {
+            format!("server allows only one session channel, could not check for {tool}")
+        }
+        Unavailable::ToolError => format!("{tool} on this host can't start sessions"),
         Unavailable::ProbeFailed => format!("could not check for {tool} on this host"),
     };
     format!("\x1b[33mezTerm: {msg} - using a normal shell (session will not persist).\x1b[0m\r\n")
@@ -538,7 +624,7 @@ mod tests {
                     probe_command(&tg),
                     attach_command(&tg, id, caps),
                     create_command(&tg, caps),
-                    kill_command(&tg, id),
+                    kill_command(&tg, id, caps),
                 ] {
                     let inner = cmd
                         .strip_prefix("sh -c '")
@@ -567,17 +653,50 @@ mod tests {
     }
 
     #[test]
-    fn attach_detaches_without_logging_out_and_falls_back_to_create() {
+    fn attach_detaches_without_logging_out_and_falls_back_only_on_fast_status_1() {
         let tm = attach_command(&t(PersistKind::Tmux), "=x", M);
+        assert!(tm.contains("tmux attach-session -d -t =x; r=$?;"));
         assert!(tm.contains(
-            "tmux attach-session -d -t =x || exec tmux new-session -A -s ezterm-0a1b2c3d-5-1"
+            "[ $r -eq 1 ] && [ $(( $(date +%s) - s )) -lt 3 ] && exec tmux new-session -A -s ezterm-0a1b2c3d-5-1; exit $r"
         ));
+        // Modern tmux: no pre-check needed (= target is exact).
+        assert!(!tm.contains("list-sessions"));
         let sc = attach_command(&t(PersistKind::Screen), "1.x", M);
-        assert!(sc.contains("screen -d -r 1.x || exec screen -S ezterm-0a1b2c3d-5-1"));
+        assert!(sc.contains("screen -d -r 1.x; r=$?;"));
+        assert!(sc.contains("exec screen -S ezterm-0a1b2c3d-5-1; exit $r"));
         assert!(!sc.contains(" -D "));
-        // tmux < 1.8 has no -A.
-        let old = attach_command(&t(PersistKind::Tmux), "x", ANCIENT);
-        assert!(old.contains("|| exec tmux new-session -s ezterm-0a1b2c3d-5-1'"));
+        // Old tmux: exact-name re-check right before attaching; < 1.8 has no -A.
+        let old = attach_command(&t(PersistKind::Tmux), "ezterm-0a1b2c3d-5-1", ANCIENT);
+        assert!(old.contains(
+            "grep -qx ezterm-0a1b2c3d-5-1 || exec tmux new-session -s ezterm-0a1b2c3d-5-1; "
+        ));
+    }
+
+    #[test]
+    fn kill_rechecks_exact_name_on_old_tmux() {
+        let tg = t(PersistKind::Tmux);
+        assert!(
+            kill_command(&tg, "=ezterm-0a1b2c3d-5-1", M)
+                .ends_with("tmux kill-session -t =ezterm-0a1b2c3d-5-1'")
+        );
+        let old = kill_command(&tg, "ezterm-0a1b2c3d-5-1", OLD);
+        assert!(old.contains(
+            "grep -qx ezterm-0a1b2c3d-5-1 || exit 0; tmux kill-session -t ezterm-0a1b2c3d-5-1"
+        ));
+    }
+
+    #[test]
+    fn unavailable_codes_are_stable() {
+        let all = [
+            (Unavailable::Missing, "missing"),
+            (Unavailable::NoPosixShell, "no_posix_shell"),
+            (Unavailable::ChannelRefused, "channel_refused"),
+            (Unavailable::ToolError, "tool_error"),
+            (Unavailable::ProbeFailed, "probe_failed"),
+        ];
+        for (u, c) in all {
+            assert_eq!(u.code(), c);
+        }
     }
 
     #[test]
@@ -647,11 +766,11 @@ mod tests {
         let cmd_exe = "'sh' is not recognized as an internal or external command\r\n";
         assert_eq!(
             interpret_probe(&tg, Some(1), cmd_exe),
-            Probe::Unavailable(Unavailable::ProbeFailed)
+            Probe::Unavailable(Unavailable::NoPosixShell)
         );
         assert_eq!(
             interpret_probe(&tg, Some(0), ""),
-            Probe::Unavailable(Unavailable::ProbeFailed)
+            Probe::Unavailable(Unavailable::NoPosixShell)
         );
     }
 
@@ -678,7 +797,7 @@ mod tests {
         let ok = format!("{PROBE_MARKER}\n");
         assert_eq!(
             interpret_probe(&tg, Some(3), &ok),
-            Probe::Unavailable(Unavailable::ProbeFailed)
+            Probe::Unavailable(Unavailable::ToolError)
         );
     }
 
@@ -736,12 +855,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(code, 1);
-        let (code, _) = run_probe_with_fake(
-            PersistKind::Screen,
-            &fake("Directory /run/screen must have mode 777."),
-        )
-        .unwrap();
-        assert_eq!(code, 3);
+        for msg in [
+            "Directory /run/screen must have mode 777.",
+            "Cannot make directory /run/screen: Read-only file system",
+            "Cannot access /run/screen: Permission denied",
+            "You are not the owner of /run/screen/S-me.",
+            "/run/screen/S-me is not a directory.",
+        ] {
+            let (code, _) = run_probe_with_fake(PersistKind::Screen, &fake(msg)).unwrap();
+            assert_eq!(code, 3, "{msg}");
+        }
         // Only the prefix-colliding neighbour exists → absent.
         let (code, _) = run_probe_with_fake(
             PersistKind::Screen,

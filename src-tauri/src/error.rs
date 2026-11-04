@@ -54,6 +54,12 @@ pub enum AppError {
     #[error("authentication error: {0}")]
     AuthError(String),
 
+    /// The transport died mid-login with no DISCONNECT from the server.
+    /// Retryable, but the frontend stops after a second one in a row (see
+    /// `ssh::client::classify_auth`).
+    #[error("ssh: {0}")]
+    AuthLost(String),
+
     #[error("host key mismatch (expected {expected}, got {actual})")]
     HostKeyMismatch { expected: String, actual: String },
 
@@ -121,6 +127,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::PortConflict(_) => "port_conflict",
         AppError::AuthFailed => "auth_failed",
         AppError::AuthError(_) => "auth_error",
+        AppError::AuthLost(_) => "auth_lost",
         AppError::HostKeyMismatch { .. } => "host_key_mismatch",
         AppError::HostKeyUntrusted => "host_key_untrusted",
         AppError::ChannelClosed => "channel_closed",

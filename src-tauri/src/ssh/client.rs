@@ -56,6 +56,10 @@ pub struct ConnectOutcome {
     /// True when the shell is running inside a tmux/screen session (not
     /// when persistence is configured but fell back to a plain shell).
     pub persistent: bool,
+    /// Why persistence fell back to a plain shell (`Unavailable::code`), or
+    /// `None` when it didn't (or wasn't configured). The frontend retries
+    /// a reconnect only for transient reasons (`probe_failed`).
+    pub persist_unavailable: Option<&'static str>,
 }
 
 pub struct ClientHandler {
@@ -412,22 +416,7 @@ async fn connect_impl(
         .lock()
         .expect("server_disconnect poisoned")
         .take();
-    match (auth_result, handle.is_closed(), refused_by_server) {
-        (Ok(true), false, _) => {}
-        (_, true, Some(msg)) => {
-            return Err(AppError::AuthError(format!(
-                "server closed the connection: {msg}"
-            )));
-        }
-        (_, true, None) => {
-            return Err(AppError::Ssh(
-                "connection lost during authentication".into(),
-            ));
-        }
-        (Ok(_), false, _) => return Err(AppError::AuthFailed),
-        (Err(AppError::Ssh(msg)), false, _) => return Err(AppError::AuthError(msg)),
-        (Err(e), false, _) => return Err(e),
-    }
+    classify_auth(auth_result, handle.is_closed(), refused_by_server)?;
     {
         let host = &session.host;
         let user = &session.username;
@@ -521,7 +510,10 @@ async fn connect_impl(
     let mut x11_guard = None;
     if let Some(display) = x11_display {
         deps.xserver.acquire(display).await?;
-        x11_guard = Some(XServerRefGuard::new(deps.xserver.clone(), display));
+        let xserver_for_guard = deps.xserver.clone();
+        x11_guard = Some(XServerRefGuard::new(move || {
+            tauri::async_runtime::spawn(async move { xserver_for_guard.release(display).await });
+        }));
         let cookie = xserver::generate_cookie();
         channel
             .request_x11(false, false, "MIT-MAGIC-COOKIE-1", cookie, 0)
@@ -533,6 +525,7 @@ async fn connect_impl(
     // inside whatever the user left running. On create they run once in
     // the new shell inside tmux/screen.
     let mut notice: Option<Vec<u8>> = None;
+    let mut persist_unavailable: Option<&'static str> = None;
     let (persist_target, run_on_connect) = match persist_plan {
         None => {
             channel
@@ -561,6 +554,7 @@ async fn connect_impl(
                 .await
                 .map_err(|e| AppError::Ssh(e.to_string()))?;
             notice = Some(persist::unavailable_notice(target.kind, &why));
+            persist_unavailable = Some(why.code());
             (None, true)
         }
     };
@@ -732,6 +726,7 @@ async fn connect_impl(
         connection_id: id,
         fingerprint_sha256: fp,
         persistent: persist_target.is_some(),
+        persist_unavailable,
     })
 }
 
@@ -1046,6 +1041,118 @@ async fn drive_channel(
     teardown.run().await;
 }
 
+/// Decide what an authentication attempt means for the connect and for
+/// auto-reconnect. Pure so the table is unit-tested.
+///
+/// - auth succeeded on a live transport → go on.
+/// - the server sent DISCONNECT (e.g. "Too many authentication failures")
+///   → `AuthError`, never retried, so we don't keep re-offering
+///   credentials and trip fail2ban / an account lockout.
+/// - the transport is gone with no server DISCONNECT → `AuthLost`. russh
+///   0.65 reports a link that dies mid-login as a plain auth *failure* (its
+///   reply channel closes), so without this it would read as a wrong
+///   password. The frontend retries `auth_lost` once, then stops: if the
+///   server's DISCONNECT went unrecorded (russh skips the `disconnected`
+///   callback when the socket shutdown itself errors), a second identical
+///   outcome must not keep re-offering credentials.
+/// - auth succeeded but the link dropped right after → plain `Ssh`, a
+///   normal retryable drop, not an auth problem.
+/// - transport up and auth said no → `AuthFailed`.
+/// - other errors (agent unreachable / timed out) → `AuthError`.
+fn classify_auth(
+    result: Result<bool>,
+    transport_closed: bool,
+    server_disconnect: Option<String>,
+) -> Result<()> {
+    match (result, transport_closed, server_disconnect) {
+        (Ok(true), false, _) => Ok(()),
+        (Ok(true), true, _) => Err(AppError::Ssh(
+            "connection lost right after authentication".into(),
+        )),
+        (_, true, Some(msg)) => Err(AppError::AuthError(format!(
+            "server closed the connection: {msg}"
+        ))),
+        (_, true, None) => Err(AppError::AuthLost(
+            "connection lost during authentication".into(),
+        )),
+        (Ok(false), false, _) => Err(AppError::AuthFailed),
+        (Err(AppError::Ssh(msg)), false, _) => Err(AppError::AuthError(msg)),
+        (Err(e), false, _) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod classify_auth_tests {
+    use super::classify_auth;
+    use crate::error::AppError;
+
+    fn code(r: crate::error::Result<()>) -> &'static str {
+        match r {
+            Ok(()) => "ok",
+            Err(AppError::AuthFailed) => "auth_failed",
+            Err(AppError::AuthError(_)) => "auth_error",
+            Err(AppError::AuthLost(_)) => "auth_lost",
+            Err(AppError::Ssh(_)) => "ssh",
+            Err(_) => "other",
+        }
+    }
+
+    #[test]
+    fn outcome_table() {
+        // Success.
+        assert_eq!(code(classify_auth(Ok(true), false, None)), "ok");
+        // Link died right after a successful login: ordinary drop.
+        assert_eq!(code(classify_auth(Ok(true), true, None)), "ssh");
+        assert_eq!(
+            code(classify_auth(Ok(true), true, Some("bye".into()))),
+            "ssh"
+        );
+        // Server refused (DISCONNECT recorded): never retried.
+        assert_eq!(
+            code(classify_auth(
+                Ok(false),
+                true,
+                Some("Too many authentication failures".into())
+            )),
+            "auth_error"
+        );
+        assert_eq!(
+            code(classify_auth(
+                Err(AppError::Ssh("x".into())),
+                true,
+                Some("m".into())
+            )),
+            "auth_error"
+        );
+        // Transport gone, no DISCONNECT: lost mid-login (retried once by the UI).
+        assert_eq!(code(classify_auth(Ok(false), true, None)), "auth_lost");
+        assert_eq!(
+            code(classify_auth(Err(AppError::Ssh("x".into())), true, None)),
+            "auth_lost"
+        );
+        // Live transport, server said no: wrong credentials.
+        assert_eq!(code(classify_auth(Ok(false), false, None)), "auth_failed");
+        // Agent problems on a live transport.
+        assert_eq!(
+            code(classify_auth(
+                Err(AppError::Ssh("ssh-agent: x".into())),
+                false,
+                None
+            )),
+            "auth_error"
+        );
+        // Non-Ssh errors pass through.
+        assert_eq!(
+            code(classify_auth(
+                Err(AppError::Validation("v".into())),
+                false,
+                None
+            )),
+            "other"
+        );
+    }
+}
+
 /// How long to wait after CHANNEL_EOF for the exit status before treating
 /// the channel as closed.
 const EOF_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
@@ -1123,32 +1230,72 @@ mod channel_end_tests {
 
 /// Holds an acquired X server display ref during connect and releases it
 /// if connect bails out before the connection's teardown takes ownership.
-/// `release` is async, so the drop path hands it to a spawned task.
+/// The release is a callback (the real one spawns the async `release` on
+/// Tauri's runtime, which is safe from `Drop` even during shutdown), which
+/// also lets the guard be unit-tested.
 struct XServerRefGuard {
-    xserver: Option<Arc<XServerManager>>,
-    display: u8,
+    on_release: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl XServerRefGuard {
-    fn new(xserver: Arc<XServerManager>, display: u8) -> Self {
+    fn new(on_release: impl FnOnce() + Send + 'static) -> Self {
         Self {
-            xserver: Some(xserver),
-            display,
+            on_release: Some(Box::new(on_release)),
         }
     }
 
     /// Ownership of the ref passed to `ConnectionTeardown`.
     fn disarm(mut self) {
-        self.xserver = None;
+        self.on_release = None;
     }
 }
 
 impl Drop for XServerRefGuard {
     fn drop(&mut self) {
-        if let Some(xserver) = self.xserver.take() {
-            let display = self.display;
-            tokio::spawn(async move { xserver.release(display).await });
+        if let Some(release) = self.on_release.take() {
+            release();
         }
+    }
+}
+
+#[cfg(test)]
+mod xserver_guard_tests {
+    use super::XServerRefGuard;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn counted() -> (Arc<AtomicUsize>, XServerRefGuard) {
+        let n = Arc::new(AtomicUsize::new(0));
+        let n2 = n.clone();
+        let g = XServerRefGuard::new(move || {
+            n2.fetch_add(1, Ordering::SeqCst);
+        });
+        (n, g)
+    }
+
+    #[test]
+    fn early_return_releases_once() {
+        let (n, g) = counted();
+        drop(g);
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn disarm_hands_over_without_release() {
+        let (n, g) = counted();
+        g.disarm();
+        assert_eq!(n.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn early_return_through_question_mark_releases() {
+        let (n, g) = counted();
+        fn fails(_g: XServerRefGuard) -> Result<(), ()> {
+            Err(())?;
+            Ok(())
+        }
+        assert!(fails(g).is_err());
+        assert_eq!(n.load(Ordering::SeqCst), 1);
     }
 }
 
