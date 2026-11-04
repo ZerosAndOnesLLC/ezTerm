@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "Local Shell Tabs in ezTerm — cmd, PowerShell & Custom"
 sidebar:
-  order: 4
+  order: 5
 ---
 
 ezTerm can also open **local shells** — a Windows cmd, PowerShell, pwsh, or any absolute path to an executable.

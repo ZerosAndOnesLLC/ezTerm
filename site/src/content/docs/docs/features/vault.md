@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "ezTerm Vault — Encrypted SSH Credential & Key Storage"
 sidebar:
-  order: 7
+  order: 8
 ---
 
 Every secret ezTerm stores — SSH passwords, private keys, key passphrases — lives encrypted in the **vault**. Plaintext only exists in memory while a connection is being made, and is zeroized on drop.

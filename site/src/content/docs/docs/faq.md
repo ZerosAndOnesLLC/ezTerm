@@ -14,6 +14,10 @@ Yes. GPLv3. No paid tier, no nag screen, no "pro" features.
 
 Yes, the binary builds and runs. SSH, SFTP, local shells, and the terminal all work. WSL is Windows-only by nature; X11 forwarding on Linux uses your system X server, and on macOS requires XQuartz.
 
+## Do I lose my work if the connection drops?
+
+Not if you turn on a persistent session. ezTerm runs your shell inside tmux or screen on the server and reconnects automatically, so builds, editors and anything else you had running keep going while you're offline. See [Persistent sessions & auto-reconnect](./features/persistent-sessions/).
+
 ## Why Tauri instead of Electron?
 
 Smaller binary (~20 MB vs ~150 MB), lower memory, and the Rust backend handles all SSH / SFTP / vault / PTY work directly — no Node runtime in the protocol path.

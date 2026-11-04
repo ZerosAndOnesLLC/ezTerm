@@ -10,7 +10,7 @@ import GoogleAnalytics from '../components/GoogleAnalytics.astro';
 const BASE = import.meta.env.BASE_URL;
 const SITE = 'https://ezterm.zerosandones.us';
 const REPO = 'https://github.com/ZerosAndOnesLLC/ezTerm';
-const DESC = 'Free, open-source SSH client — folder-based session manager, SFTP side-pane, WSL tabs, X11 & port forwarding, encrypted vault. Rust-fast on Windows, Linux, macOS.';
+const DESC = 'Free, open-source SSH client that reconnects without losing your work — tmux/screen persistent sessions, auto-reconnect, SFTP side-pane, WSL tabs, X11 & port forwarding, encrypted vault. Rust-fast on Windows, Linux, macOS.';
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -65,6 +65,7 @@ const jsonLd = {
       <span class="name">ezTerm</span>
     </a>
     <ul>
+      <li><a href="#reconnect">Reconnect</a></li>
       <li><a href="#features">Features</a></li>
       <li><a href="#screenshots">Screens</a></li>
       <li><a href={`${BASE}docs/`}>Docs</a></li>
@@ -80,10 +81,10 @@ const jsonLd = {
   <div class="container">
     <span class="badge"><span class="dot"></span> live now · open source forever</span>
     <div class="wordmark">ezTerm</div>
-    <div class="tagline"><span class="accent">&gt;</span> ssh · sftp · wsl · x11 · vault</div>
+    <div class="tagline"><span class="accent">&gt;</span> ssh · sftp · tmux · wsl · x11 · vault</div>
     <h1>The free, open-source SSH client <span class="grad">built for the next decade.</span></h1>
     <p class="lede">
-      Folder-based session manager. Rust-native protocol stack. Encrypted vault by default. One binary on Windows, Linux, and macOS — and zero compromises.
+      Folder-based session manager. Rust-native protocol stack. Encrypted vault by default. Sessions that survive a dropped connection. One binary on Windows, Linux, and macOS — and zero compromises.
     </p>
     <div class="cta-row">
       <a class="btn btn-primary" href={`${REPO}/releases`}>Get ezTerm →</a>
@@ -108,6 +109,7 @@ const jsonLd = {
             <div class="typed-line"><span class="ok">[ok]</span>    authenticated via private key (ed25519)</div>
             <div class="typed-line"><span class="info">[info]</span>  shell channel open · 200 cols × 50 rows</div>
             <div class="typed-line"><span class="info">[info]</span>  sftp subsystem ready · /home/you</div>
+            <div class="typed-line"><span class="ok">[ok]</span>    reattached to tmux session · right where you left off</div>
             <div class="typed-line"><span class="user">you@your-server</span>:<span class="path">~</span>$ <span class="caret"></span></div>
           </div>
         </div>
@@ -115,6 +117,65 @@ const jsonLd = {
     </div>
   </div>
 </header>
+
+<section id="reconnect" class="persist">
+  <div class="container">
+    <span class="eyebrow">// never lose your place</span>
+    <h2>Drop the connection. <span class="grad">Keep everything.</span></h2>
+    <p class="section-lede">
+      Wi-Fi drops. The laptop sleeps. The VPN flaps. With most SSH clients that kills your build, your editor and your <code class="inline">tail -f</code>.
+      ezTerm runs your shell inside tmux or screen on the server and reconnects on its own. You come back to exactly what you left.
+    </p>
+
+    <div class="persist-grid">
+      <div class="term-frame persist-term" aria-label="Animation: a long-running build survives a dropped connection and continues after ezTerm reconnects" role="img">
+        <div class="term-inner">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="tab"><span class="indicator"></span>you@build-box</span>
+            <span class="right">tmux</span>
+          </div>
+          <div class="term-body" aria-hidden="true">
+            <div class="p-line"><span class="user">you@build-box</span>:<span class="path">~/app</span>$ cargo build --release</div>
+            <div class="p-line"><span class="ok">   Compiling</span> tokio v1.48.0</div>
+            <div class="p-line"><span class="ok">   Compiling</span> russh v0.65.1</div>
+            <div class="p-line lost"><span class="warn">[link down]</span> wi-fi dropped · laptop closed</div>
+            <div class="p-line"><span class="info">[info]</span>  reconnecting · attempt 3 of 20 · next try in 4s</div>
+            <div class="p-line"><span class="ok">[ok]</span>    connected · reattached to your tmux session</div>
+            <div class="p-line"><span class="ok">   Compiling</span> ezterm v1.14.0</div>
+            <div class="p-line"><span class="ok">    Finished</span> `release` profile [optimized] in 2m 41s</div>
+            <div class="p-line"><span class="user">you@build-box</span>:<span class="path">~/app</span>$ <span class="caret p-caret"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="persist-points">
+        <li>
+          <span class="pt-num">01</span>
+          <div>
+            <h3>Your work keeps running</h3>
+            <p>Builds, deploys, editors and long queries live in a tmux or screen session on the server. A dead link, a closed lid or a closed tab just detaches — nothing is killed.</p>
+          </div>
+        </li>
+        <li>
+          <span class="pt-num">02</span>
+          <div>
+            <h3>It reconnects for you</h3>
+            <p>When the connection drops, ezTerm retries with backoff and reattaches the moment the network is back. Host-key prompts and bad passwords still stop it cold — it never trusts or retries blindly.</p>
+          </div>
+        </li>
+        <li>
+          <span class="pt-num">03</span>
+          <div>
+            <h3>One switch per session</h3>
+            <p>Pick <strong>tmux</strong> or <strong>screen</strong> in the session's settings. Every tab gets its own remote session, reopening a tab picks its one back up, and hosts without the tool get a normal shell.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+    <p class="persist-more"><a href={`${BASE}docs/features/persistent-sessions/`}>How persistent sessions work →</a></p>
+  </div>
+</section>
 
 <section id="features">
   <div class="container">
@@ -172,7 +233,25 @@ const jsonLd = {
         <span class="tag">familiar layout</span>
       </div>
       <div class="feat">
-        <div class="num">09 / OSS</div>
+        <div class="num">09 / PERSIST</div>
+        <h3>Sessions that survive</h3>
+        <p>tmux or screen on the server, auto-reconnect on your side. Lose the link, keep the shell, the job and its output — then pick up where you left off.</p>
+        <span class="tag">tmux · screen · auto-reconnect</span>
+      </div>
+      <div class="feat">
+        <div class="num">10 / THEMES</div>
+        <h3>17 terminal palettes</h3>
+        <p>Solarized, Dracula, Gruvbox, Nord, One Dark, Campbell and more — dark and light. Switch in Settings and every open tab repaints live.</p>
+        <span class="tag">live preview</span>
+      </div>
+      <div class="feat">
+        <div class="num">11 / UPDATE</div>
+        <h3>Signed auto-updates</h3>
+        <p>ezTerm checks for new releases and installs them in place. Every update is minisign-signed and verified before it runs.</p>
+        <span class="tag">minisign</span>
+      </div>
+      <div class="feat">
+        <div class="num">12 / OSS</div>
         <h3>Free, forever, GPLv3</h3>
         <p>Open source. Fork it, ship it, sell it (under GPL). Issues + PRs welcome on GitHub. No telemetry, no calls home.</p>
         <span class="tag">gpl-v3</span>
@@ -529,6 +608,7 @@ const jsonLd = {
     .typed-line:nth-child(7) { animation-delay: 2.90s; }
     .typed-line:nth-child(8) { animation-delay: 3.35s; }
     .typed-line:nth-child(9) { animation-delay: 3.80s; }
+    .typed-line:nth-child(10) { animation-delay: 4.25s; }
     @keyframes typeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
     .caret {
       display: inline-block;
@@ -536,7 +616,7 @@ const jsonLd = {
       background: var(--green);
       vertical-align: -2px;
       opacity: 0;
-      animation: fadeInCaret 0.2s ease 4.0s forwards, blink 1.1s steps(1) 4.0s infinite;
+      animation: fadeInCaret 0.2s ease 4.45s forwards, blink 1.1s steps(1) 4.45s infinite;
     }
     @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0.2; } }
     @keyframes fadeInCaret { to { opacity: 1; } }
@@ -641,6 +721,58 @@ const jsonLd = {
     color: var(--cyan);
   }
 
+  /* Persistent-sessions spotlight */
+  .persist-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 40px;
+    align-items: center;
+  }
+  @media (max-width: 900px) { .persist-grid { grid-template-columns: 1fr; } }
+  .persist-term .term-body { min-height: 0; font-size: 13px; }
+  @media (max-width: 600px) { .persist-term .term-body { font-size: 11px; padding: 18px 16px 22px; } }
+  .term-body .warn { color: #fbbf24; }
+  .persist-points { list-style: none; display: grid; gap: 26px; }
+  .persist-points li { display: flex; gap: 18px; align-items: flex-start; }
+  .persist-points .pt-num {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    padding: 4px 8px;
+    border: 1px solid rgba(74,222,128,0.35);
+    border-radius: 6px;
+    margin-top: 2px;
+  }
+  .persist-points h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .persist-points p { color: var(--fg-2); font-size: 15px; line-height: 1.6; }
+  .persist-points strong { color: var(--fg); font-weight: 600; }
+  .persist-more { margin-top: 36px; font-family: var(--mono); font-size: 14px; }
+  .persist-more a { color: var(--cyan); }
+  .persist-more a:hover { color: var(--green); }
+
+  /* Plays once when scrolled into view: lines appear, the link drops
+     (that line dims), ezTerm reconnects and the build carries on. The
+     inline script below adds .armed (hide lines) then .play (run). With
+     no JS or reduced motion, every line is simply visible. */
+  @media (prefers-reduced-motion: no-preference) {
+    .persist-term.armed .p-line { opacity: 0; }
+    .persist-term.armed .p-caret { opacity: 0; animation: none; }
+    .persist-term.play .p-line { animation: typeIn 0.45s ease forwards; }
+    .persist-term.play .p-line.lost { animation: typeIn 0.45s ease forwards, pDim 0.6s ease 1.2s forwards; }
+    .persist-term.play .p-line:nth-child(1) { animation-delay: 0.1s; }
+    .persist-term.play .p-line:nth-child(2) { animation-delay: 0.7s; }
+    .persist-term.play .p-line:nth-child(3) { animation-delay: 1.3s; }
+    .persist-term.play .p-line:nth-child(4) { animation-delay: 2.3s, 3.5s; }
+    .persist-term.play .p-line:nth-child(5) { animation-delay: 3.5s; }
+    .persist-term.play .p-line:nth-child(6) { animation-delay: 5.0s; }
+    .persist-term.play .p-line:nth-child(7) { animation-delay: 5.8s; }
+    .persist-term.play .p-line:nth-child(8) { animation-delay: 6.6s; }
+    .persist-term.play .p-line:nth-child(9) { animation-delay: 7.2s; }
+    .persist-term.play .p-caret { animation: fadeInCaret 0.2s ease 7.4s forwards, blink 1.1s steps(1) 7.4s infinite; }
+    @keyframes pDim { from { opacity: 1; } to { opacity: 0.5; } }
+  }
+
   .ss-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -733,6 +865,20 @@ const jsonLd = {
   footer a:hover { color: var(--cyan); }
   footer .links { display: flex; gap: 26px; }
 </style>
+
+<script is:inline>
+  // Start the reconnect demo when it scrolls into view (see .persist-term CSS).
+  (function () {
+    var el = document.querySelector('.persist-term');
+    if (!el || !('IntersectionObserver' in window)) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.classList.add('armed');
+    var io = new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting) { el.classList.add('play'); io.disconnect(); }
+    }, { threshold: 0.4 });
+    io.observe(el);
+  })();
+</script>
 
   </body>
 </html>

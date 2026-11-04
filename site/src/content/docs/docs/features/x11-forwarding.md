@@ -5,7 +5,7 @@ head:
   - tag: title
     content: "X11 Forwarding in ezTerm — Remote Linux GUI Apps on Windows"
 sidebar:
-  order: 5
+  order: 6
 ---
 
 ezTerm bundles [VcXsrv](https://sourceforge.net/projects/vcxsrv/) on Windows so X11 forwarding works with no extra install. Remote GUI apps (`xeyes`, `gedit`, JetBrains IDEs, etc.) appear as native Windows windows on your desktop.
