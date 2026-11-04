@@ -1,7 +1,9 @@
 name: release
 
-# Publish a GitHub release (`gh release create v1.14.0 --generate-notes`)
-# to kick off a build, or re-run one from the Actions tab with its tag.
+# Create a GitHub release as a pre-release (`gh release create vX.Y.Z
+# --prerelease …`, see docs/RELEASING.md) to kick off a build — a
+# pre-release counts as published — then promote it to latest after
+# testing. Or re-run one from the Actions tab with its tag.
 # The release (and its tag) must already exist; this workflow uploads
 # into it rather than creating one. Builds portable tar.xz
 # archives for every target plus MSI + NSIS (Windows) and AppImage +
