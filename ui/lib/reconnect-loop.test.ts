@@ -122,6 +122,21 @@ describe('ReconnectLoop', () => {
     expect(t.calls).toEqual([1, 1]);
   });
 
+  it('start(n) continues the count so a flapping link still gives up', async () => {
+    const t = setup([], 5);
+    t.loop.start(4);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(t.calls).toEqual([4, 5]);
+    expect(t.gaveUp()).toBe(1);
+  });
+
+  it('start(n) past the limit gives up straight away', () => {
+    const t = setup([], 3);
+    t.loop.start(4);
+    expect(t.calls).toEqual([]);
+    expect(t.gaveUp()).toBe(1);
+  });
+
   it('a cancelled outcome leaves state alone', async () => {
     const t = setup(['cancelled']);
     t.loop.start();

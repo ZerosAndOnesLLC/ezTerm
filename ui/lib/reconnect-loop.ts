@@ -36,10 +36,12 @@ export class ReconnectLoop {
     };
   }
 
-  /** Begin (or restart) the loop at attempt 1. */
-  start(): void {
+  /** Begin (or restart) the loop. `fromAttempt` > 1 continues a count
+   *  instead of starting over — used when the link drops again right after
+   *  a reconnect, so a flapping link still runs out of attempts. */
+  start(fromAttempt = 1): void {
     this.cancel();
-    this.schedule(1, this.gen);
+    this.schedule(Math.max(1, Math.floor(fromAttempt)), this.gen);
   }
 
   /** Fire the pending attempt immediately. No-op if none is waiting. */

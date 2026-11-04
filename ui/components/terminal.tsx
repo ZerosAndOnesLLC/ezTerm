@@ -20,7 +20,10 @@ import { getSetting, useSettings } from '@/lib/settings';
 import { buildXtermTheme, getPalette } from '@/lib/palettes';
 import { ConfirmDialog } from './confirm-dialog';
 import { ReconnectCard } from './reconnect-card';
-import { MAX_RECONNECT_ATTEMPTS, isRetryableConnectError } from '@/lib/reconnect';
+import {
+  MAX_RECONNECT_ATTEMPTS, authLostShouldStop, flapResumeAttempt, isRetryableConnectError,
+  shouldRetryReattach,
+} from '@/lib/reconnect';
 import { ReconnectLoop } from '@/lib/reconnect-loop';
 
 /** How a connect attempt ended — drives the auto-reconnect loop.
@@ -149,6 +152,16 @@ export function TerminalView({ tab, visible }: Props) {
   const connectSeqRef = useRef(0);
   /** Last transient failure during auto-reconnect, shown on give-up. */
   const lastReconnectErrorRef = useRef<string | null>(null);
+  /** The last connection really ran inside tmux/screen. An auto-reconnect
+   *  that comes back *without* it (probe timed out on a loaded server) is
+   *  not "back where you were", so it is retried instead of accepted. */
+  const wasPersistentRef = useRef(false);
+  /** When the last auto-reconnect succeeded and on which attempt. A link
+   *  that drops again soon after continues that count rather than
+   *  restarting at 1, so a flapping link still runs out of attempts. */
+  const lastReconnectOkRef = useRef<{ at: number; attempt: number } | null>(null);
+  /** Consecutive `auth_lost` outcomes (see authLostShouldStop). */
+  const authLostStreakRef = useRef(0);
   // Live font state for this tab. Starts from the session row; the
   // context-menu picker and Ctrl+wheel mutate these without rewriting
   // the DB (unless the user explicitly saves via the picker). A ref
@@ -192,8 +205,15 @@ export function TerminalView({ tab, visible }: Props) {
     c.onData?.dispose();
     c.unlisten?.();
     if (connectionIdRef.current === c.id) connectionIdRef.current = null;
+    // Clear the store's id too, so the SFTP / forwards panes stop calling
+    // a dead connection and re-open on the next one. Every caller sets the
+    // tab status in the same synchronous stack right after this, and React
+    // batches store updates from one task into a single render, so this
+    // costs no extra render pass.
+    const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+    if (cur?.connectionId === c.id) setConn(tab.tabId, null);
     if (opts.disconnect) c.disconnect(c.id).catch(() => {});
-  }, []);
+  }, [tab.tabId, setConn]);
 
   /** Stop any pending auto-reconnect. Every manual connect path (Reconnect
    *  button, host-key trust, auth fix, X server dialog) goes through
@@ -201,10 +221,10 @@ export function TerminalView({ tab, visible }: Props) {
    *  over a timer. */
   /** Reconnect attempt / give-up handlers, refreshed by a layout effect
    *  below; the loop is created once and calls through these. */
-  const attemptRef = useRef<() => Promise<ConnectOutcome>>(async () => 'cancelled');
+  const attemptRef = useRef<(attempt: number) => Promise<ConnectOutcome>>(async () => 'cancelled');
   const giveUpRef = useRef<() => void>(() => {});
   const [loop] = useState(() => new ReconnectLoop({
-    attempt: () => attemptRef.current(),
+    attempt: (n) => attemptRef.current(n),
     onState: setReconnect,
     onGiveUp: () => giveUpRef.current(),
   }));
@@ -258,7 +278,7 @@ export function TerminalView({ tab, visible }: Props) {
       // can never emit into a listener that doesn't exist yet. It buffers
       // until arm() below, once keystroke replies can flow back.
       const output = createOutputChannel((bytes) => bundle.terminal.write(bytes));
-      let result: { connection_id: number; persistent?: boolean };
+      let result: { connection_id: number; persistent?: boolean; persist_unavailable?: string | null };
       try {
         result = isLocal
           ? await api.localConnect(tab.session.id, cols, rows, output.channel)
@@ -301,6 +321,16 @@ export function TerminalView({ tab, visible }: Props) {
           setAuthFix(true);
           return 'fatal';
         }
+        if (code === 'auth_lost') {
+          authLostStreakRef.current += 1;
+          if (authLostShouldStop(authLostStreakRef.current)) {
+            authLostStreakRef.current = 0;
+            fail('The connection kept dropping during login, so ezTerm stopped retrying to avoid locking your account. Reconnect when the network is stable.');
+            return 'fatal';
+          }
+          return softFail(errMessage(e));
+        }
+        authLostStreakRef.current = 0;
         if (!isRetryableConnectError(code)) {
           fail(errMessage(e));
           return 'fatal';
@@ -313,6 +343,24 @@ export function TerminalView({ tab, visible }: Props) {
         return 'cancelled';
       }
       const cid = result.connection_id;
+      const wantPersistent = useTabs.getState().tabs
+        .find((t) => t.tabId === tab.tabId)?.session.persistent_shell !== 'off';
+      authLostStreakRef.current = 0;
+      if (shouldRetryReattach({
+        auto,
+        wasPersistent: wasPersistentRef.current,
+        wantPersistent,
+        persistent: result.persistent === true,
+        reason: result.persist_unavailable,
+      })) {
+        // Connected, but the remote session couldn't be reattached because
+        // the probe failed transiently (timed out on a loaded server). Drop
+        // this plain shell and try again rather than strand the user's
+        // tmux/screen session. Permanent reasons keep the plain shell.
+        output.detach();
+        await term.disconnect(cid).catch(() => {});
+        return softFail('reconnected, but could not reattach to the remote session');
+      }
       const conn: LiveConnection = {
         id: cid, output, stopWatchdog: null, onData: null, unlisten: null, disconnect: term.disconnect,
       };
@@ -321,6 +369,9 @@ export function TerminalView({ tab, visible }: Props) {
       connectionIdRef.current = cid;
       setConn(tab.tabId, cid);
       setPersistentLive(result.persistent === true);
+      wasPersistentRef.current = result.persistent === true;
+      // A manual connect starts a fresh outage count for the flap check.
+      if (!auto) lastReconnectOkRef.current = null;
       setStatus(tab.tabId, 'connected');
       if (
         getSetting('sessions.autoOpenSftp') &&
@@ -402,7 +453,18 @@ export function TerminalView({ tab, visible }: Props) {
   ]);
 
   useLayoutEffect(() => {
-    attemptRef.current = () => runConnect(false, false, true);
+    attemptRef.current = async (attempt) => {
+      // Re-read the row each attempt: if the user turned auto-reconnect off
+      // mid-loop, stop here instead of finishing the run.
+      const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
+      if (cur?.session.auto_reconnect !== 1) {
+        setStatus(tab.tabId, 'closed', 'connection lost');
+        return 'fatal';
+      }
+      const outcome = await runConnect(false, false, true);
+      if (outcome === 'ok') lastReconnectOkRef.current = { at: Date.now(), attempt };
+      return outcome;
+    };
     giveUpRef.current = () => {
       const last = lastReconnectErrorRef.current;
       setStatus(
@@ -413,9 +475,11 @@ export function TerminalView({ tab, visible }: Props) {
     onLinkLostRef.current = ({ stalled }) => {
       const cur = useTabs.getState().tabs.find((t) => t.tabId === tab.tabId);
       if (cur?.session.auto_reconnect === 1) {
-        lastReconnectErrorRef.current = null;
+        const from = flapResumeAttempt(lastReconnectOkRef.current, Date.now());
+        // Keep the last real error across a flap so a give-up reports it.
+        if (from === 1) lastReconnectErrorRef.current = null;
         setStatus(tab.tabId, 'connecting');
-        loop.start();
+        loop.start(from);
       } else if (stalled) {
         setStatus(tab.tabId, 'error', 'Terminal output stalled — the connection was dropped. Reconnect to continue.');
       } else {
@@ -423,6 +487,15 @@ export function TerminalView({ tab, visible }: Props) {
       }
     };
   }, [runConnect, setStatus, tab.tabId, loop]);
+
+  // Turning auto-reconnect off in the session dialog stops a loop that's
+  // already counting down, instead of waiting for its next attempt.
+  const autoReconnect = tab.session.auto_reconnect;
+  useEffect(() => {
+    if (autoReconnect === 1 || !loop.active) return;
+    cancelReconnect();
+    setStatus(tab.tabId, 'closed', 'connection lost');
+  }, [autoReconnect, loop, cancelReconnect, setStatus, tab.tabId]);
 
   // Re-theme the live xterm instance when the palette setting changes.
   // xterm.js re-renders every cell on a `theme` assignment, so no fit or

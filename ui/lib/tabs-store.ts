@@ -24,7 +24,7 @@ export interface Tab {
   forwardsOpen: boolean;
   cwd:          string;
   /** Per-saved-session slot (1, 2, …) naming this tab's persistent remote
-   *  session `ezterm-<session_id>-<slot>`. Fixed for the tab's life so
+   *  session `ezterm-<install_id>-<session_id>-<slot>`. Fixed for the tab's life so
    *  reconnects reattach to the same tmux/screen session. */
   persistSlot:  number;
 }
@@ -151,7 +151,10 @@ interface TabsState {
 
   open:       (session: Session) => string;
   setStatus:  (tabId: string, status: TabStatus, errorMessage?: string | null) => void;
-  setConnection: (tabId: string, connectionId: number) => void;
+  /** `null` while the tab has no live backend connection (e.g. between a
+   *  dropped link and the reconnect), so panes keyed on it stop using the
+   *  dead id and re-open on the new one. */
+  setConnection: (tabId: string, connectionId: number | null) => void;
   setActive:  (tabId: string | null) => void;
   close:      (tabId: string) => void;
   /** Close, or park in `pendingClose` when the tab is connected and

@@ -129,7 +129,11 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
   const paneWidth = useTabs((s) => s.sftpPaneWidth);
   const columns = useTabs((s) => s.sftpColumns);
   const template = sftpGridTemplate(columns);
-  const [opened, setOpened] = useState(false);
+  // Connection id the SFTP subsystem was opened on. Compared with the
+  // tab's live id, so a reconnect (manual or automatic) re-opens SFTP on
+  // the new connection instead of listing against one that has no SFTP.
+  const [openedOn, setOpenedOn] = useState<number | null>(null);
+  const opened = openedOn !== null && openedOn === tab.connectionId;
   const [dragOver, setDragOver] = useState(false);
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
@@ -163,26 +167,35 @@ export function SftpPane({ tab, isVisible = true }: { tab: Tab; isVisible?: bool
     }
   }, [tab.connectionId, tab.cwd, opened, isVisible]);
 
-  // Open SFTP subsystem once when this pane first becomes visible on a
-  // connected tab. `opened` gates the subsequent list call so we don't fire
-  // before the subsystem hand-shake completes.
+  // Open the SFTP subsystem when the pane is shown on a connected tab, and
+  // again whenever the tab's connection changes (reconnect). `opened` gates
+  // the list call so we don't fire before the subsystem hand-shake
+  // completes. Only the first open jumps to the remote home; a reopen
+  // keeps the directory the user was in.
   useEffect(() => {
-    if (tab.connectionId == null || !tab.sftpOpen || opened) return;
+    const cid = tab.connectionId;
+    // Hidden panes (other tabs) wait until shown, so a reconnect of many
+    // background tabs doesn't open an SFTP channel on each one at once.
+    if (cid == null || !tab.sftpOpen || opened || !isVisible) return;
+    const firstOpen = openedOn === null;
     let cancelled = false;
     (async () => {
       try {
-        await api.sftpOpen(tab.connectionId!);
+        await api.sftpOpen(cid);
         if (cancelled) return;
-        const home = await api.sftpRealpath(tab.connectionId!, '.').catch(() => '/');
-        if (cancelled) return;
-        setCwd(tab.tabId, home || '/');
-        setOpened(true);
+        if (firstOpen) {
+          const home = await api.sftpRealpath(cid, '.').catch(() => '/');
+          if (cancelled) return;
+          setCwd(tab.tabId, home || '/');
+        }
+        setError(null);
+        setOpenedOn(cid);
       } catch (e) {
         if (!cancelled) setError(errMessage(e));
       }
     })();
     return () => { cancelled = true; };
-  }, [tab.connectionId, tab.sftpOpen, tab.tabId, opened, setCwd]);
+  }, [tab.connectionId, tab.sftpOpen, tab.tabId, opened, openedOn, isVisible, setCwd]);
 
   // Reload on cwd change (post-open).
   useEffect(() => { refresh(); }, [refresh]);

@@ -285,6 +285,9 @@ export interface ConnectResult {
   /** SSH only: the shell is running inside a tmux/screen session (false
    *  when persistence is configured but fell back to a plain shell). */
   persistent?: boolean;
+  /** Why persistence fell back to a plain shell: 'missing' |
+   *  'no_posix_shell' | 'channel_refused' | 'tool_error' | 'probe_failed'. */
+  persist_unavailable?: string | null;
 }
 
 export interface KnownHost {
