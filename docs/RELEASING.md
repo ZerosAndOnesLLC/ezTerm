@@ -25,23 +25,42 @@ installer — copy the binary wherever you want and run it.
 
 ## Cut a release
 
-1. **Bump the version** in `Cargo.toml` (workspace.package.version).
-   Commit. Push (via PR). Optionally add hand-written notes at
-   `docs/release-notes/v0.11.0.md`.
-2. **Create the release**: `gh release create v0.11.0 --generate-notes`.
-   This creates the tag and publishes the release.
-3. Watch the `release` workflow in the Actions tab. All four build jobs
-   run in parallel on GitHub-hosted runners; the final `upload to
-   release` job uploads the archives, installers, `SHA256SUMS` and
-   `latest.json` into the release, and replaces the generated notes with
-   `docs/release-notes/<tag>.md` when that file exists.
-4. When the release workflow succeeds, `site.yml` redeploys the website
-   so `/dl/` serves the new MSI.
+Every release starts as a **pre-release** and is promoted to latest only
+after it has been tested. The in-app updater
+(`releases/latest/download/latest.json`) and the website's `/dl/` MSI both
+follow GitHub's *latest* release, which never includes pre-releases, so a
+pre-release builds and is downloadable from its release page without
+being offered to users.
 
-The release is live as soon as step 2 runs; its assets (and the
-updater's `latest.json`) arrive when the build finishes. To rebuild an
-existing release, run the `release` workflow from the Actions tab with
-its tag (`workflow_dispatch`); assets are replaced with `--clobber`.
+1. **Bump the version** in `Cargo.toml` (workspace), `src-tauri/tauri.conf.json`
+   and `ui/package.json` (`npm version --no-git-tag-version X.Y.Z`); run
+   `cargo check` to refresh `Cargo.lock`. Write
+   `docs/release-notes/vX.Y.Z.md`. Commit as `chore(release): vX.Y.Z` and
+   push to `main`.
+2. **Create it as a pre-release**:
+   ```bash
+   gh release create vX.Y.Z --target main --prerelease \
+     --title "ezTerm vX.Y.Z" --notes-file docs/release-notes/vX.Y.Z.md
+   ```
+   A pre-release still counts as *published*, so the `release` workflow
+   runs: all four build jobs in parallel, then `upload to release` uploads
+   the archives, installers, `SHA256SUMS` and `latest.json` and swaps in
+   the notes file.
+3. **Test** the pre-release builds from its release page.
+4. **Promote** it once it's good:
+   ```bash
+   gh release edit vX.Y.Z --prerelease=false --latest
+   gh workflow run site.yml --ref main   # /dl/ now serves the new MSI
+   ```
+   From this moment the updater offers it. The site redeploy is manual
+   here because `site.yml`'s automatic run fires when the *build* finishes
+   (while the release is still a pre-release), and the `github-pages`
+   environment only accepts deploys from `main`.
+
+If testing finds a problem, fix it on `main` and either rebuild the same
+tag (`release` workflow → *Run workflow* with the tag; assets are
+replaced with `--clobber`) or delete the pre-release and its tag
+(`gh release delete vX.Y.Z --cleanup-tag --yes`) and cut the next patch.
 
 ## Platform caveats
 
