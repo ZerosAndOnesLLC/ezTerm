@@ -33,7 +33,7 @@ export function ViewModeToolbar() {
   return (
     <>
       <div
-        className="ml-auto flex items-stretch border-l border-border"
+        className="ml-auto shrink-0 flex items-stretch border-l border-border"
         role="toolbar"
         aria-label="Window view mode"
       >

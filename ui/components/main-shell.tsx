@@ -226,8 +226,15 @@ export function MainShell({ onLock }: { onLock: () => void }) {
   }, []);
 
   return (
-    <div className="h-full grid grid-rows-[1fr_auto] bg-bg text-fg">
-      <div className="flex min-h-0">
+    // Tracks are minmax(0, …) and the row is min-w-0 so the shell is sized
+    // by the window, never by its content. With the implicit `auto` column
+    // the track's floor was the row's min-content width — every tab's
+    // TAB_MIN_W plus the view toolbar — so a narrow window (e.g. snapped to
+    // half a monitor with many tabs open) laid the shell out wider than the
+    // viewport: the toolbar clipped and xterm fit to the oversized area,
+    // cutting terminal text off on the right.
+    <div className="h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] bg-bg text-fg">
+      <div className="flex min-w-0 min-h-0">
         {collapsed ? (
           <button
             type="button"
