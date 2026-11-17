@@ -81,7 +81,9 @@ on those platforms.
 - **Tab bar** with coloured status dots (pulse on connecting, green on
   connected, red on error), middle-click to close, per-tab SFTP toggle.
   Tabs auto-size down to a readable floor, then the strip scrolls (mouse
-  wheel or edge chevrons) and keeps the active tab in view.
+  wheel or edge chevrons) and keeps the active tab in view. The window
+  always lays out to its own width however many tabs are open, so a
+  narrow or snapped window never clips the toolbar or terminal.
 - **SFTP side-pane** docked on the active SSH or WSL tab — resizable with a
   grab-strip on its right edge (200 – 640 px, persisted), Name and Size
   columns resizable from the header (drag, double-click to reset, arrow
