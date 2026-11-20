@@ -55,6 +55,12 @@ on those platforms.
 - Copy / Paste (`Ctrl+Shift+C` / `Ctrl+Shift+V` / `Shift+Insert`), Select All,
   Clear Scrollback, Find (`Ctrl+Shift+F`) with case-sensitive / regex toggles.
 - **Ctrl + mouse wheel** zoom (8–48 pt, SSH channel resized on every step).
+- **Clickable links** — plain URLs and OSC 8 hyperlinks (Claude Code,
+  `ls --hyperlink`). Left-click shows the link with **Open in browser** /
+  **Copy link**; **Ctrl+click** (**Cmd+click** on macOS) opens it straight
+  away. Right-click keeps
+  the normal Copy / Paste menu. Only `http` / `https` links open, and the
+  backend checks the scheme again before handing it to the OS.
 - **OSC 52 clipboard writes** — programs on the remote end (Claude Code,
   neovim, tmux) can copy to your local clipboard through SSH. Reads are
   refused so a remote host can never pull clipboard contents.

@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
+# Opens terminal links in the user's default browser (`open_url` command).
+tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 

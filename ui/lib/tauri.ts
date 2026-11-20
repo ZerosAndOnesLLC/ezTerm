@@ -182,6 +182,9 @@ export const api = {
   listLocalShells: () => invoke<DetectedShell[]>('list_local_shells'),
   getPlatform:     () => invoke<Platform>('platform'),
   installChannel:  () => invoke<InstallChannel>('install_channel'),
+  /** Open an http(s) link in the default browser. The backend rejects
+   *  every other scheme. */
+  openUrl:         (url: string) => invoke<void>('open_url', { url }),
 
   // Port forwards (persistent)
   forwardList:    (sessionId: number) => invoke<Forward[]>('forward_list', { sessionId }),

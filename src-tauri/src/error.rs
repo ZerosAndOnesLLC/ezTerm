@@ -87,6 +87,10 @@ pub enum AppError {
 
     #[error("updater: {0}")]
     Updater(String),
+
+    /// The OS could not open a (valid) link or file in its default handler.
+    #[error("could not open: {0}")]
+    Opener(String),
 }
 
 impl Serialize for AppError {
@@ -136,6 +140,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::XServerMissing => "xserver_missing",
         AppError::TransferCancelled => "transfer_cancelled",
         AppError::Updater(_) => "updater",
+        AppError::Opener(_) => "opener",
     }
 }
 

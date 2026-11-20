@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { placeMenu } from '@/lib/menu-position';
 
 export interface MenuItem {
   label?: string;
@@ -15,14 +16,31 @@ export function ContextMenu({
   x,
   y,
   items,
+  header,
   onClose,
 }: {
   x: number;
   y: number;
   items: MenuItem[];
+  /** Optional muted line above the items, e.g. the link the menu acts on.
+   *  Long values truncate; the full text is in the tooltip. */
+  header?: string;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+
+  // Keep the menu inside the window: measure it once laid out at the
+  // pointer and flip / clamp before the browser paints, so it never shows
+  // in the wrong place first. Writes the style directly, no re-render.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const { left, top } = placeMenu(x, y, width, height, window.innerWidth, window.innerHeight);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }, [x, y, header, items.length]);
+
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -44,7 +62,16 @@ export function ContextMenu({
       style={{ top: y, left: x }}
       className="fixed z-50 min-w-[200px] rounded-md border border-border bg-surface shadow-menu py-1 text-xs dialog-in"
       role="menu"
+      aria-label={header}
     >
+      {header && (
+        <>
+          <div className="px-3 py-1.5 max-w-[360px] truncate font-mono text-[11px] text-muted" title={header}>
+            {header}
+          </div>
+          <div role="separator" className="my-1 border-t border-border/70" aria-hidden />
+        </>
+      )}
       {items.map((it, i) => it.separator ? (
         <div key={i} role="separator" className="my-1 border-t border-border/70" aria-hidden />
       ) : (
