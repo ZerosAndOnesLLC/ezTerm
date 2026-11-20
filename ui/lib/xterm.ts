@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import type { CursorStyle } from './types';
 import { parseOsc52 } from './osc52';
+import { isWebUrl, linkClickAction } from './links';
 import { buildXtermTheme, getPalette, type PaletteId } from './palettes';
 
 export interface TerminalBundle {
@@ -43,6 +44,11 @@ export interface TerminalOptionsOverride {
   /** Called when an OSC 52 write fails, e.g. no xclip / wl-clipboard on
    *  Linux, so the user learns the copy did not land. */
   onClipboardError?: (error: unknown) => void;
+  /** A link was left-clicked (plain URLs and OSC 8 hyperlinks alike).
+   *  `action` comes from {@link linkClickAction}; right / middle clicks,
+   *  drag-selections and non-http(s) links never reach this. Without it,
+   *  links are inert, never xterm's built-in `confirm()` / `window.open`. */
+  onLinkActivate?: (uri: string, action: 'menu' | 'open', event: MouseEvent) => void;
 }
 
 /** Cross-OS default stack. `ui-monospace` resolves to the OS's native
@@ -78,6 +84,16 @@ export function resolveFontFamily(value: string | undefined | null): string {
  *  style) come from the sessions row; omitted fields fall back to the
  *  MobaXterm-aligned defaults below. */
 export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBundle {
+  // One path for both link kinds. xterm.js activates a link on mouse-up of
+  // ANY button, and with no handler OSC 8 links fall back to a blocking
+  // `confirm()` while plain URLs call `window.open` inside the webview.
+  // `terminal` is assigned before any link can be clicked.
+  const activateLink = (event: MouseEvent, uri: string) => {
+    if (!opts.onLinkActivate || !isWebUrl(uri)) return;
+    const action = linkClickAction(event, terminal.hasSelection());
+    if (action) opts.onLinkActivate(uri, action, event);
+  };
+
   const terminal = new Terminal({
     cursorBlink: opts.cursorBlink ?? true,
     cursorStyle: opts.cursorStyle ?? 'block',
@@ -95,11 +111,17 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
     // `overviewRulerBorder: transparent` below.
     overviewRuler: { width: 6 },
     theme: buildXtermTheme(getPalette(opts.palette)),
+    // OSC 8 hyperlinks (Claude Code, `ls --hyperlink`, gcc diagnostics).
+    linkHandler: {
+      activate: activateLink,
+      allowNonHttpProtocols: false,
+    },
   });
 
   const fit    = new FitAddon();
   const search = new SearchAddon();
-  const links  = new WebLinksAddon();
+  // Plain-text URLs detected in the output.
+  const links  = new WebLinksAddon(activateLink);
 
   terminal.loadAddon(fit);
   terminal.loadAddon(search);

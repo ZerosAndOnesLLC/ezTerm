@@ -38,6 +38,7 @@ async fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(app_state)
@@ -112,6 +113,7 @@ async fn main() {
             commands::local::local_shells_autodetect_seed,
             commands::local::list_local_shells,
             commands::local::platform,
+            commands::links::open_url,
             commands::forwards::forward_list,
             commands::forwards::forward_create,
             commands::forwards::forward_update,

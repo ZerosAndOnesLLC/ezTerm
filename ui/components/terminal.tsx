@@ -9,6 +9,7 @@ import { createTerminal, type TerminalBundle } from '@/lib/xterm';
 import { createOutputChannel, startOutputWatchdog, subscribeSshEvents, type OutputChannel } from '@/lib/ssh';
 import { useTabs, type Tab } from '@/lib/tabs-store';
 import { TerminalContextMenu } from './terminal-context-menu';
+import { ContextMenu } from './context-menu';
 import { FindOverlay } from './find-overlay';
 import { FontPickerPopover } from './font-picker-popover';
 import { HostKeyDialog } from './host-key-dialog';
@@ -57,6 +58,18 @@ function reportClipboardError(e: unknown) {
   if (now - lastClipboardToast < 5000) return;
   lastClipboardToast = now;
   toast.danger('Clipboard write failed', errMessage(e));
+}
+
+/** Open a terminal link in the default browser. The backend re-checks the
+ *  scheme, so only http(s) ever reaches the OS. */
+function openLink(url: string) {
+  api.openUrl(url).catch((e) => toast.danger('Could not open link', errMessage(e)));
+}
+
+function copyLink(url: string) {
+  writeText(url)
+    .then(() => toast.success('Link copied'))
+    .catch(reportClipboardError);
 }
 
 /** True when the error looks like bad auth (wrong user, bad password,
@@ -126,6 +139,8 @@ export function TerminalView({ tab, visible }: Props) {
   const connectionIdRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Open / Copy menu for a left-clicked link (see lib/links.ts). */
+  const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; url: string } | null>(null);
   const [pendingPaste, setPendingPaste] = useState<string | null>(null);
   const [bellFlash, setBellFlash] = useState(false);
   const bellTimer = useRef<number | null>(null);
@@ -536,6 +551,12 @@ export function TerminalView({ tab, visible }: Props) {
         if (mode === 'sound') beep();
         else if (mode === 'visual') flashBell();
       },
+      // Left-click: Open / Copy menu. Ctrl+click: open straight away.
+      // Right / middle clicks never get here, so copy / paste work on links.
+      onLinkActivate: (url, action, event) => {
+        if (action === 'open') openLink(url);
+        else setLinkMenu({ x: event.clientX, y: event.clientY, url });
+      },
     });
     // Copy-on-select (off by default): mirrors PuTTY / MobaXterm. Read
     // per event so the Settings switch applies without a reopen.
@@ -927,6 +948,17 @@ export function TerminalView({ tab, visible }: Props) {
               : undefined
           }
           onClose={() => setMenu(null)}
+        />
+      )}
+      {linkMenu && (
+        <ContextMenu
+          x={linkMenu.x} y={linkMenu.y}
+          header={linkMenu.url}
+          items={[
+            { label: 'Open in browser', shortcut: 'Ctrl+Click', onClick: () => openLink(linkMenu.url) },
+            { label: 'Copy link', onClick: () => copyLink(linkMenu.url) },
+          ]}
+          onClose={() => setLinkMenu(null)}
         />
       )}
       {confirmEndRemote && (
