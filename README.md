@@ -57,7 +57,8 @@ on those platforms.
 - **Ctrl + mouse wheel** zoom (8–48 pt, SSH channel resized on every step).
 - **Clickable links** — plain URLs and OSC 8 hyperlinks (Claude Code,
   `ls --hyperlink`). Left-click shows the link with **Open in browser** /
-  **Copy link**; **Ctrl+click** opens it straight away. Right-click keeps
+  **Copy link**; **Ctrl+click** (**Cmd+click** on macOS) opens it straight
+  away. Right-click keeps
   the normal Copy / Paste menu. Only `http` / `https` links open, and the
   backend checks the scheme again before handing it to the OS.
 - **OSC 52 clipboard writes** — programs on the remote end (Claude Code,

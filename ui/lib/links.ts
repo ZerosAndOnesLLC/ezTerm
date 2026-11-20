@@ -18,14 +18,29 @@ export interface LinkClickEvent {
  *  - Only the primary (left) button counts. Right-click must keep reaching
  *    the terminal's Copy / Paste menu, and middle-click its paste.
  *  - A mouse-up that ends a drag-selection is a copy gesture, not a click.
- *  - Shift / Alt / Meta clicks belong to selection (extend, column select).
- *  - Ctrl+click opens straight away, like VS Code and Windows Terminal;
- *    a plain click offers a menu so a stray click never launches a browser. */
-export function linkClickAction(e: LinkClickEvent, hasSelection: boolean): LinkClickAction {
+ *  - Shift / Alt clicks belong to selection (extend, column select).
+ *  - The platform's "open link" modifier opens straight away, like VS Code
+ *    and Windows Terminal: Cmd on macOS, Ctrl elsewhere. A plain click
+ *    offers a menu so a stray click never launches a browser.
+ *  - On macOS, Ctrl+click is the system secondary click and already raises
+ *    the context menu, so it must not also act on the link. */
+export function linkClickAction(
+  e: LinkClickEvent,
+  hasSelection: boolean,
+  isMac: boolean,
+): LinkClickAction {
   if (e.button !== 0) return null;
   if (hasSelection) return null;
-  if (e.shiftKey || e.altKey || e.metaKey) return null;
-  return e.ctrlKey ? 'open' : 'menu';
+  if (e.shiftKey || e.altKey) return null;
+  const openKey = isMac ? e.metaKey : e.ctrlKey;
+  const otherKey = isMac ? e.ctrlKey : e.metaKey;
+  if (otherKey) return null;
+  return openKey ? 'open' : 'menu';
+}
+
+/** Label for the "open directly" gesture, for menus and tooltips. */
+export function openLinkShortcut(isMac: boolean): string {
+  return isMac ? 'Cmd+Click' : 'Ctrl+Click';
 }
 
 /** True for absolute http(s) URLs with a host. Terminal output is untrusted

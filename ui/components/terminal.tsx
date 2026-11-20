@@ -16,7 +16,8 @@ import { HostKeyDialog } from './host-key-dialog';
 import { AuthFixOverlay } from './auth-fix-overlay';
 import { XServerMissingDialog } from './xserver-missing-dialog';
 import { resolveFontFamily } from '@/lib/xterm';
-import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '@/lib/fonts';
+import { MIN_FONT_SIZE, MAX_FONT_SIZE, detectOS } from '@/lib/fonts';
+import { openLinkShortcut } from '@/lib/links';
 import { getSetting, useSettings } from '@/lib/settings';
 import { buildXtermTheme, getPalette } from '@/lib/palettes';
 import { ConfirmDialog } from './confirm-dialog';
@@ -955,7 +956,7 @@ export function TerminalView({ tab, visible }: Props) {
           x={linkMenu.x} y={linkMenu.y}
           header={linkMenu.url}
           items={[
-            { label: 'Open in browser', shortcut: 'Ctrl+Click', onClick: () => openLink(linkMenu.url) },
+            { label: 'Open in browser', shortcut: openLinkShortcut(detectOS() === 'macos'), onClick: () => openLink(linkMenu.url) },
             { label: 'Copy link', onClick: () => copyLink(linkMenu.url) },
           ]}
           onClose={() => setLinkMenu(null)}

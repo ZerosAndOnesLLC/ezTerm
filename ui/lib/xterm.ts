@@ -6,6 +6,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import type { CursorStyle } from './types';
 import { parseOsc52 } from './osc52';
 import { isWebUrl, linkClickAction } from './links';
+import { detectOS } from './fonts';
 import { buildXtermTheme, getPalette, type PaletteId } from './palettes';
 
 export interface TerminalBundle {
@@ -45,7 +46,8 @@ export interface TerminalOptionsOverride {
    *  Linux, so the user learns the copy did not land. */
   onClipboardError?: (error: unknown) => void;
   /** A link was left-clicked (plain URLs and OSC 8 hyperlinks alike).
-   *  `action` comes from {@link linkClickAction}; right / middle clicks,
+   *  `action` comes from {@link linkClickAction} (Cmd+click opens on macOS,
+   *  Ctrl+click elsewhere); right / middle clicks,
    *  drag-selections and non-http(s) links never reach this. Without it,
    *  links are inert, never xterm's built-in `confirm()` / `window.open`. */
   onLinkActivate?: (uri: string, action: 'menu' | 'open', event: MouseEvent) => void;
@@ -90,7 +92,7 @@ export function createTerminal(opts: TerminalOptionsOverride = {}): TerminalBund
   // `terminal` is assigned before any link can be clicked.
   const activateLink = (event: MouseEvent, uri: string) => {
     if (!opts.onLinkActivate || !isWebUrl(uri)) return;
-    const action = linkClickAction(event, terminal.hasSelection());
+    const action = linkClickAction(event, terminal.hasSelection(), detectOS() === 'macos');
     if (action) opts.onLinkActivate(uri, action, event);
   };
 

@@ -37,7 +37,7 @@ pub fn open_url(app: AppHandle, url: String) -> Result<()> {
     let url = validate_web_url(&url)?;
     app.opener()
         .open_url(url.as_str(), None::<&str>)
-        .map_err(|e| AppError::Validation(format!("could not open link: {e}")))
+        .map_err(|e| AppError::Opener(e.to_string()))
 }
 
 #[cfg(test)]
