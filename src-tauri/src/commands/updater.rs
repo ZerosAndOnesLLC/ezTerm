@@ -3,7 +3,26 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::error::{AppError, Result};
+use crate::packaging::{self, InstallChannel};
 use crate::state::AppState;
+
+/// How this copy was installed. The UI hides the self-updater for `store`
+/// installs, where the Microsoft Store delivers updates.
+#[tauri::command]
+pub fn install_channel() -> InstallChannel {
+    packaging::install_channel()
+}
+
+/// Refuse self-update when the Store owns updates. The UI never offers it in
+/// that case; this guards the command boundary as well.
+fn ensure_self_update_allowed() -> Result<()> {
+    if packaging::install_channel().store_managed() {
+        return Err(AppError::Updater(
+            "updates for this install are delivered by the Microsoft Store".into(),
+        ));
+    }
+    Ok(())
+}
 
 /// GitHub repo the updater channels resolve against. Kept in one place so the
 /// stable endpoint and the pre-release API query can't drift apart.
@@ -99,6 +118,7 @@ pub async fn updater_check(
     state: State<'_, AppState>,
     pre_release: bool,
 ) -> Result<Option<UpdateInfo>> {
+    ensure_self_update_allowed()?;
     let endpoint = if pre_release {
         prerelease_manifest_url().await?
     } else {
@@ -144,6 +164,7 @@ pub async fn updater_check(
 /// if no check has run or the last check found nothing.
 #[tauri::command]
 pub async fn updater_download_install(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    ensure_self_update_allowed()?;
     let update = state
         .pending_update
         .lock()

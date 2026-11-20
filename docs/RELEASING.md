@@ -14,8 +14,8 @@ into that release.
 | Linux aarch64 | `ubuntu-24.04-arm` | `aarch64-unknown-linux-gnu` | `ezTerm_<version>_linux-aarch64-portable.tar.xz` |
 | macOS aarch64 | `macos-latest` | `aarch64-apple-darwin` | `ezTerm_<version>_macos-aarch64-portable.tar.xz` |
 
-Every published file follows `ezTerm_<version>_<platform>…`: the Tauri
-bundler's installers (`_x64_en-US.msi`, `_x64-setup.exe`, `_amd64.deb`,
+Every published file follows `ezTerm_<version>_<platform>…`: the Microsoft
+Store package (`_windows-x64.msix`), the Tauri bundler's installers (`_x64_en-US.msi`, `_x64-setup.exe`, `_amd64.deb`,
 `_arm64.deb`, `_amd64.AppImage`, `_aarch64.AppImage`), the macOS updater
 bundle (`_macos-aarch64.app.tar.gz`), and the portable archives above.
 
@@ -67,6 +67,10 @@ being offered to users.
    here because `site.yml`'s automatic run fires when the *build* finishes
    (while the release is still a pre-release), and the `github-pages`
    environment only accepts deploys from `main`.
+
+5. **Submit to the Microsoft Store.** Download
+   `ezTerm_X.Y.Z_windows-x64.msix` from the release and upload it in a new
+   Partner Center submission. See [MICROSOFT_STORE.md](MICROSOFT_STORE.md).
 
 If testing finds a problem, fix it on `main` and either rebuild the same
 tag (`release` workflow → *Run workflow* with the tag; assets are

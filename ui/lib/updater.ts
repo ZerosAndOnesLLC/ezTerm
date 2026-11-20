@@ -1,7 +1,36 @@
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { getSetting, useSettings } from './settings';
+import { api } from './tauri';
+
+/** The install channel can't change while the app runs, so the backend is
+ *  asked once and the answer shared. A failed probe counts as self-updating;
+ *  the backend still refuses self-update for Store installs regardless. */
+let selfUpdatePromise: Promise<boolean> | null = null;
+
+/** True when ezTerm updates itself (GitHub installs). False for Microsoft
+ *  Store installs, where the Store delivers updates. */
+export function selfUpdateEnabled(): Promise<boolean> {
+  selfUpdatePromise ??= api
+    .installChannel()
+    .then((c) => c !== 'store')
+    .catch(() => true);
+  return selfUpdatePromise;
+}
+
+/** React view of {@link selfUpdateEnabled}. Starts `false` so update
+ *  controls never flash in on a Store install before the probe resolves. */
+export function useSelfUpdateEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void selfUpdateEnabled().then((on) => { if (!cancelled) setEnabled(on); });
+    return () => { cancelled = true; };
+  }, []);
+  return enabled;
+}
 
 /** localStorage key for the last-check timestamp (RFC3339 string). State,
  *  not a preference — it stays in localStorage. */
@@ -44,6 +73,7 @@ export async function checkForUpdate(preRelease = getPreReleaseOptIn()): Promise
  *  the settings store is hydrated. */
 export async function maybeAutoCheck(): Promise<UpdateInfo | null> {
   if (!getSetting('updates.checkOnLaunch')) return null;
+  if (!(await selfUpdateEnabled())) return null;
   const intervalMs = getSetting('updates.intervalDays') * 24 * 60 * 60 * 1000;
   const last = localStorage.getItem(LAST_CHECK_KEY);
   if (last) {

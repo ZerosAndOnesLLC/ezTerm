@@ -7,6 +7,7 @@ mod error;
 mod import;
 mod local;
 mod log_redacted;
+mod packaging;
 mod sftp;
 mod ssh;
 mod state;
@@ -130,6 +131,7 @@ async fn main() {
             commands::sync::sync_pull_to_temp,
             commands::updater::updater_check,
             commands::updater::updater_download_install,
+            commands::updater::install_channel,
             commands::splash::ui_ready,
         ])
         .run(tauri::generate_context!())
