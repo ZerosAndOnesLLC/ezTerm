@@ -6,6 +6,7 @@ import {
 import { useSettings, type SettingKey, type Settings } from '@/lib/settings';
 import { useTheme } from '@/lib/theme';
 import { getPalette, PALETTE_IDS, PALETTES, type Palette as TerminalPalette, type PaletteId } from '@/lib/palettes';
+import { useSelfUpdateEnabled } from '@/lib/updater';
 
 type SectionId = 'appearance' | 'terminal' | 'sessions' | 'updates' | 'security';
 
@@ -24,6 +25,10 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Palette }[] = [
  */
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<SectionId>('appearance');
+  // Store installs get updates from the Microsoft Store; the updater's
+  // preferences don't apply there.
+  const selfUpdate = useSelfUpdateEnabled();
+  const sections = selfUpdate ? SECTIONS : SECTIONS.filter((s) => s.id !== 'updates');
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -51,7 +56,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex-1 min-h-0 flex">
           <nav className="w-44 shrink-0 border-r border-border py-2" aria-label="Settings sections">
-            {SECTIONS.map(({ id, label, icon: Icon }) => {
+            {sections.map(({ id, label, icon: Icon }) => {
               const on = section === id;
               return (
                 <button
@@ -73,7 +78,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             {section === 'appearance' && <AppearanceSection />}
             {section === 'terminal'   && <TerminalSection />}
             {section === 'sessions'   && <SessionsSection />}
-            {section === 'updates'    && <UpdatesSection />}
+            {section === 'updates'    && selfUpdate && <UpdatesSection />}
             {section === 'security'   && <SecuritySection />}
           </div>
         </div>

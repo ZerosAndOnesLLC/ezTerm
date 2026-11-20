@@ -6,7 +6,7 @@ import type {
   AppErrorPayload, ConnectResult, KnownHost, SftpEntry, TransferTicket, EnvPair,
   MobaImportPreview, MobaImportResult, MobaDuplicateStrategy, ParsedMobaSession,
   XServerStatus,
-  Platform, DetectedShell,
+  Platform, DetectedShell, InstallChannel,
   Forward, ForwardInput, ForwardSpec, RuntimeForward, ForwardStartTarget,
   BackupSummary, BackupPreview, BackupSelection, RestoreSummary,
   SyncStatus, S3ConfigInput,
@@ -181,6 +181,7 @@ export const api = {
   localShellsAutodetectSeed: () => invoke<number>('local_shells_autodetect_seed'),
   listLocalShells: () => invoke<DetectedShell[]>('list_local_shells'),
   getPlatform:     () => invoke<Platform>('platform'),
+  installChannel:  () => invoke<InstallChannel>('install_channel'),
 
   // Port forwards (persistent)
   forwardList:    (sessionId: number) => invoke<Forward[]>('forward_list', { sessionId }),

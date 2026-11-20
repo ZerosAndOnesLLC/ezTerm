@@ -6,6 +6,7 @@ import { useTheme, type Theme } from '@/lib/theme';
 import { api } from '@/lib/tauri';
 import { useTabs } from '@/lib/tabs-store';
 import { useSettings } from '@/lib/settings';
+import { useSelfUpdateEnabled } from '@/lib/updater';
 import type { XServerStatus } from '@/lib/types';
 
 type StatusBarProps = { onLock: () => void; onOpenUpdater: () => void };
@@ -17,6 +18,7 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
   const tabs     = useTabs((s) => s.tabs);
   const activeId = useTabs((s) => s.activeId);
   const active   = tabs.find((t) => t.tabId === activeId) ?? null;
+  const selfUpdate = useSelfUpdateEnabled();
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
@@ -104,15 +106,17 @@ export function StatusBar({ onLock, onOpenUpdater }: StatusBarProps) {
       >
         <Settings size={12} />
       </button>
-      <button
-        type="button"
-        onClick={onOpenUpdater}
-        aria-label="Check for updates"
-        title="Check for updates"
-        className="icon-btn w-5 h-5"
-      >
-        <Sparkles size={12} />
-      </button>
+      {selfUpdate && (
+        <button
+          type="button"
+          onClick={onOpenUpdater}
+          aria-label="Check for updates"
+          title="Check for updates"
+          className="icon-btn w-5 h-5"
+        >
+          <Sparkles size={12} />
+        </button>
+      )}
       <button
         type="button"
         onClick={onLock}

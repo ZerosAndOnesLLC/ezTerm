@@ -135,7 +135,13 @@ The site auto-deploys on every push to `main` that touches `site/**` or
 
 ## Install
 
-Pre-built binaries live on the
+**Windows:** ezTerm is packaged for the **Microsoft Store** (MSIX). A Store
+install is kept updated by the Store and includes VcXsrv, so the built-in
+updater is turned off there. See
+[docs/MICROSOFT_STORE.md](docs/MICROSOFT_STORE.md) for how the package is
+built and submitted.
+
+Pre-built binaries also live on the
 [Releases](https://github.com/ZerosAndOnesLLC/ezTerm/releases) page — one
 `tar.xz` per platform:
 
@@ -240,7 +246,10 @@ ezTerm/
   `gh release create v<version> --generate-notes`. Publishing the release
   builds the portable archives and installers on GitHub-hosted Windows,
   Linux x64, Linux arm64 and macOS runners and uploads them into that
-  release. See [docs/RELEASING.md](docs/RELEASING.md).
+  release. Windows also produces `ezTerm_<version>_windows-x64.msix`, the
+  unsigned package submitted to the Microsoft Store. See
+  [docs/RELEASING.md](docs/RELEASING.md) and
+  [docs/MICROSOFT_STORE.md](docs/MICROSOFT_STORE.md).
 
 ## Licence
 

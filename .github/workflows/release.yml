@@ -10,6 +10,7 @@ name: release
 # deb (Linux) installers for in-app auto-update via
 # tauri-plugin-updater. Updater installer artifacts are minisign-signed
 # when TAURI_SIGNING_PRIVATE_KEY is available as a repo secret.
+# Windows also produces an unsigned MSIX for Microsoft Store submission.
 on:
   release:
     types: [published]
@@ -292,6 +293,22 @@ jobs:
           fi
           echo "--- installers collected ---"
           ls -la installers/ || true
+
+      # Microsoft Store package. Unsigned on purpose: the Store signs it
+      # during certification. Upload it to Partner Center as a new
+      # submission (see docs/MICROSOFT_STORE.md). The Store build turns off
+      # the self-updater at runtime, so the same ezterm.exe goes in here.
+      - name: Package MSIX for the Microsoft Store (Windows only)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          ./scripts/msix/build-msix.ps1 `
+            -Version $ver `
+            -ExePath "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" `
+            -VcxsrvDir src-tauri/vcxsrv `
+            -OutFile "installers/ezTerm_${ver}_${{ matrix.asset }}.msix"
+
       # The bundler names the macOS updater bundle after the product only
       # (`ezTerm.app.tar.gz`). Give it the same version + platform shape as
       # every other asset; latest.json is generated from the final names.
@@ -353,7 +370,7 @@ jobs:
           set -euo pipefail
           # Only hash the user-facing archives + installers, not the .sig files.
           shopt -s nullglob
-          sha256sum *.tar.xz *.msi *.exe *.AppImage *.deb 2>/dev/null > SHA256SUMS || true
+          sha256sum *.tar.xz *.msi *.msix *.exe *.AppImage *.deb 2>/dev/null > SHA256SUMS || true
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS || true
 
@@ -466,7 +483,7 @@ jobs:
           NOTES_FILE="docs/release-notes/${TAG}.md"
           ASSETS=$(ls artifacts/*.tar.xz artifacts/SHA256SUMS 2>/dev/null)
           # Include installers + their sigs + manifest when present.
-          for f in artifacts/*.msi artifacts/*.msi.sig \
+          for f in artifacts/*.msi artifacts/*.msi.sig artifacts/*.msix \
                    artifacts/*-setup.exe artifacts/*-setup.exe.sig \
                    artifacts/*.AppImage artifacts/*.AppImage.sig \
                    artifacts/*.deb artifacts/*.deb.sig \

@@ -1,7 +1,8 @@
 use tauri::State;
 
 use crate::commands::require_unlocked;
-use crate::error::Result;
+use crate::error::{AppError, Result};
+use crate::packaging;
 use crate::state::AppState;
 use crate::xserver::{self, XServerStatus};
 
@@ -18,6 +19,13 @@ pub async fn xserver_status(state: State<'_, AppState>) -> Result<XServerStatus>
 #[tauri::command]
 pub async fn xserver_install(state: State<'_, AppState>) -> Result<String> {
     require_unlocked(&state).await?;
+    // The Store package always carries VcXsrv, and Store policy bars
+    // downloading and running executables from outside the package.
+    if packaging::install_channel().store_managed() {
+        return Err(AppError::Validation(
+            "VcXsrv ships inside the Microsoft Store package; reinstall ezTerm from the Store to restore it".into(),
+        ));
+    }
     let path = xserver::install_vcxsrv().await?;
     Ok(path.to_string_lossy().into_owned())
 }

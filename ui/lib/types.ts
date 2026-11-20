@@ -98,6 +98,10 @@ export interface XServerStatus {
  *  the UI without pulling in tauri-plugin-os. */
 export type Platform = 'windows' | 'macos' | 'linux' | 'other';
 
+/** How this copy was installed. `store` installs (Microsoft Store MSIX) get
+ *  updates from the Store, so the built-in updater is hidden for them. */
+export type InstallChannel = 'store' | 'direct';
+
 /** A shell the backend found on this host. `display_name` is the
  *  human-readable label (basename on Unix, short id on Windows);
  *  `program` is what gets stored in `Session.host` and handed back to

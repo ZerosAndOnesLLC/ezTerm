@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for the Microsoft Store build of ezTerm.
+  scripts/msix/build-msix.ps1 substitutes {{VERSION}} and packs this with
+  ezterm.exe, the bundled VcXsrv tree, and Assets/. The Identity and
+  PublisherDisplayName values come from Partner Center
+  (App management > App identity) and must match it exactly.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="ZerosandOnesLLC.ezTerm"
+    Publisher="CN=328442C4-A062-419F-AD31-B08785A591C6"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>ezTerm</DisplayName>
+    <PublisherDisplayName>Zeros and Ones LLC</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Free, open-source SSH client with sessions, SFTP, an encrypted credential vault, and X11 forwarding.</Description>
+  </Properties>
+
+  <Dependencies>
+    <!-- Windows 10 1809: the oldest release with the MSIX runtime features
+         a full-trust Win32 app relies on. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="ezTerm" Executable="ezterm.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ezTerm"
+        Description="Free, open-source SSH client"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          ShortName="ezTerm"
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo" />
+            <uap:ShowOn Tile="wide310x150Logo" />
+            <uap:ShowOn Tile="square310x310Logo" />
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- SSH / SFTP to internet and LAN hosts; port forwards listen locally. -->
+    <Capability Name="internetClient" />
+    <Capability Name="privateNetworkClientServer" />
+    <!-- Desktop (Win32) app: launches local shells, WSL, and the bundled
+         VcXsrv X server. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
