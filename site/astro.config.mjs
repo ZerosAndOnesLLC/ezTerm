@@ -11,6 +11,11 @@ const repoRoot = path.resolve(__dirname, '..');
 export default defineConfig({
   site: 'https://ezterm.zerosandones.us',
   trailingSlash: 'ignore',
+  // Starlight < 0.43 forced the `where` strategy; 0.43 defers to Astro's
+  // `attribute` default, which raises scoped-style specificity above the
+  // Tailwind utilities used alongside them. Keep the zero-specificity
+  // behaviour the page styles were written against.
+  scopedStyleStrategy: 'where',
   vite: {
     plugins: [tailwindcss()],
     server: {

@@ -38,7 +38,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "6"
 
 russh = "0.65"
-russh-sftp = "3.0"
+russh-sftp = "4.0"
 # Pipelines the per-symlink stat/readlink round trips in sftp_list.
 futures-util = "0.3"
 sha2 = "0.11"

@@ -1,6 +1,6 @@
 # ezTerm site
 
-Public-facing marketing + docs site for [ezTerm](../README.md). Astro 5 + Starlight.
+Public-facing marketing + docs site for [ezTerm](../README.md). Astro 7 + Starlight.
 
 ## Develop
 
